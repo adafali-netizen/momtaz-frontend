@@ -67,13 +67,13 @@ export default function App() {
           </a>
 
           
-            href={`https://wa.me/212${selectedLead.telephone.substring(1)}?text=Bonjour ${selectedLead.client_nom}, c'est l'équipe Momtaz.ma concernant votre commande ${selectedLead.produit}.`}
-            target="_blank"
-            rel="noreferrer"
-            style={styles.btnWa}
-          >
-            💬 WhatsApp
-          </a>
+href={`https://wa.me/212${selectedLead.telephone.substring(1)}?text=Bonjour ${selectedLead.client_nom}`}
+  target="_blank"
+  rel="noreferrer"
+  style={styles.btnWa}
+>
+  💬 WhatsApp
+</a>
 
           <div style={styles.statutSection}>
             <div style={styles.statutLabel}>Changer le statut :</div>
