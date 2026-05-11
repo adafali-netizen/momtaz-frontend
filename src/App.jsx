@@ -41,7 +41,7 @@ export default function App() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <div style={styles.title}>⚡ Momtaz</div>
+          <div style={styles.title}>Momtaz</div>
           <div style={styles.subtitle}>Command Center</div>
         </div>
         <div style={styles.badge}>{leads.length} leads</div>
@@ -81,7 +81,9 @@ export default function App() {
               </div>
             </div>
           ))}
-          {leadsFiltres.length === 0 && <div style={styles.empty}>Aucun lead pour ce filtre</div>}
+          {leadsFiltres.length === 0 && (
+            <div style={styles.empty}>Aucun lead pour ce filtre</div>
+          )}
         </div>
       )}
     </div>
@@ -89,13 +91,75 @@ export default function App() {
 }
 
 const styles = {
-  container: { minHeight: '100vh', background: '#0F1117', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-  header: { background: '#1A1D27', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #2a2d3a' },
+  container: {
+    minHeight: '100vh',
+    background: '#0F1117',
+    color: '#fff',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  },
+  header: {
+    background: '#1A1D27',
+    padding: '20px 24px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottom: '1px solid #2a2d3a',
+  },
   title: { fontSize: '20px', fontWeight: '800', color: '#00D4AA' },
   subtitle: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
-  badge: { background: '#00D4AA22', color: '#00D4AA', padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: '700' },
-  filtres: { display: 'flex', gap: '8px', padding: '16px 24px', flexWrap: 'wrap', borderBottom: '1px solid #2a2d3a' },
-  filtreBtn: { padding: '6px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' },
-  liste: { padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '12px' },
-  card: { background: '#1A1D27', borderRadius: '14px', padding: '16px', border: '1px solid #2a2d3a' },
-  cardTop
+  badge: {
+    background: '#00D4AA22',
+    color: '#00D4AA',
+    padding: '6px 14px',
+    borderRadius: '20px',
+    fontSize: '13px',
+    fontWeight: '700',
+  },
+  filtres: {
+    display: 'flex',
+    gap: '8px',
+    padding: '16px 24px',
+    flexWrap: 'wrap',
+    borderBottom: '1px solid #2a2d3a',
+  },
+  filtreBtn: {
+    padding: '6px 14px',
+    borderRadius: '20px',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: '600',
+  },
+  liste: {
+    padding: '16px 24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  card: {
+    background: '#1A1D27',
+    borderRadius: '14px',
+    padding: '16px',
+    border: '1px solid #2a2d3a',
+  },
+  cardTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '12px',
+  },
+  clientNom: { fontSize: '16px', fontWeight: '700', color: '#fff' },
+  produit: { fontSize: '13px', color: '#9ca3af', marginTop: '3px' },
+  statutBadge: {
+    padding: '4px 10px',
+    borderRadius: '8px',
+    fontSize: '11px',
+    fontWeight: '700',
+    color: '#fff',
+    whiteSpace: 'nowrap',
+  },
+  cardBottom: { display: 'flex', gap: '16px', flexWrap: 'wrap' },
+  info: { fontSize: '12px', color: '#6b7280' },
+  loading: { textAlign: 'center', padding: '60px', color: '#6b7280' },
+  empty: { textAlign: 'center', padding: '40px', color: '#6b7280' },
+};
