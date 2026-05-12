@@ -50,20 +50,32 @@ export default function App() {
     setCommentaire(lead.commentaire || '');
   }
 
-  async function updateStatut(id, statut) {
-    await supabase.from('leads').update({ statut, updated_at: new Date() }).eq('id', id);
-    setSelectedLead(function(prev) { return prev ? Object.assign({}, prev, { statut: statut }) : null; });
-    fetchLeads();
-  }
+const WEBHOOK_URL = 'https://momtaz-webhook-production.up.railway.app';
 
-  async function saveCommentaire() {
-    if (!selectedLead) return;
-    setSavingComment(true);
-    await supabase.from('leads').update({ commentaire: commentaire, updated_at: new Date() }).eq('id', selectedLead.id);
-    setSavingComment(false);
-    setSelectedLead(function(prev) { return prev ? Object.assign({}, prev, { commentaire: commentaire }) : null; });
-    fetchLeads();
-  }
+async function updateStatut(id, statut) {
+  // Update local state immédiatement
+  setSelectedLead(prev => prev ? { ...prev, statut } : null);
+  // Supabase + Sheets via Railway
+  await fetch(`${WEBHOOK_URL}/api/lead/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statut, commentaire, telephone: selectedLead?.telephone })
+  });
+  fetchLeads();
+}
+
+async function saveCommentaire() {
+  if (!selectedLead) return;
+  setSavingComment(true);
+  await fetch(`${WEBHOOK_URL}/api/lead/${selectedLead.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statut: selectedLead.statut, commentaire, telephone: selectedLead.telephone })
+  });
+  setSavingComment(false);
+  setSelectedLead(prev => prev ? { ...prev, commentaire } : null);
+  fetchLeads();
+}
 
   var leadsFiltres = filtre === 'tous' ? leads : leads.filter(function(l) { return l.statut === filtre; });
   var counts = {};
