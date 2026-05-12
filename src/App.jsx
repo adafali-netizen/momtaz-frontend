@@ -66,14 +66,9 @@ export default function App() {
             📞 Appeler {selectedLead.telephone}
           </a>
 
-      <a    
-href={`https://wa.me/212${selectedLead.telephone.substring(1)}?text=Bonjour ${selectedLead.client_nom}`}
-  target="_blank"
-  rel="noreferrer"
-  style={styles.btnWa}
->
-  💬 WhatsApp
-</a>
+<a href={`https://wa.me/212${selectedLead.telephone.substring(1)}?text=Bonjour ${selectedLead.client_nom}`} target="_blank" rel="noreferrer" style={styles.btnWa}>
+            💬 WhatsApp
+          </a>
 
           <div style={styles.statutSection}>
             <div style={styles.statutLabel}>Changer le statut :</div>
