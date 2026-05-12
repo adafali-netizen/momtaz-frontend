@@ -62,12 +62,12 @@ export default function App() {
             <div style={styles.ficheInfo}>🕐 {new Date(selectedLead.created_at).toLocaleString('fr-FR')}</div>
           </div>
 
-          <a href={`tel:${selectedLead.telephone}`} style={styles.btnAppel}>
+          <a href={'tel:' + selectedLead.telephone} style={styles.btnAppel}>
             📞 Appeler {selectedLead.telephone}
           </a>
 
           
-            href={`https://wa.me/212${selectedLead.telephone.substring(1)}?text=${encodeURIComponent('Bonjour ' + selectedLead.client_nom)}`}
+            href={'https://wa.me/212' + String(selectedLead.telephone).substring(1) + '?text=' + encodeURIComponent('Bonjour ' + selectedLead.client_nom)}
             target="_blank"
             rel="noreferrer"
             style={styles.btnWa}
@@ -84,7 +84,7 @@ export default function App() {
                 style={{
                   ...styles.statutBtn,
                   background: selectedLead.statut === s ? STATUT_COLORS[s] : '#1A1D27',
-                  border: `1px solid ${STATUT_COLORS[s] || '#2a2d3a'}`,
+                  border: '1px solid ' + (STATUT_COLORS[s] || '#2a2d3a'),
                   color: selectedLead.statut === s ? '#fff' : '#aaa',
                 }}
               >
