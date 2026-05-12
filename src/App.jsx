@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 
-const STATUTS = ['À appeler', 'Confirmé', 'Injoignable', 'Demande de rappel', 'Annulé', 'Pas intéressé', 'Numéro faux'];
+const STATUTS = ['A appeler', 'Confirme', 'Injoignable', 'Demande de rappel', 'Annule', 'Pas interesse', 'Numero faux'];
 
 const STATUT_COLORS = {
-  'À appeler':         '#3b82f6',
-  'Confirmé':          '#16a34a',
+  'A appeler':         '#3b82f6',
+  'Confirme':          '#16a34a',
   'Injoignable':       '#f59e0b',
   'Demande de rappel': '#f97316',
-  'Annulé':            '#ef4444',
-  'Pas intéressé':     '#6b7280',
-  'Numéro faux':       '#dc2626',
+  'Annule':            '#ef4444',
+  'Pas interesse':     '#6b7280',
+  'Numero faux':       '#dc2626',
 };
 
 export default function App() {
@@ -47,33 +47,27 @@ export default function App() {
   const leadsFiltres = filtre === 'tous' ? leads : leads.filter(l => l.statut === filtre);
 
   if (selectedLead) {
+    const tel = String(selectedLead.telephone).substring(1);
+    const waUrl = 'https://wa.me/212' + tel + '?text=Bonjour%20' + selectedLead.client_nom;
+    const telUrl = 'tel:' + selectedLead.telephone;
+
     return (
       <div style={styles.container}>
         <div style={styles.ficheHeader}>
-          <button onClick={() => setSelectedLead(null)} style={styles.backBtn}>← Retour</button>
+          <button onClick={() => setSelectedLead(null)} style={styles.backBtn}>Retour</button>
           <div style={styles.ficheTitle}>Fiche Lead</div>
         </div>
         <div style={styles.ficheBody}>
           <div style={styles.ficheCard}>
             <div style={styles.ficheNom}>{selectedLead.client_nom}</div>
-            <div style={styles.ficheProduit}>{selectedLead.produit} — {selectedLead.prix} MAD</div>
-            <div style={styles.ficheInfo}>📍 {selectedLead.ville}</div>
-            <div style={styles.ficheInfo}>📱 {selectedLead.telephone}</div>
-            <div style={styles.ficheInfo}>🕐 {new Date(selectedLead.created_at).toLocaleString('fr-FR')}</div>
+            <div style={styles.ficheProduit}>{selectedLead.produit} - {selectedLead.prix} MAD</div>
+            <div style={styles.ficheInfo}>{selectedLead.ville}</div>
+            <div style={styles.ficheInfo}>{selectedLead.telephone}</div>
           </div>
 
-          <a href={'tel:' + selectedLead.telephone} style={styles.btnAppel}>
-            📞 Appeler {selectedLead.telephone}
-          </a>
+          <a href={telUrl} style={styles.btnAppel}>Appeler {selectedLead.telephone}</a>
 
-          
-            href={'https://wa.me/212' + String(selectedLead.telephone).substring(1) + '?text=' + encodeURIComponent('Bonjour ' + selectedLead.client_nom)}
-            target="_blank"
-            rel="noreferrer"
-            style={styles.btnWa}
-          >
-            💬 WhatsApp
-          </a>
+          <a href={waUrl} target="_blank" rel="noreferrer" style={styles.btnWa}>WhatsApp</a>
 
           <div style={styles.statutSection}>
             <div style={styles.statutLabel}>Changer le statut :</div>
@@ -83,7 +77,7 @@ export default function App() {
                 onClick={() => updateStatut(selectedLead.id, s)}
                 style={{
                   ...styles.statutBtn,
-                  background: selectedLead.statut === s ? STATUT_COLORS[s] : '#1A1D27',
+                  background: selectedLead.statut === s ? (STATUT_COLORS[s] || '#555') : '#1A1D27',
                   border: '1px solid ' + (STATUT_COLORS[s] || '#2a2d3a'),
                   color: selectedLead.statut === s ? '#fff' : '#aaa',
                 }}
@@ -108,7 +102,7 @@ export default function App() {
       </div>
 
       <div style={styles.filtres}>
-        {['tous', 'À appeler', 'Confirmé', 'Injoignable', 'Demande de rappel', 'Annulé'].map(f => (
+        {['tous', 'A appeler', 'Confirme', 'Injoignable', 'Demande de rappel', 'Annule'].map(f => (
           <button key={f} onClick={() => setFiltre(f)} style={{
             ...styles.filtreBtn,
             background: filtre === f ? '#00D4AA' : '#1A1D27',
@@ -128,16 +122,15 @@ export default function App() {
               <div style={styles.cardTop}>
                 <div>
                   <div style={styles.clientNom}>{lead.client_nom}</div>
-                  <div style={styles.produit}>{lead.produit} — {lead.prix} MAD</div>
+                  <div style={styles.produit}>{lead.produit} - {lead.prix} MAD</div>
                 </div>
                 <div style={{ ...styles.statutBadge, background: STATUT_COLORS[lead.statut] || '#6b7280' }}>
                   {lead.statut}
                 </div>
               </div>
               <div style={styles.cardBottom}>
-                <span style={styles.info}>📍 {lead.ville}</span>
-                <span style={styles.info}>📱 {lead.telephone}</span>
-                <span style={styles.info}>🕐 {new Date(lead.created_at).toLocaleString('fr-FR')}</span>
+                <span style={styles.info}>{lead.ville}</span>
+                <span style={styles.info}>{lead.telephone}</span>
               </div>
             </div>
           ))}
@@ -151,7 +144,7 @@ export default function App() {
 }
 
 const styles = {
-  container: { minHeight: '100vh', background: '#0F1117', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
+  container: { minHeight: '100vh', background: '#0F1117', color: '#fff', fontFamily: 'sans-serif' },
   header: { background: '#1A1D27', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #2a2d3a' },
   title: { fontSize: '20px', fontWeight: '800', color: '#00D4AA' },
   subtitle: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
@@ -176,9 +169,5 @@ const styles = {
   ficheNom: { fontSize: '20px', fontWeight: '800', color: '#fff', marginBottom: '6px' },
   ficheProduit: { fontSize: '14px', color: '#00D4AA', marginBottom: '12px' },
   ficheInfo: { fontSize: '13px', color: '#9ca3af', marginBottom: '6px' },
-  btnAppel: { display: 'block', background: 'linear-gradient(135deg, #111827, #374151)', color: '#fff', padding: '16px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '15px', fontWeight: '700' },
-  btnWa: { display: 'block', background: 'linear-gradient(135deg, #16a34a, #15803d)', color: '#fff', padding: '14px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '14px', fontWeight: '700' },
-  statutSection: { background: '#1A1D27', borderRadius: '14px', padding: '16px', border: '1px solid #2a2d3a' },
-  statutLabel: { fontSize: '12px', color: '#6b7280', marginBottom: '12px', fontWeight: '600', textTransform: 'uppercase' },
-  statutBtn: { display: 'block', width: '100%', padding: '12px', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textAlign: 'left' },
-};
+  btnAppel: { display: 'block', background: '#1f2937', color: '#fff', padding: '16px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '15px', fontWeight: '700' },
+  btnWa: { display: 'block', backgrou
