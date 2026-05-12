@@ -2,18 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 
 const STATUTS = [
-  'A appeler', 'Confirme', 'Injoignable',
-  'Demande de rappel', 'Annule', 'Pas interesse', 'Numero faux'
+  'À appeler', 'Confirmé', 'Injoignable',
+  'Demande de rappel', 'Annulé', 'Pas intéressé', 'Numéro faux'
 ];
 
 const STATUT_META = {
-  'A appeler':         { color: '#3b82f6', emoji: '📞' },
-  'Confirme':          { color: '#16a34a', emoji: '✅' },
+  'À appeler':         { color: '#3b82f6', emoji: '📞' },
+  'Confirmé':          { color: '#16a34a', emoji: '✅' },
   'Injoignable':       { color: '#f59e0b', emoji: '📵' },
   'Demande de rappel': { color: '#f97316', emoji: '🔔' },
-  'Annule':            { color: '#ef4444', emoji: '❌' },
-  'Pas interesse':     { color: '#6b7280', emoji: '🚫' },
-  'Numero faux':       { color: '#dc2626', emoji: '⚠️' },
+  'Annulé':            { color: '#ef4444', emoji: '❌' },
+  'Pas intéressé':     { color: '#6b7280', emoji: '🚫' },
+  'Numéro faux':       { color: '#dc2626', emoji: '⚠️' },
 };
 
 const FILTRES = ['tous', 'A appeler', 'Confirme', 'Injoignable', 'Demande de rappel', 'Annule'];
