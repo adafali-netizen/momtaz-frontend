@@ -65,6 +65,8 @@ export default function App() {
           <a href={`tel:${selectedLead.telephone}`} style={styles.btnAppel}>
             📞 Appeler {selectedLead.telephone}
           </a>
+
+          
             href={`https://wa.me/212${selectedLead.telephone.substring(1)}?text=${encodeURIComponent('Bonjour ' + selectedLead.client_nom)}`}
             target="_blank"
             rel="noreferrer"
