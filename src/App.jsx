@@ -170,4 +170,8 @@ const styles = {
   ficheProduit: { fontSize: '14px', color: '#00D4AA', marginBottom: '12px' },
   ficheInfo: { fontSize: '13px', color: '#9ca3af', marginBottom: '6px' },
   btnAppel: { display: 'block', background: '#1f2937', color: '#fff', padding: '16px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '15px', fontWeight: '700' },
-  btnWa: { display: 'block', backgrou
+  btnWa: { display: 'block', background: '#16a34a', color: '#fff', padding: '14px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '14px', fontWeight: '700' },
+  statutSection: { background: '#1A1D27', borderRadius: '14px', padding: '16px', border: '1px solid #2a2d3a' },
+  statutLabel: { fontSize: '12px', color: '#6b7280', marginBottom: '12px', fontWeight: '600', textTransform: 'uppercase' },
+  statutBtn: { display: 'block', width: '100%', padding: '12px', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textAlign: 'left' },
+};
