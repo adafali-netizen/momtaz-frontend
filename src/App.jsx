@@ -16,7 +16,7 @@ const STATUT_META = {
   'Numéro faux':       { color: '#dc2626', emoji: '⚠️' },
 };
 
-const FILTRES = ['tous', 'A appeler', 'Confirme', 'Injoignable', 'Demande de rappel', 'Annule'];
+const FILTRES = ['tous', 'À appeler', 'Confirmé', 'Injoignable', 'Demande de rappel', 'Annulé'];
 
 export default function App() {
   const [leads, setLeads] = useState([]);
