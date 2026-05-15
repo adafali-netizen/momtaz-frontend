@@ -3,7 +3,7 @@ import { supabase } from "./supabaseClient";
 import Login from "./Login";
 import "./App.css";
 
-// ─── CONFIG ───────────────────────────────────────────────────────────────────
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
 
 const STATUTS = [
   'À appeler', 'Confirmé', 'Injoignable',
@@ -11,21 +11,21 @@ const STATUTS = [
 ];
 
 const STATUT_META = {
-  'À appeler':         { color: '#3B82F6', bg: '#3B82F620', emoji: '📋' },
-  'Confirmé':          { color: '#22C55E', bg: '#22C55E20', emoji: '✅' },
-  'Injoignable':       { color: '#F59E0B', bg: '#F59E0B20', emoji: '📵' },
-  'Demande de rappel': { color: '#8B5CF6', bg: '#8B5CF620', emoji: '🔔' },
-  'Annulé':            { color: '#EF4444', bg: '#EF444420', emoji: '❌' },
-  'Pas intéressé':     { color: '#64748B', bg: '#64748B20', emoji: '🚫' },
-  'Numéro faux':       { color: '#EF4444', bg: '#EF444420', emoji: '⚠️' },
+  'À appeler':         { color: '#2563EB', bg: '#EFF6FF', emoji: '📋' },
+  'Confirmé':          { color: '#16A34A', bg: '#F0FDF4', emoji: '✅' },
+  'Injoignable':       { color: '#D97706', bg: '#FFFBEB', emoji: '📵' },
+  'Demande de rappel': { color: '#7C3AED', bg: '#F5F3FF', emoji: '🔔' },
+  'Annulé':            { color: '#DC2626', bg: '#FEF2F2', emoji: '❌' },
+  'Pas intéressé':     { color: '#64748B', bg: '#F8FAFC', emoji: '🚫' },
+  'Numéro faux':       { color: '#DC2626', bg: '#FEF2F2', emoji: '⚠️' },
 };
 
 const FILTRES = ['tous', 'À appeler', 'Confirmé', 'Injoignable', 'Demande de rappel', 'Annulé'];
 
-// ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
+// ─── SUB-COMPONENTS ──────────────────────────────────────────────────────────
 
 function StatusBadge({ statut }) {
-  const m = STATUT_META[statut] || { color: '#94A3C4', bg: '#94A3C420', emoji: '•' };
+  const m = STATUT_META[statut] || { color: '#64748B', bg: '#F8FAFC', emoji: '•' };
   return (
     <span className="status-badge" style={{ color: m.color, background: m.bg }}>
       {m.emoji} {statut}
@@ -36,63 +36,77 @@ function StatusBadge({ statut }) {
 function LeadCard({ lead, selected, onClick }) {
   return (
     <div className={`lead-card${selected ? ' selected' : ''}`} onClick={onClick}>
-      <div className="lead-card-top">
-        <div>
-          <div className="lead-name">{lead.client_nom || 'Sans nom'}</div>
-          <div className="lead-phone">{lead.telephone}</div>
-        </div>
+      <div className="card-main">
+        <div className="lead-name">{lead.client_nom || 'Sans nom'}</div>
+        <div className="lead-phone">{lead.telephone}</div>
+      </div>
+      <div className="card-badge">
         <StatusBadge statut={lead.statut} />
       </div>
-      <div className="lead-card-bottom">
-        {lead.ville && <span className="tag ville">📍 {lead.ville}</span>}
+      <div className="card-tags">
+        {lead.ville   && <span className="tag">📍 {lead.ville}</span>}
         {lead.produit && <span className="tag produit">🛒 {lead.produit}</span>}
-        {lead.source && <span className="tag">🔗 {lead.source}</span>}
+        {lead.source  && <span className="tag">🔗 {lead.source}</span>}
       </div>
     </div>
   );
 }
 
-function DetailPanel({ lead, commentaire, setCommentaire, savingComment, onUpdateStatut, onSaveCommentaire, onClose }) {
-  if (!lead) return null;
+function RightPanel({ lead, commentaire, setCommentaire, savingComment, onUpdateStatut, onSave, onClose }) {
+  if (!lead) return (
+    <aside className="right-panel">
+      <div className="right-panel-empty">
+        <div className="right-panel-empty-icon">👆</div>
+        <div>Sélectionne un lead<br />pour voir sa fiche</div>
+      </div>
+    </aside>
+  );
 
   return (
-    <aside className="detail-panel">
-      <div className="detail-panel-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="detail-panel-title">{lead.client_nom || 'Sans nom'}</div>
-            <div style={{ marginTop: '6px' }}><StatusBadge statut={lead.statut} /></div>
-          </div>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', color: 'var(--muted2)',
-            cursor: 'pointer', fontSize: '20px', padding: '0 4px', lineHeight: 1
-          }}>×</button>
+    <aside className="right-panel">
+
+      {/* Header */}
+      <div className="panel-header">
+        <div className="panel-header-top">
+          <div className="panel-name">{lead.client_nom || 'Sans nom'}</div>
+          <button className="btn-close" onClick={onClose}>×</button>
         </div>
-        <div className="detail-panel-sub">
-          <span className="detail-info-row">📞 <span style={{ fontFamily: 'JetBrains Mono', fontSize: '12px', color: 'var(--cyan)' }}>{lead.telephone}</span></span>
-          {lead.ville && <span className="detail-info-row">📍 {lead.ville}{lead.adresse ? ` — ${lead.adresse}` : ''}</span>}
-          {lead.conseillere && <span className="detail-info-row">👤 {lead.conseillere}</span>}
+        <StatusBadge statut={lead.statut} />
+        <div style={{ marginTop: '8px' }}>
+          <div className="panel-info-row">
+            📞 <span className="panel-phone">{lead.telephone}</span>
+          </div>
+          {lead.ville && (
+            <div className="panel-info-row">
+              📍 {lead.ville}{lead.adresse ? ` — ${lead.adresse}` : ''}
+            </div>
+          )}
+          {lead.conseillere && (
+            <div className="panel-info-row">👤 {lead.conseillere}</div>
+          )}
         </div>
       </div>
 
-      <div className="detail-panel-body">
+      <div className="panel-body">
 
+        {/* Commande */}
         {lead.produit && (
-          <div className="detail-section">
-            <div className="detail-section-label">Commande</div>
-            <div className="product-block">
-              <div className="product-name">{lead.produit}</div>
-              <div className="product-meta">
-                {lead.quantite && <div className="product-meta-item">Qté : <span>{lead.quantite}</span></div>}
-                {lead.prix && <div className="product-meta-item">Prix : <span>{lead.prix} MAD</span></div>}
-                {lead.source && <div className="product-meta-item">Source : <span>{lead.source}</span></div>}
+          <div className="panel-section">
+            <div className="panel-section-label">Commande</div>
+            <div className="product-card">
+              <div className="product-title">{lead.produit}</div>
+              <div className="product-row">
+                {lead.quantite && <span className="product-chip">Qté <strong>{lead.quantite}</strong></span>}
+                {lead.prix     && <span className="product-chip">Prix <strong>{lead.prix} MAD</strong></span>}
+                {lead.source   && <span className="product-chip">via <strong>{lead.source}</strong></span>}
               </div>
             </div>
           </div>
         )}
 
-        <div className="detail-section">
-          <div className="detail-section-label">Changer le statut</div>
+        {/* Statut */}
+        <div className="panel-section">
+          <div className="panel-section-label">Statut</div>
           <div className="status-grid">
             {STATUTS.map(s => {
               const m = STATUT_META[s];
@@ -102,26 +116,26 @@ function DetailPanel({ lead, commentaire, setCommentaire, savingComment, onUpdat
                   key={s}
                   className={`status-btn${isActive ? ' active' : ''}`}
                   onClick={() => onUpdateStatut(lead.id, s)}
-                  style={isActive ? { borderColor: m.color + '80', background: m.bg, color: m.color } : {}}
+                  style={isActive ? { borderColor: m.color + '50', background: m.bg, color: m.color } : {}}
                 >
-                  <span>{m.emoji}</span>
-                  <span>{s}</span>
+                  {m.emoji} {s}
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div className="detail-section">
-          <div className="detail-section-label">Note opérateur</div>
+        {/* Note */}
+        <div className="panel-section">
+          <div className="panel-section-label">Note opérateur</div>
           <textarea
-            className="comment-textarea"
+            className="comment-area"
             value={commentaire}
             onChange={e => setCommentaire(e.target.value)}
-            placeholder="Ajouter une note sur ce lead..."
+            placeholder="Ajouter une note..."
           />
-          <button className="btn-save" onClick={onSaveCommentaire} disabled={savingComment}>
-            {savingComment ? '⏳ Sauvegarde...' : '💾 Sauvegarder la note'}
+          <button className="btn-save" onClick={onSave} disabled={savingComment}>
+            {savingComment ? '⏳ Sauvegarde...' : '💾 Sauvegarder'}
           </button>
         </div>
 
@@ -133,15 +147,17 @@ function DetailPanel({ lead, commentaire, setCommentaire, savingComment, onUpdat
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [session, setSession] = useState(null);
+  const [session, setSession]         = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [leads, setLeads] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filtre, setFiltre] = useState('tous');
+  const [leads, setLeads]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [filtre, setFiltre]           = useState('tous');
+  const [search, setSearch]           = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
   const [commentaire, setCommentaire] = useState('');
   const [savingComment, setSavingComment] = useState(false);
 
+  // ── Auth (inchangé)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -153,6 +169,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── Realtime (inchangé)
   useEffect(() => {
     if (!session) return;
     fetchLeads();
@@ -164,8 +181,9 @@ export default function App() {
   }, [session]);
 
   const role = session?.user?.user_metadata?.role || 'conseillere';
-  const nom = session?.user?.user_metadata?.nom || session?.user?.email;
+  const nom  = session?.user?.user_metadata?.nom  || session?.user?.email;
 
+  // ── Business logic (inchangé)
   async function fetchLeads() {
     let query = supabase.from('leads').select('*').order('created_at', { ascending: false });
     if (role !== 'admin') query = query.eq('conseillere', nom);
@@ -202,39 +220,54 @@ export default function App() {
     setCommentaire(lead.commentaire || '');
   }
 
-  const handleLogout = async () => {
+  async function handleLogout() {
     await supabase.auth.signOut();
     setSession(null);
-  };
+  }
 
+  // ── Guards
   if (authLoading) return (
-    <div className="loading-screen">
-      <span className="loading-dot" />
-      Connexion en cours...
-    </div>
+    <div className="loading-screen"><span className="loading-dot" /> Connexion...</div>
   );
   if (!session) return <Login />;
 
-  const leadsFiltres = filtre === 'tous' ? leads : leads.filter(l => l.statut === filtre);
-  const countByFiltre = (f) => f === 'tous' ? leads.length : leads.filter(l => l.statut === f).length;
+  // ── Filtering
+  const countByFiltre = f => f === 'tous' ? leads.length : leads.filter(l => l.statut === f).length;
 
+  const leadsFiltres = leads
+    .filter(l => filtre === 'tous' || l.statut === filtre)
+    .filter(l => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        (l.client_nom  || '').toLowerCase().includes(q) ||
+        (l.telephone   || '').includes(q) ||
+        (l.ville       || '').toLowerCase().includes(q) ||
+        (l.produit     || '').toLowerCase().includes(q)
+      );
+    });
+
+  // ── Render
   return (
     <div className="app">
 
+      {/* Header */}
       <header className="header">
         <div className="header-left">
           <div className="logo">
-            <span className="logo-dot" />
+            <div className="logo-mark">M</div>
             Momtaz
           </div>
-          <div className="header-divider" />
-          <span className="leads-counter">
-            <span>{leadsFiltres.length}</span> leads
-          </span>
+          <div className="header-stat">
+            <strong>{leadsFiltres.length}</strong> leads affichés
+          </div>
+          <div className="header-stat">
+            <strong>{countByFiltre('Confirmé')}</strong> confirmés
+          </div>
         </div>
         <div className="header-right">
-          <div className="user-badge">
-            <span className={`role-tag${role === 'admin' ? ' admin' : ''}`}>
+          <div className="user-pill">
+            <span className={`role-badge${role === 'admin' ? ' admin' : ''}`}>
               {role === 'admin' ? '👑 Admin' : 'Agent'}
             </span>
             <span className="user-name">{nom}</span>
@@ -243,51 +276,70 @@ export default function App() {
         </div>
       </header>
 
-      <div className="filter-bar">
-        {FILTRES.map(f => (
-          <button
-            key={f}
-            className={`filter-btn${filtre === f ? ' active' : ''}`}
-            onClick={() => setFiltre(f)}
-          >
-            {f} <span className="count">{countByFiltre(f)}</span>
-          </button>
-        ))}
-      </div>
-
       <div className="main-layout">
-        <div className="leads-panel">
-          {loading ? (
-            <div className="state-loading">
-              <div className="spinner" />
-              Chargement des leads...
-            </div>
-          ) : leadsFiltres.length === 0 ? (
-            <div className="state-empty">
-              <span style={{ fontSize: '32px' }}>📭</span>
-              Aucun lead pour ce filtre
-            </div>
-          ) : (
-            leadsFiltres.map(lead => (
-              <LeadCard
-                key={lead.id}
-                lead={lead}
-                selected={selectedLead?.id === lead.id}
-                onClick={() => openLead(lead)}
+
+        {/* Left column — dominant */}
+        <div className="left-col">
+
+          {/* Search + filters */}
+          <div className="toolbar">
+            <div className="search-wrap">
+              <span className="search-icon">🔍</span>
+              <input
+                className="search-input"
+                type="text"
+                placeholder="Rechercher par nom, téléphone, ville, produit..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
               />
-            ))
-          )}
+            </div>
+            <div className="filter-tabs">
+              {FILTRES.map(f => (
+                <button
+                  key={f}
+                  className={`filter-tab${filtre === f ? ' active' : ''}`}
+                  onClick={() => setFiltre(f)}
+                >
+                  {f}
+                  <span className="filter-count">{countByFiltre(f)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Leads */}
+          <div className="leads-list">
+            {loading ? (
+              <div className="state-wrap"><div className="spinner" /> Chargement...</div>
+            ) : leadsFiltres.length === 0 ? (
+              <div className="state-wrap">
+                <span style={{ fontSize: '30px' }}>📭</span>
+                Aucun résultat
+              </div>
+            ) : (
+              leadsFiltres.map(lead => (
+                <LeadCard
+                  key={lead.id}
+                  lead={lead}
+                  selected={selectedLead?.id === lead.id}
+                  onClick={() => openLead(lead)}
+                />
+              ))
+            )}
+          </div>
         </div>
 
-        <DetailPanel
+        {/* Right panel — secondary */}
+        <RightPanel
           lead={selectedLead}
           commentaire={commentaire}
           setCommentaire={setCommentaire}
           savingComment={savingComment}
           onUpdateStatut={updateStatut}
-          onSaveCommentaire={saveCommentaire}
+          onSave={saveCommentaire}
           onClose={() => setSelectedLead(null)}
         />
+
       </div>
     </div>
   );
