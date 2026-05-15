@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
 
-
 const STATUTS = [
   'À appeler', 'Confirmé', 'Injoignable',
   'Demande de rappel', 'Annulé', 'Pas intéressé', 'Numéro faux'
@@ -30,7 +29,6 @@ export default function App() {
   const [commentaire, setCommentaire] = useState('');
   const [savingComment, setSavingComment] = useState(false);
 
-  // Auth
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -42,7 +40,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch leads après login
   useEffect(() => {
     if (!session) return;
     fetchLeads();
@@ -109,7 +106,6 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'Inter, sans-serif', background: '#0F1117', minHeight: '100vh', color: '#fff' }}>
 
-      {/* Topbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem', background: '#1A1D27', borderBottom: '1px solid #333' }}>
         <span style={{ color: '#00D4AA', fontWeight: 700, fontSize: '1.1rem' }}>
           {role === 'admin' ? '👑 Admin — Momtaz' : `👤 ${nom}`}
@@ -121,9 +117,7 @@ export default function App() {
 
       <div style={{ display: 'flex', height: 'calc(100vh - 53px)' }}>
 
-        {/* Liste leads */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-          {/* Filtres */}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             {FILTRES.map(f => (
               <button key={f} onClick={() => setFiltre(f)} style={{
@@ -143,11 +137,11 @@ export default function App() {
                   borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '0.5rem', cursor: 'pointer'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600 }}>{lead.telephone}</span>
+                    <span style={{ fontWeight: 600 }}>{lead.client_nom || lead.telephone}</span>
                     <span style={{ color: meta.color, fontSize: '0.85rem' }}>{meta.emoji} {lead.statut}</span>
                   </div>
                   <div style={{ color: '#aaa', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                    {lead.ville} {lead.conseillere ? `· ${lead.conseillere}` : ''}
+                    {lead.telephone} · {lead.ville} {lead.produit ? `· ${lead.produit}` : ''}
                   </div>
                 </div>
               );
@@ -155,13 +149,26 @@ export default function App() {
           )}
         </div>
 
-        {/* Panneau lead sélectionné */}
         {selectedLead && (
           <div style={{ width: '340px', background: '#1A1D27', borderLeft: '1px solid #333', padding: '1.5rem', overflowY: 'auto' }}>
-            <h3 style={{ color: '#00D4AA', marginTop: 0 }}>{selectedLead.telephone}</h3>
-            <p style={{ color: '#aaa', fontSize: '0.9rem' }}>{selectedLead.ville} · {selectedLead.conseillere}</p>
 
-            {/* Changement statut */}
+            <h3 style={{ color: '#00D4AA', marginTop: 0 }}>{selectedLead.client_nom || 'Sans nom'}</h3>
+            <div style={{ color: '#aaa', fontSize: '0.85rem', marginBottom: '1rem', lineHeight: '1.8' }}>
+              <div>📞 {selectedLead.telephone}</div>
+              <div>📍 {selectedLead.ville}{selectedLead.adresse ? ` — ${selectedLead.adresse}` : ''}</div>
+              <div>👤 {selectedLead.conseillere}</div>
+              {selectedLead.source && <div>🔗 {selectedLead.source}</div>}
+            </div>
+
+            {selectedLead.produit && (
+              <div style={{ background: '#0F1117', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                <div style={{ color: '#00D4AA', fontWeight: 700, marginBottom: '0.4rem' }}>🛒 Produit</div>
+                <div style={{ color: '#fff' }}>{selectedLead.produit}</div>
+                {selectedLead.quantite && <div style={{ color: '#aaa' }}>Qté : {selectedLead.quantite}</div>}
+                {selectedLead.prix && <div style={{ color: '#aaa' }}>Prix : {selectedLead.prix} MAD</div>}
+              </div>
+            )}
+
             <div style={{ marginBottom: '1.5rem' }}>
               <p style={{ color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Statut</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -180,7 +187,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Commentaire */}
             <div>
               <p style={{ color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Commentaire</p>
               <textarea value={commentaire} onChange={e => setCommentaire(e.target.value)}
