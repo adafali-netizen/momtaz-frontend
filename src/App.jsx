@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
+import "./App.css";
+
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
 
 const STATUTS = [
   'À appeler', 'Confirmé', 'Injoignable',
@@ -8,16 +11,126 @@ const STATUTS = [
 ];
 
 const STATUT_META = {
-  'À appeler':        { color: '#3b82f6', emoji: '📋' },
-  'Confirmé':         { color: '#16a34a', emoji: '✅' },
-  'Injoignable':      { color: '#f59e0b', emoji: '📵' },
-  'Demande de rappel':{ color: '#f97316', emoji: '🔔' },
-  'Annulé':           { color: '#ef4444', emoji: '❌' },
-  'Pas intéressé':    { color: '#6b7280', emoji: '🚫' },
-  'Numéro faux':      { color: '#dc2626', emoji: '⚠️' },
+  'À appeler':         { color: '#3B82F6', bg: '#3B82F620', emoji: '📋' },
+  'Confirmé':          { color: '#22C55E', bg: '#22C55E20', emoji: '✅' },
+  'Injoignable':       { color: '#F59E0B', bg: '#F59E0B20', emoji: '📵' },
+  'Demande de rappel': { color: '#8B5CF6', bg: '#8B5CF620', emoji: '🔔' },
+  'Annulé':            { color: '#EF4444', bg: '#EF444420', emoji: '❌' },
+  'Pas intéressé':     { color: '#64748B', bg: '#64748B20', emoji: '🚫' },
+  'Numéro faux':       { color: '#EF4444', bg: '#EF444420', emoji: '⚠️' },
 };
 
 const FILTRES = ['tous', 'À appeler', 'Confirmé', 'Injoignable', 'Demande de rappel', 'Annulé'];
+
+// ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
+
+function StatusBadge({ statut }) {
+  const m = STATUT_META[statut] || { color: '#94A3C4', bg: '#94A3C420', emoji: '•' };
+  return (
+    <span className="status-badge" style={{ color: m.color, background: m.bg }}>
+      {m.emoji} {statut}
+    </span>
+  );
+}
+
+function LeadCard({ lead, selected, onClick }) {
+  return (
+    <div className={`lead-card${selected ? ' selected' : ''}`} onClick={onClick}>
+      <div className="lead-card-top">
+        <div>
+          <div className="lead-name">{lead.client_nom || 'Sans nom'}</div>
+          <div className="lead-phone">{lead.telephone}</div>
+        </div>
+        <StatusBadge statut={lead.statut} />
+      </div>
+      <div className="lead-card-bottom">
+        {lead.ville && <span className="tag ville">📍 {lead.ville}</span>}
+        {lead.produit && <span className="tag produit">🛒 {lead.produit}</span>}
+        {lead.source && <span className="tag">🔗 {lead.source}</span>}
+      </div>
+    </div>
+  );
+}
+
+function DetailPanel({ lead, commentaire, setCommentaire, savingComment, onUpdateStatut, onSaveCommentaire, onClose }) {
+  if (!lead) return null;
+
+  return (
+    <aside className="detail-panel">
+      <div className="detail-panel-header">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div className="detail-panel-title">{lead.client_nom || 'Sans nom'}</div>
+            <div style={{ marginTop: '6px' }}><StatusBadge statut={lead.statut} /></div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none', color: 'var(--muted2)',
+            cursor: 'pointer', fontSize: '20px', padding: '0 4px', lineHeight: 1
+          }}>×</button>
+        </div>
+        <div className="detail-panel-sub">
+          <span className="detail-info-row">📞 <span style={{ fontFamily: 'JetBrains Mono', fontSize: '12px', color: 'var(--cyan)' }}>{lead.telephone}</span></span>
+          {lead.ville && <span className="detail-info-row">📍 {lead.ville}{lead.adresse ? ` — ${lead.adresse}` : ''}</span>}
+          {lead.conseillere && <span className="detail-info-row">👤 {lead.conseillere}</span>}
+        </div>
+      </div>
+
+      <div className="detail-panel-body">
+
+        {lead.produit && (
+          <div className="detail-section">
+            <div className="detail-section-label">Commande</div>
+            <div className="product-block">
+              <div className="product-name">{lead.produit}</div>
+              <div className="product-meta">
+                {lead.quantite && <div className="product-meta-item">Qté : <span>{lead.quantite}</span></div>}
+                {lead.prix && <div className="product-meta-item">Prix : <span>{lead.prix} MAD</span></div>}
+                {lead.source && <div className="product-meta-item">Source : <span>{lead.source}</span></div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="detail-section">
+          <div className="detail-section-label">Changer le statut</div>
+          <div className="status-grid">
+            {STATUTS.map(s => {
+              const m = STATUT_META[s];
+              const isActive = lead.statut === s;
+              return (
+                <button
+                  key={s}
+                  className={`status-btn${isActive ? ' active' : ''}`}
+                  onClick={() => onUpdateStatut(lead.id, s)}
+                  style={isActive ? { borderColor: m.color + '80', background: m.bg, color: m.color } : {}}
+                >
+                  <span>{m.emoji}</span>
+                  <span>{s}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <div className="detail-section-label">Note opérateur</div>
+          <textarea
+            className="comment-textarea"
+            value={commentaire}
+            onChange={e => setCommentaire(e.target.value)}
+            placeholder="Ajouter une note sur ce lead..."
+          />
+          <button className="btn-save" onClick={onSaveCommentaire} disabled={savingComment}>
+            {savingComment ? '⏳ Sauvegarde...' : '💾 Sauvegarder la note'}
+          </button>
+        </div>
+
+      </div>
+    </aside>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -55,9 +168,7 @@ export default function App() {
 
   async function fetchLeads() {
     let query = supabase.from('leads').select('*').order('created_at', { ascending: false });
-    if (role !== 'admin') {
-      query = query.eq('conseillere', nom);
-    }
+    if (role !== 'admin') query = query.eq('conseillere', nom);
     const { data, error } = await query;
     if (!error) setLeads(data);
     setLoading(false);
@@ -65,8 +176,7 @@ export default function App() {
 
   async function updateStatut(id, statut) {
     await supabase.from('leads').update({ statut }).eq('id', id);
-    const webhookUrl = 'https://momtaz-webhook-production.up.railway.app/api/lead/' + id;
-    await fetch(webhookUrl, {
+    await fetch('https://momtaz-webhook-production.up.railway.app/api/lead/' + id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ statut }),
@@ -78,8 +188,7 @@ export default function App() {
     if (!selectedLead) return;
     setSavingComment(true);
     await supabase.from('leads').update({ commentaire }).eq('id', selectedLead.id);
-    const webhookUrl = 'https://momtaz-webhook-production.up.railway.app/api/lead/' + selectedLead.id;
-    await fetch(webhookUrl, {
+    await fetch('https://momtaz-webhook-production.up.railway.app/api/lead/' + selectedLead.id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commentaire }),
@@ -98,109 +207,87 @@ export default function App() {
     setSession(null);
   };
 
-  if (authLoading) return <div style={{ color: '#fff', padding: '2rem' }}>Chargement...</div>;
+  if (authLoading) return (
+    <div className="loading-screen">
+      <span className="loading-dot" />
+      Connexion en cours...
+    </div>
+  );
   if (!session) return <Login />;
 
   const leadsFiltres = filtre === 'tous' ? leads : leads.filter(l => l.statut === filtre);
+  const countByFiltre = (f) => f === 'tous' ? leads.length : leads.filter(l => l.statut === f).length;
 
   return (
-    <div style={{ fontFamily: 'Inter, sans-serif', background: '#0F1117', minHeight: '100vh', color: '#fff' }}>
+    <div className="app">
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem', background: '#1A1D27', borderBottom: '1px solid #333' }}>
-        <span style={{ color: '#00D4AA', fontWeight: 700, fontSize: '1.1rem' }}>
-          {role === 'admin' ? '👑 Admin — Momtaz' : `👤 ${nom}`}
-        </span>
-        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid #555', color: '#aaa', padding: '0.3rem 0.8rem', borderRadius: '6px', cursor: 'pointer' }}>
-          Déconnexion
-        </button>
+      <header className="header">
+        <div className="header-left">
+          <div className="logo">
+            <span className="logo-dot" />
+            Momtaz
+          </div>
+          <div className="header-divider" />
+          <span className="leads-counter">
+            <span>{leadsFiltres.length}</span> leads
+          </span>
+        </div>
+        <div className="header-right">
+          <div className="user-badge">
+            <span className={`role-tag${role === 'admin' ? ' admin' : ''}`}>
+              {role === 'admin' ? '👑 Admin' : 'Agent'}
+            </span>
+            <span className="user-name">{nom}</span>
+          </div>
+          <button className="btn-logout" onClick={handleLogout}>Déconnexion</button>
+        </div>
+      </header>
+
+      <div className="filter-bar">
+        {FILTRES.map(f => (
+          <button
+            key={f}
+            className={`filter-btn${filtre === f ? ' active' : ''}`}
+            onClick={() => setFiltre(f)}
+          >
+            {f} <span className="count">{countByFiltre(f)}</span>
+          </button>
+        ))}
       </div>
 
-      <div style={{ display: 'flex', height: 'calc(100vh - 53px)' }}>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            {FILTRES.map(f => (
-              <button key={f} onClick={() => setFiltre(f)} style={{
-                padding: '0.3rem 0.8rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
-                background: filtre === f ? '#00D4AA' : '#1A1D27', color: filtre === f ? '#000' : '#aaa', fontWeight: filtre === f ? 700 : 400
-              }}>{f}</button>
-            ))}
-          </div>
-
-          {loading ? <p style={{ color: '#aaa' }}>Chargement des leads...</p> : (
-            leadsFiltres.map(lead => {
-              const meta = STATUT_META[lead.statut] || {};
-              return (
-                <div key={lead.id} onClick={() => openLead(lead)} style={{
-                  background: selectedLead?.id === lead.id ? '#1e2235' : '#1A1D27',
-                  border: `1px solid ${selectedLead?.id === lead.id ? '#00D4AA' : '#2a2d3a'}`,
-                  borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '0.5rem', cursor: 'pointer'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600 }}>{lead.client_nom || lead.telephone}</span>
-                    <span style={{ color: meta.color, fontSize: '0.85rem' }}>{meta.emoji} {lead.statut}</span>
-                  </div>
-                  <div style={{ color: '#aaa', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                    {lead.telephone} · {lead.ville} {lead.produit ? `· ${lead.produit}` : ''}
-                  </div>
-                </div>
-              );
-            })
+      <div className="main-layout">
+        <div className="leads-panel">
+          {loading ? (
+            <div className="state-loading">
+              <div className="spinner" />
+              Chargement des leads...
+            </div>
+          ) : leadsFiltres.length === 0 ? (
+            <div className="state-empty">
+              <span style={{ fontSize: '32px' }}>📭</span>
+              Aucun lead pour ce filtre
+            </div>
+          ) : (
+            leadsFiltres.map(lead => (
+              <LeadCard
+                key={lead.id}
+                lead={lead}
+                selected={selectedLead?.id === lead.id}
+                onClick={() => openLead(lead)}
+              />
+            ))
           )}
         </div>
 
-        {selectedLead && (
-          <div style={{ width: '340px', background: '#1A1D27', borderLeft: '1px solid #333', padding: '1.5rem', overflowY: 'auto' }}>
-
-            <h3 style={{ color: '#00D4AA', marginTop: 0 }}>{selectedLead.client_nom || 'Sans nom'}</h3>
-            <div style={{ color: '#aaa', fontSize: '0.85rem', marginBottom: '1rem', lineHeight: '1.8' }}>
-              <div>📞 {selectedLead.telephone}</div>
-              <div>📍 {selectedLead.ville}{selectedLead.adresse ? ` — ${selectedLead.adresse}` : ''}</div>
-              <div>👤 {selectedLead.conseillere}</div>
-              {selectedLead.source && <div>🔗 {selectedLead.source}</div>}
-            </div>
-
-            {selectedLead.produit && (
-              <div style={{ background: '#0F1117', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
-                <div style={{ color: '#00D4AA', fontWeight: 700, marginBottom: '0.4rem' }}>🛒 Produit</div>
-                <div style={{ color: '#fff' }}>{selectedLead.produit}</div>
-                {selectedLead.quantite && <div style={{ color: '#aaa' }}>Qté : {selectedLead.quantite}</div>}
-                {selectedLead.prix && <div style={{ color: '#aaa' }}>Prix : {selectedLead.prix} MAD</div>}
-              </div>
-            )}
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <p style={{ color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Statut</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                {STATUTS.map(s => {
-                  const m = STATUT_META[s];
-                  return (
-                    <button key={s} onClick={() => updateStatut(selectedLead.id, s)} style={{
-                      padding: '0.5rem', borderRadius: '6px', border: `1px solid ${selectedLead.statut === s ? m.color : '#333'}`,
-                      background: selectedLead.statut === s ? m.color + '22' : 'transparent',
-                      color: selectedLead.statut === s ? m.color : '#aaa', cursor: 'pointer', textAlign: 'left'
-                    }}>
-                      {m.emoji} {s}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <p style={{ color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Commentaire</p>
-              <textarea value={commentaire} onChange={e => setCommentaire(e.target.value)}
-                style={{ width: '100%', minHeight: '80px', background: '#0F1117', border: '1px solid #333', borderRadius: '6px', color: '#fff', padding: '0.5rem', boxSizing: 'border-box', resize: 'vertical' }}
-              />
-              <button onClick={saveCommentaire} disabled={savingComment} style={{
-                marginTop: '0.5rem', width: '100%', padding: '0.6rem', background: '#00D4AA', color: '#000',
-                border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer'
-              }}>
-                {savingComment ? 'Sauvegarde...' : 'Sauvegarder'}
-              </button>
-            </div>
-          </div>
-        )}
+        <DetailPanel
+          lead={selectedLead}
+          commentaire={commentaire}
+          setCommentaire={setCommentaire}
+          savingComment={savingComment}
+          onUpdateStatut={updateStatut}
+          onSaveCommentaire={saveCommentaire}
+          onClose={() => setSelectedLead(null)}
+        />
       </div>
     </div>
   );
