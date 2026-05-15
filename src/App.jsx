@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
-import Login from "./components/Login";
+import Login from "./Login";
+
 
 const STATUTS = [
   'À appeler', 'Confirmé', 'Injoignable',
