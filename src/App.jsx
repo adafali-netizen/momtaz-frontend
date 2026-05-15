@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from './supabaseClient';
+import { useEffect, useState } from "react";
+import { supabase } from "./supabaseClient";
+import Login from "./components/Login";
 
 const STATUTS = [
   'À appeler', 'Confirmé', 'Injoignable',
@@ -7,18 +8,20 @@ const STATUTS = [
 ];
 
 const STATUT_META = {
-  'À appeler':         { color: '#3b82f6', emoji: '📞' },
-  'Confirmé':          { color: '#16a34a', emoji: '✅' },
-  'Injoignable':       { color: '#f59e0b', emoji: '📵' },
-  'Demande de rappel': { color: '#f97316', emoji: '🔔' },
-  'Annulé':            { color: '#ef4444', emoji: '❌' },
-  'Pas intéressé':     { color: '#6b7280', emoji: '🚫' },
-  'Numéro faux':       { color: '#dc2626', emoji: '⚠️' },
+  'À appeler':        { color: '#3b82f6', emoji: '📋' },
+  'Confirmé':         { color: '#16a34a', emoji: '✅' },
+  'Injoignable':      { color: '#f59e0b', emoji: '📵' },
+  'Demande de rappel':{ color: '#f97316', emoji: '🔔' },
+  'Annulé':           { color: '#ef4444', emoji: '❌' },
+  'Pas intéressé':    { color: '#6b7280', emoji: '🚫' },
+  'Numéro faux':      { color: '#dc2626', emoji: '⚠️' },
 };
 
 const FILTRES = ['tous', 'À appeler', 'Confirmé', 'Injoignable', 'Demande de rappel', 'Annulé'];
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtre, setFiltre] = useState('tous');
@@ -26,23 +29,65 @@ export default function App() {
   const [commentaire, setCommentaire] = useState('');
   const [savingComment, setSavingComment] = useState(false);
 
+  // Auth
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch leads après login
+  useEffect(() => {
+    if (!session) return;
     fetchLeads();
     const channel = supabase
       .channel('leads-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchLeads)
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [session]);
+
+  const role = session?.user?.user_metadata?.role || 'conseillere';
+  const nom = session?.user?.user_metadata?.nom || session?.user?.email;
 
   async function fetchLeads() {
-    const { data } = await supabase
-      .from('leads')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
-    setLeads(data || []);
+    let query = supabase.from('leads').select('*').order('created_at', { ascending: false });
+    if (role !== 'admin') {
+      query = query.eq('conseillere', nom);
+    }
+    const { data, error } = await query;
+    if (!error) setLeads(data);
     setLoading(false);
+  }
+
+  async function updateStatut(id, statut) {
+    await supabase.from('leads').update({ statut }).eq('id', id);
+    const webhookUrl = 'https://momtaz-webhook-production.up.railway.app/api/lead/' + id;
+    await fetch(webhookUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statut }),
+    });
+    if (selectedLead?.id === id) setSelectedLead({ ...selectedLead, statut });
+  }
+
+  async function saveCommentaire() {
+    if (!selectedLead) return;
+    setSavingComment(true);
+    await supabase.from('leads').update({ commentaire }).eq('id', selectedLead.id);
+    const webhookUrl = 'https://momtaz-webhook-production.up.railway.app/api/lead/' + selectedLead.id;
+    await fetch(webhookUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commentaire }),
+    });
+    setSavingComment(false);
+    setSelectedLead({ ...selectedLead, commentaire });
   }
 
   function openLead(lead) {
@@ -50,217 +95,106 @@ export default function App() {
     setCommentaire(lead.commentaire || '');
   }
 
-const WEBHOOK_URL = 'https://momtaz-webhook-production.up.railway.app';
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  };
 
-async function updateStatut(id, statut) {
-  // Update local state immédiatement
-  setSelectedLead(prev => prev ? { ...prev, statut } : null);
-  // Supabase + Sheets via Railway
-  await fetch(`${WEBHOOK_URL}/api/lead/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ statut, commentaire, telephone: selectedLead?.telephone })
-  });
-  fetchLeads();
-}
+  if (authLoading) return <div style={{ color: '#fff', padding: '2rem' }}>Chargement...</div>;
+  if (!session) return <Login />;
 
-async function saveCommentaire() {
-  if (!selectedLead) return;
-  setSavingComment(true);
-  await fetch(`${WEBHOOK_URL}/api/lead/${selectedLead.id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ statut: selectedLead.statut, commentaire, telephone: selectedLead.telephone })
-  });
-  setSavingComment(false);
-  setSelectedLead(prev => prev ? { ...prev, commentaire } : null);
-  fetchLeads();
-}
-
-  var leadsFiltres = filtre === 'tous' ? leads : leads.filter(function(l) { return l.statut === filtre; });
-  var counts = {};
-  FILTRES.forEach(function(f) {
-    counts[f] = f === 'tous' ? leads.length : leads.filter(function(l) { return l.statut === f; }).length;
-  });
-
-  if (selectedLead) {
-    var rawTel = String(selectedLead.telephone || '');
-    var tel = rawTel.startsWith('0') ? rawTel.substring(1) : rawTel;
-    var waUrl = 'https://wa.me/212' + tel + '?text=Bonjour%20' + encodeURIComponent(selectedLead.client_nom || '');
-    var telUrl = 'tel:' + selectedLead.telephone;
-    var meta = STATUT_META[selectedLead.statut] || { color: '#6b7280', emoji: '•' };
-    var dateStr = selectedLead.created_at ? new Date(selectedLead.created_at).toLocaleString('fr-FR') : '';
-
-    return (
-      <div style={s.page}>
-        <div style={s.ficheNav}>
-          <button onClick={() => setSelectedLead(null)} style={s.backBtn}>← Retour</button>
-          <span style={s.ficheNavTitle}>Fiche Lead</span>
-        </div>
-
-        <div style={s.ficheBody}>
-
-          <div style={s.ficheCard}>
-            <div style={s.ficheNom}>{selectedLead.client_nom}</div>
-            <div style={s.ficheProduit}>{selectedLead.produit} — {selectedLead.prix} MAD</div>
-            <div style={s.ficheRow}>
-              <span style={s.ficheChip}>📍 {selectedLead.ville}</span>
-              <span style={s.ficheChip}>📱 {selectedLead.telephone}</span>
-              <span style={s.ficheChip}>🕐 {dateStr}</span>
-            </div>
-            <div style={{ marginTop: '12px' }}>
-              <span style={Object.assign({}, s.statutPill, { background: meta.color + '22', color: meta.color, border: '1px solid ' + meta.color })}>
-                {meta.emoji} {selectedLead.statut}
-              </span>
-            </div>
-          </div>
-
-          <div style={s.actionsRow}>
-            <a href={telUrl} style={s.btnCall}>📞 Appeler</a>
-            <a href={waUrl} target="_blank" rel="noreferrer" style={s.btnWa}>💬 WhatsApp</a>
-          </div>
-
-          <div style={s.section}>
-            <div style={s.sectionTitle}>CHANGER LE STATUT</div>
-            <div style={s.statutGrid}>
-              {STATUTS.map(function(s2) {
-                var m = STATUT_META[s2] || { color: '#6b7280', emoji: '•' };
-                var isActive = selectedLead.statut === s2;
-                return (
-                  <button
-                    key={s2}
-                    onClick={() => updateStatut(selectedLead.id, s2)}
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: '10px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: '600',
-                      border: '1px solid ' + m.color,
-                      background: isActive ? m.color : m.color + '15',
-                      color: isActive ? '#fff' : m.color,
-                    }}
-                  >
-                    {m.emoji} {s2}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div style={s.section}>
-            <div style={s.sectionTitle}>NOTE / COMMENTAIRE</div>
-            <textarea
-              value={commentaire}
-              onChange={function(e) { setCommentaire(e.target.value); }}
-              placeholder="Ajouter une note sur ce lead..."
-              style={s.textarea}
-              rows={4}
-            />
-            <button onClick={saveCommentaire} disabled={savingComment} style={s.btnSave}>
-              {savingComment ? 'Sauvegarde...' : 'Sauvegarder'}
-            </button>
-          </div>
-
-        </div>
-      </div>
-    );
-  }
+  const leadsFiltres = filtre === 'tous' ? leads : leads.filter(l => l.statut === filtre);
 
   return (
-    <div style={s.page}>
-      <div style={s.header}>
-        <div>
-          <div style={s.logo}>Momtaz</div>
-          <div style={s.logoSub}>Command Center</div>
-        </div>
-        <div style={s.badge}>{leads.length} leads</div>
+    <div style={{ fontFamily: 'Inter, sans-serif', background: '#0F1117', minHeight: '100vh', color: '#fff' }}>
+
+      {/* Topbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.5rem', background: '#1A1D27', borderBottom: '1px solid #333' }}>
+        <span style={{ color: '#00D4AA', fontWeight: 700, fontSize: '1.1rem' }}>
+          {role === 'admin' ? '👑 Admin — Momtaz' : `👤 ${nom}`}
+        </span>
+        <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid #555', color: '#aaa', padding: '0.3rem 0.8rem', borderRadius: '6px', cursor: 'pointer' }}>
+          Déconnexion
+        </button>
       </div>
 
-      <div style={s.filtresWrap}>
-        {FILTRES.map(function(f) {
-          return (
-            <button
-              key={f}
-              onClick={() => setFiltre(f)}
-              style={Object.assign({}, s.filtreBtn, {
-                background: filtre === f ? '#00D4AA' : '#1A1D27',
-                color: filtre === f ? '#000' : '#9ca3af',
-                border: filtre === f ? '1px solid #00D4AA' : '1px solid #2a2d3a',
-              })}
-            >
-              {f} ({counts[f] || 0})
-            </button>
-          );
-        })}
-      </div>
+      <div style={{ display: 'flex', height: 'calc(100vh - 53px)' }}>
 
-      {loading ? (
-        <div style={s.center}>Chargement...</div>
-      ) : (
-        <div style={s.liste}>
-          {leadsFiltres.map(function(lead) {
-            var m = STATUT_META[lead.statut] || { color: '#6b7280', emoji: '•' };
-            return (
-              <div key={lead.id} style={s.card} onClick={() => openLead(lead)}>
-                <div style={s.cardTop}>
-                  <div>
-                    <div style={s.cardNom}>{lead.client_nom}</div>
-                    <div style={s.cardProduit}>{lead.produit} — {lead.prix} MAD</div>
+        {/* Liste leads */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+          {/* Filtres */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            {FILTRES.map(f => (
+              <button key={f} onClick={() => setFiltre(f)} style={{
+                padding: '0.3rem 0.8rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                background: filtre === f ? '#00D4AA' : '#1A1D27', color: filtre === f ? '#000' : '#aaa', fontWeight: filtre === f ? 700 : 400
+              }}>{f}</button>
+            ))}
+          </div>
+
+          {loading ? <p style={{ color: '#aaa' }}>Chargement des leads...</p> : (
+            leadsFiltres.map(lead => {
+              const meta = STATUT_META[lead.statut] || {};
+              return (
+                <div key={lead.id} onClick={() => openLead(lead)} style={{
+                  background: selectedLead?.id === lead.id ? '#1e2235' : '#1A1D27',
+                  border: `1px solid ${selectedLead?.id === lead.id ? '#00D4AA' : '#2a2d3a'}`,
+                  borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '0.5rem', cursor: 'pointer'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 600 }}>{lead.telephone}</span>
+                    <span style={{ color: meta.color, fontSize: '0.85rem' }}>{meta.emoji} {lead.statut}</span>
                   </div>
-                  <span style={Object.assign({}, s.statutPill, { background: m.color + '22', color: m.color, border: '1px solid ' + m.color })}>
-                    {m.emoji} {lead.statut}
-                  </span>
+                  <div style={{ color: '#aaa', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                    {lead.ville} {lead.conseillere ? `· ${lead.conseillere}` : ''}
+                  </div>
                 </div>
-                <div style={s.cardBottom}>
-                  <span style={s.cardInfo}>📍 {lead.ville}</span>
-                  <span style={s.cardInfo}>📱 {lead.telephone}</span>
-                  {lead.commentaire ? <span style={s.cardInfo}>💬 {lead.commentaire.substring(0, 30)}{lead.commentaire.length > 30 ? '...' : ''}</span> : null}
-                </div>
-              </div>
-            );
-          })}
-          {leadsFiltres.length === 0 && (
-            <div style={s.center}>Aucun lead pour ce filtre</div>
+              );
+            })
           )}
         </div>
-      )}
+
+        {/* Panneau lead sélectionné */}
+        {selectedLead && (
+          <div style={{ width: '340px', background: '#1A1D27', borderLeft: '1px solid #333', padding: '1.5rem', overflowY: 'auto' }}>
+            <h3 style={{ color: '#00D4AA', marginTop: 0 }}>{selectedLead.telephone}</h3>
+            <p style={{ color: '#aaa', fontSize: '0.9rem' }}>{selectedLead.ville} · {selectedLead.conseillere}</p>
+
+            {/* Changement statut */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p style={{ color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Statut</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {STATUTS.map(s => {
+                  const m = STATUT_META[s];
+                  return (
+                    <button key={s} onClick={() => updateStatut(selectedLead.id, s)} style={{
+                      padding: '0.5rem', borderRadius: '6px', border: `1px solid ${selectedLead.statut === s ? m.color : '#333'}`,
+                      background: selectedLead.statut === s ? m.color + '22' : 'transparent',
+                      color: selectedLead.statut === s ? m.color : '#aaa', cursor: 'pointer', textAlign: 'left'
+                    }}>
+                      {m.emoji} {s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Commentaire */}
+            <div>
+              <p style={{ color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Commentaire</p>
+              <textarea value={commentaire} onChange={e => setCommentaire(e.target.value)}
+                style={{ width: '100%', minHeight: '80px', background: '#0F1117', border: '1px solid #333', borderRadius: '6px', color: '#fff', padding: '0.5rem', boxSizing: 'border-box', resize: 'vertical' }}
+              />
+              <button onClick={saveCommentaire} disabled={savingComment} style={{
+                marginTop: '0.5rem', width: '100%', padding: '0.6rem', background: '#00D4AA', color: '#000',
+                border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer'
+              }}>
+                {savingComment ? 'Sauvegarde...' : 'Sauvegarder'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
-const s = {
-  page: { minHeight: '100vh', background: '#0B0D14', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-  header: { background: 'linear-gradient(135deg, #13151F, #1A1D27)', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #2a2d3a' },
-  logo: { fontSize: '22px', fontWeight: '900', color: '#00D4AA', letterSpacing: '-0.5px' },
-  logoSub: { fontSize: '11px', color: '#4b5563', marginTop: '2px', letterSpacing: '0.5px', textTransform: 'uppercase' },
-  badge: { background: '#00D4AA22', color: '#00D4AA', padding: '6px 16px', borderRadius: '20px', fontSize: '13px', fontWeight: '700', border: '1px solid #00D4AA44' },
-  filtresWrap: { display: 'flex', gap: '8px', padding: '16px 24px', flexWrap: 'wrap', borderBottom: '1px solid #1e2130' },
-  filtreBtn: { padding: '7px 16px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
-  liste: { padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '10px' },
-  card: { background: '#13151F', borderRadius: '14px', padding: '16px 20px', border: '1px solid #1e2130', cursor: 'pointer' },
-  cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px', gap: '12px' },
-  cardNom: { fontSize: '16px', fontWeight: '700', color: '#f9fafb', marginBottom: '3px' },
-  cardProduit: { fontSize: '13px', color: '#6b7280' },
-  cardBottom: { display: 'flex', gap: '14px', flexWrap: 'wrap' },
-  cardInfo: { fontSize: '12px', color: '#4b5563' },
-  statutPill: { padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap' },
-  center: { textAlign: 'center', padding: '60px', color: '#4b5563' },
-  ficheNav: { background: '#13151F', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '16px', borderBottom: '1px solid #1e2130' },
-  backBtn: { background: 'none', border: '1px solid #2a2d3a', color: '#9ca3af', padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' },
-  ficheNavTitle: { fontSize: '15px', fontWeight: '700', color: '#f9fafb' },
-  ficheBody: { padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' },
-  ficheCard: { background: '#13151F', borderRadius: '16px', padding: '20px', border: '1px solid #1e2130' },
-  ficheNom: { fontSize: '22px', fontWeight: '800', color: '#f9fafb', marginBottom: '4px' },
-  ficheProduit: { fontSize: '15px', color: '#00D4AA', fontWeight: '600', marginBottom: '12px' },
-  ficheRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
-  ficheChip: { fontSize: '12px', color: '#6b7280', background: '#1A1D27', padding: '4px 10px', borderRadius: '8px', border: '1px solid #2a2d3a' },
-  actionsRow: { display: 'flex', gap: '10px' },
-  btnCall: { flex: 1, display: 'block', background: 'linear-gradient(135deg, #1f2937, #374151)', color: '#fff', padding: '15px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '15px', fontWeight: '700' },
-  btnWa: { flex: 1, display: 'block', background: 'linear-gradient(135deg, #15803d, #166534)', color: '#fff', padding: '15px', borderRadius: '12px', textAlign: 'center', textDecoration: 'none', fontSize: '15px', fontWeight: '700' },
-  section: { background: '#13151F', borderRadius: '16px', padding: '18px', border: '1px solid #1e2130' },
-  sectionTitle: { fontSize: '11px', color: '#4b5563', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '14px' },
-  statutGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' },
-  textarea: { width: '100%', background: '#0B0D14', border: '1px solid #2a2d3a', borderRadius: '10px', color: '#f9fafb', padding: '12px', fontSize: '14px', resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
-  btnSave: { marginTop: '10px', width: '100%', background: 'linear-gradient(135deg, #00D4AA, #00b894)', color: '#000', border: 'none', padding: '13px', borderRadius: '10px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' },
-};
