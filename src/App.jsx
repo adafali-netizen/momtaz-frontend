@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
 import Layout from "./Layout";
-import Dashboard from "./modules/Dashboard";
-import Leads from "./modules/Leads";
-import Commandes from "./modules/Commandes";
-import Produits from "./modules/Produits";
-import Stock from "./modules/Stock";
-import Ads from "./modules/Ads";
+import Dashboard from "./Dashboard";
+import Leads from "./Leads";
+import Commandes from "./Commandes";
+import Produits from "./Produits";
+import Stock from "./Stock";
+import Ads from "./Ads";
 import "./App.css";
 
 export default function App() {
