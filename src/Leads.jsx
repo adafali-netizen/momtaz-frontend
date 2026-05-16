@@ -46,11 +46,21 @@ export default function Leads({ role, nom }) {
     setLoading(false);
   }
 
-  async function updateStatut(id, statut) {
-    await supabase.from("leads").update({ statut }).eq("id", id);
-    await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) });
-    if (selected?.id === id) setSelected({ ...selected, statut });
-  }
+async function updateStatut(id, statut) {
+  // Mise à jour immédiate de l'affichage
+  setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
+  if (selected?.id === id) setSelected(s => ({ ...s, statut }));
+
+  // Sauvegarde en arrière-plan
+  await supabase.from("leads").update({ statut }).eq("id", id);
+  try {
+    await fetch(WEBHOOK + id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ statut }),
+    });
+  } catch (e) {}
+}
 
   async function saveComment() {
     if (!selected) return;
