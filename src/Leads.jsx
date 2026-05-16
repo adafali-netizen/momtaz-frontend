@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../supabaseClient";
+import { supabase } from "./supabaseClient";
 
 const STATUTS = ["À appeler","Confirmé","Injoignable","Demande de rappel","Annulé","Pas intéressé","Numéro faux"];
 
