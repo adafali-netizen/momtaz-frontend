@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../supabaseClient";
+import { supabase } from "./supabaseClient";
 
 export default function Dashboard({ role, nom, setModule }) {
   const [leads, setLeads] = useState([]);
