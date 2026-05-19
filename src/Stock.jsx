@@ -1,27 +1,36 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "./supabaseClient";
 
 function getStatut(dispo, seuil) {
-  if (dispo === 0)      return { label: "Rupture",  color: "#DC2626", bg: "#FEF2F2", emoji: "🔴" };
-  if (dispo < seuil)    return { label: "Critique", color: "#D97706", bg: "#FFFBEB", emoji: "🟠" };
-  return                       { label: "OK",       color: "#16A34A", bg: "#F0FDF4", emoji: "🟢" };
+  if (dispo <= 0)    return { label: "Rupture",  color: "#DC2626", bg: "#FEF2F2", emoji: "🔴" };
+  if (dispo < seuil) return { label: "Critique", color: "#D97706", bg: "#FFFBEB", emoji: "🟠" };
+  return                    { label: "OK",       color: "#16A34A", bg: "#F0FDF4", emoji: "🟢" };
 }
 
 function ModalEntree({ produits, onClose, onAdd }) {
-  const [form, setForm] = useState({ produitId: produits[0]?.id || "", qte: "", note: "" });
+  const [form, setForm] = useState({ produit_id: produits[0]?.id || "", qte: "", note: "" });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = () => { if (!form.produitId || !form.qte) return; onAdd(+form.produitId, +form.qte, form.note); onClose(); };
+  const submit = async () => {
+    if (!form.produit_id || !form.qte) return;
+    await onAdd(form.produit_id, +form.qte, form.note);
+    onClose();
+  };
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header"><span className="modal-title">+ Entrée de stock</span><button className="btn-close" onClick={onClose}>×</button></div>
         <div className="modal-body">
           <div className="form-group"><label className="form-label">Produit</label>
-            <select className="form-select" value={form.produitId} onChange={e => set("produitId", e.target.value)}>
+            <select className="form-select" value={form.produit_id} onChange={e => set("produit_id", e.target.value)}>
               {produits.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
             </select>
           </div>
-          <div className="form-group"><label className="form-label">Quantité ajoutée *</label><input className="form-input" type="number" min="1" value={form.qte} onChange={e => set("qte", e.target.value)} placeholder="50" /></div>
-          <div className="form-group"><label className="form-label">Note (optionnel)</label><input className="form-input" value={form.note} onChange={e => set("note", e.target.value)} placeholder="Réappro fournisseur X..." /></div>
+          <div className="form-group"><label className="form-label">Quantité *</label>
+            <input className="form-input" type="number" min="1" value={form.qte} onChange={e => set("qte", e.target.value)} placeholder="50" />
+          </div>
+          <div className="form-group"><label className="form-label">Note (optionnel)</label>
+            <input className="form-input" value={form.note} onChange={e => set("note", e.target.value)} placeholder="Réappro fournisseur..." />
+          </div>
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
@@ -33,18 +42,36 @@ function ModalEntree({ produits, onClose, onAdd }) {
 }
 
 function ModalProduit({ onClose, onAdd }) {
-  const [form, setForm] = useState({ nom: "", dispo: "", seuil: "10" });
+  const [form, setForm] = useState({ nom: "", prix_vente: "", cout_achat: "", stock_disponible: "", stock_minimum: "5" });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = () => { if (!form.nom) return; onAdd(form); onClose(); };
+  const submit = async () => {
+    if (!form.nom) return;
+    await onAdd(form);
+    onClose();
+  };
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header"><span className="modal-title">Ajouter un produit au stock</span><button className="btn-close" onClick={onClose}>×</button></div>
+        <div className="modal-header"><span className="modal-title">Nouveau produit</span><button className="btn-close" onClick={onClose}>×</button></div>
         <div className="modal-body">
-          <div className="form-group"><label className="form-label">Nom du produit *</label><input className="form-input" value={form.nom} onChange={e => set("nom", e.target.value)} placeholder="Ceinture magnétique" /></div>
+          <div className="form-group"><label className="form-label">Nom du produit *</label>
+            <input className="form-input" value={form.nom} onChange={e => set("nom", e.target.value)} placeholder="Ceinture magnétique" />
+          </div>
           <div className="form-row">
-            <div className="form-group"><label className="form-label">Stock initial</label><input className="form-input" type="number" value={form.dispo} onChange={e => set("dispo", e.target.value)} placeholder="50" /></div>
-            <div className="form-group"><label className="form-label">Seuil minimum</label><input className="form-input" type="number" value={form.seuil} onChange={e => set("seuil", e.target.value)} placeholder="10" /></div>
+            <div className="form-group"><label className="form-label">Prix vente (MAD)</label>
+              <input className="form-input" type="number" value={form.prix_vente} onChange={e => set("prix_vente", e.target.value)} placeholder="299" />
+            </div>
+            <div className="form-group"><label className="form-label">Coût achat (MAD)</label>
+              <input className="form-input" type="number" value={form.cout_achat} onChange={e => set("cout_achat", e.target.value)} placeholder="80" />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group"><label className="form-label">Stock initial</label>
+              <input className="form-input" type="number" value={form.stock_disponible} onChange={e => set("stock_disponible", e.target.value)} placeholder="50" />
+            </div>
+            <div className="form-group"><label className="form-label">Seuil minimum</label>
+              <input className="form-input" type="number" value={form.stock_minimum} onChange={e => set("stock_minimum", e.target.value)} placeholder="5" />
+            </div>
           </div>
         </div>
         <div className="modal-footer">
@@ -57,33 +84,73 @@ function ModalProduit({ onClose, onAdd }) {
 }
 
 export default function Stock() {
-  const [stocks,     setStocks]     = useState([]);
-  const [filtre,     setFiltre]     = useState("tous");
-  const [showEntree, setShowEntree] = useState(false);
-  const [showProduit,setShowProduit]= useState(false);
-  const [editSeuil,  setEditSeuil]  = useState(null);
-  const [seuilVal,   setSeuilVal]   = useState("");
+  const [produits,    setProduits]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [filtre,      setFiltre]      = useState("tous");
+  const [showEntree,  setShowEntree]  = useState(false);
+  const [showProduit, setShowProduit] = useState(false);
+  const [editSeuil,   setEditSeuil]   = useState(null);
+  const [seuilVal,    setSeuilVal]    = useState("");
 
-  const addProduit = f => setStocks(prev => [...prev, { id: Date.now(), nom: f.nom, dispo: +f.dispo || 0, seuil: +f.seuil || 10, dernEntree: new Date().toLocaleDateString("fr-FR") }]);
-  const addEntree  = (id, qte, note) => setStocks(prev => prev.map(s => s.id === id ? { ...s, dispo: s.dispo + qte, dernEntree: new Date().toLocaleDateString("fr-FR") } : s));
-  const saveSeuil  = (id) => { setStocks(prev => prev.map(s => s.id === id ? { ...s, seuil: +seuilVal || s.seuil } : s)); setEditSeuil(null); };
+  useEffect(() => {
+    fetchProduits();
+    const ch = supabase.channel("produits-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "produits" }, fetchProduits)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
 
-  const ruptures = stocks.filter(s => s.dispo === 0);
-  const critiques = stocks.filter(s => s.dispo > 0 && s.dispo < s.seuil);
-  const FILTRES = ["tous", "Rupture", "Critique", "OK"];
-  const count   = f => f === "tous" ? stocks.length : stocks.filter(s => getStatut(s.dispo, s.seuil).label === f).length;
-  const filtered = stocks.filter(s => filtre === "tous" || getStatut(s.dispo, s.seuil).label === filtre);
+  async function fetchProduits() {
+    const { data, error } = await supabase.from("produits").select("*").order("nom");
+    if (!error) setProduits(data);
+    setLoading(false);
+  }
+
+  async function addProduit(form) {
+    await supabase.from("produits").insert([{
+      nom:             form.nom,
+      prix_vente:      +form.prix_vente || 0,
+      cout_achat:      +form.cout_achat || 0,
+      stock_disponible:+form.stock_disponible || 0,
+      stock_minimum:   +form.stock_minimum || 5,
+    }]);
+  }
+
+  async function addEntree(produit_id, qte, note) {
+    // Mise à jour stock
+    const produit = produits.find(p => p.id === produit_id);
+    if (!produit) return;
+    await supabase.from("produits")
+      .update({ stock_disponible: produit.stock_disponible + qte })
+      .eq("id", produit_id);
+    // Enregistre mouvement
+    await supabase.from("stock_movements").insert([{
+      produit_id, type: "entree", quantite: qte, source: note || "manuel"
+    }]);
+  }
+
+  async function saveSeuil(id) {
+    await supabase.from("produits").update({ stock_minimum: +seuilVal }).eq("id", id);
+    setEditSeuil(null);
+  }
+
+  const FILTRES  = ["tous", "Rupture", "Critique", "OK"];
+  const count    = f => f === "tous" ? produits.length : produits.filter(p => getStatut(p.stock_disponible, p.stock_minimum).label === f).length;
+  const filtered = produits.filter(p => filtre === "tous" || getStatut(p.stock_disponible, p.stock_minimum).label === filtre);
+
+  const ruptures  = produits.filter(p => p.stock_disponible <= 0);
+  const critiques = produits.filter(p => p.stock_disponible > 0 && p.stock_disponible < p.stock_minimum);
 
   return (
     <>
       {ruptures.length > 0 && (
         <div className="alert-banner danger" style={{ margin: "16px 24px 0" }}>
-          🔴 Rupture : {ruptures.map(s => s.nom).join(", ")} — réapprovisionner en urgence
+          🔴 Rupture : {ruptures.map(p => p.nom).join(", ")}
         </div>
       )}
       {ruptures.length === 0 && critiques.length > 0 && (
         <div className="alert-banner warning" style={{ margin: "16px 24px 0" }}>
-          ⚠️ Stock critique : {critiques.map(s => s.nom).join(", ")}
+          ⚠️ Stock critique : {critiques.map(p => p.nom).join(", ")}
         </div>
       )}
 
@@ -91,7 +158,7 @@ export default function Stock() {
         <div className={`kpi-card${ruptures.length > 0 ? " kpi-alert" : ""}`}><div className="kpi-value">{ruptures.length}</div><div className="kpi-label">En rupture</div></div>
         <div className={`kpi-card${critiques.length > 0 ? " kpi-warn" : ""}`}><div className="kpi-value">{critiques.length}</div><div className="kpi-label">Critiques</div></div>
         <div className="kpi-card kpi-success"><div className="kpi-value">{count("OK")}</div><div className="kpi-label">OK</div></div>
-        <div className="kpi-card"><div className="kpi-value">{stocks.length}</div><div className="kpi-label">Total SKUs</div></div>
+        <div className="kpi-card"><div className="kpi-value">{produits.length}</div><div className="kpi-label">Total SKUs</div></div>
       </div>
 
       <div className="toolbar">
@@ -103,58 +170,80 @@ export default function Stock() {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowEntree(true)} disabled={stocks.length === 0}>+ Entrée</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowEntree(true)} disabled={produits.length === 0}>+ Entrée stock</button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowProduit(true)}>+ Produit</button>
         </div>
       </div>
 
-      {stocks.length === 0 ? (
+      {loading ? (
+        <div className="state-wrap"><div className="spinner" /> Chargement...</div>
+      ) : produits.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">🏪</div>
           <div className="empty-title">Stock vide</div>
-          <div className="empty-sub">Ajoute tes produits pour suivre les niveaux de stock et éviter les ruptures</div>
+          <div className="empty-sub">Ajoute tes produits pour suivre le stock et recevoir des alertes de rupture</div>
           <button className="btn btn-primary" onClick={() => setShowProduit(true)}>+ Ajouter un produit</button>
         </div>
       ) : (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>Produit</th><th>Disponible</th><th>Seuil min.</th><th>Dernière entrée</th><th>Statut</th><th>Actions</th></tr>
+              <tr><th>Produit</th><th>Stock dispo</th><th>Seuil min.</th><th>Marge</th><th>Statut</th><th>Actions</th></tr>
             </thead>
             <tbody>
-              {filtered.map(s => {
-                const st = getStatut(s.dispo, s.seuil);
+              {filtered.map(p => {
+                const st    = getStatut(p.stock_disponible, p.stock_minimum);
+                const marge = (p.prix_vente || 0) - (p.cout_achat || 0);
                 return (
-                  <tr key={s.id}>
-                    <td style={{ fontWeight: 600 }}>{s.nom}</td>
-                    <td><span className="col-mono" style={{ fontWeight: 700, color: s.dispo === 0 ? "var(--red)" : s.dispo < s.seuil ? "var(--orange)" : "var(--green)" }}>{s.dispo} u</span></td>
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 600 }}>{p.nom}</td>
                     <td>
-                      {editSeuil === s.id ? (
-                        <input className="inline-edit" value={seuilVal} onChange={e => setSeuilVal(e.target.value)} onBlur={() => saveSeuil(s.id)} onKeyDown={e => e.key === "Enter" && saveSeuil(s.id)} autoFocus />
+                      <span className="col-mono" style={{ fontWeight: 700, color: st.color }}>
+                        {p.stock_disponible} u
+                      </span>
+                    </td>
+                    <td>
+                      {editSeuil === p.id ? (
+                        <input className="inline-edit" value={seuilVal}
+                          onChange={e => setSeuilVal(e.target.value)}
+                          onBlur={() => saveSeuil(p.id)}
+                          onKeyDown={e => e.key === "Enter" && saveSeuil(p.id)}
+                          autoFocus />
                       ) : (
-                        <span className="col-mono col-muted" style={{ cursor: "text" }} onDoubleClick={() => { setEditSeuil(s.id); setSeuilVal(String(s.seuil)); }}>
-                          {s.seuil} u
+                        <span className="col-mono col-muted" style={{ cursor: "text" }}
+                          onDoubleClick={() => { setEditSeuil(p.id); setSeuilVal(String(p.stock_minimum)); }}>
+                          {p.stock_minimum} u
                         </span>
                       )}
                     </td>
-                    <td className="col-muted">{s.dernEntree || "—"}</td>
-                    <td><span className="status-badge" style={{ color: st.color, background: st.bg }}>{st.emoji} {st.label}</span></td>
                     <td>
-                      <button className="btn btn-secondary btn-sm" onClick={() => { setShowEntree(true); }}>+ Stock</button>
+                      <span className="col-mono" style={{ color: marge > 0 ? "#16A34A" : "#DC2626", fontWeight: 600 }}>
+                        {marge} MAD
+                      </span>
+                    </td>
+                    <td>
+                      <span className="status-badge" style={{ color: st.color, background: st.bg }}>
+                        {st.emoji} {st.label}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="btn btn-secondary btn-sm" onClick={() => { setShowEntree(true); }}>
+                        + Stock
+                      </button>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div style={{ padding: "10px 12px", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)" }}>
-            💡 Double-cliquer sur Seuil min. pour le modifier
+          <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)" }}>
+            💡 Double-cliquer sur Seuil min. pour modifier · Stock se met à jour automatiquement à chaque livraison
           </div>
         </div>
       )}
 
       {showProduit && <ModalProduit onClose={() => setShowProduit(false)} onAdd={addProduit} />}
-      {showEntree  && <ModalEntree  produits={stocks} onClose={() => setShowEntree(false)} onAdd={addEntree} />}
+      {showEntree  && <ModalEntree produits={produits} onClose={() => setShowEntree(false)} onAdd={addEntree} />}
     </>
   );
 }
