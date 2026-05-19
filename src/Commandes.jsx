@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-const STATUTS_CMD = ["À expédier", "Expédié", "En livraison", "Livré", "Retour", "Annulé"];
+const STATUTS_CMD = ["À expédier", "Expédié", "En livraison", "Livré", "Demande de retour", "Retour en cours", "Retour reçu", "Annulé"];
 
 const S_CMD = {
   "À expédier":  { color: "#2563EB", bg: "#EFF6FF", emoji: "📦" },
   "Expédié":     { color: "#0891B2", bg: "#ECFEFF", emoji: "🚚" },
   "En livraison":{ color: "#D97706", bg: "#FFFBEB", emoji: "🛵" },
   "Livré":       { color: "#16A34A", bg: "#F0FDF4", emoji: "✅" },
-  "Retour":      { color: "#DC2626", bg: "#FEF2F2", emoji: "↩️" },
+"Demande de retour": { color: "#D97706", bg: "#FFFBEB", emoji: "📝" },
+"Retour en cours":   { color: "#DC2626", bg: "#FEF2F2", emoji: "↩️" },
+"Retour reçu":       { color: "#7C3AED", bg: "#F5F3FF", emoji: "✅" },
   "Annulé":      { color: "#DC2626", bg: "#FEF2F2", emoji: "❌" },
 };
 
