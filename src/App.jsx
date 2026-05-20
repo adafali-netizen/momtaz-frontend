@@ -6,16 +6,15 @@ import Dashboard from "./Dashboard";
 import Leads from "./Leads";
 import Commandes from "./Commandes";
 import Produits from "./Produits";
-import Stock from "./Stock";
 import Ads from "./Ads";
 import StockHistorique from "./StockHistorique";
 import "./App.css";
 
 export default function App() {
-  const [session,     setSession]     = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [module,      setModule]      = useState("dashboard");
-  const [moduleParams,setModuleParams]= useState({});
+  const [session,      setSession]      = useState(null);
+  const [authLoading,  setAuthLoading]  = useState(true);
+  const [module,       setModule]       = useState("dashboard");
+  const [moduleParams, setModuleParams] = useState({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -26,7 +25,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Navigation centralisée avec params optionnels
   function navigate(mod, params = {}) {
     setModule(mod);
     setModuleParams(params);
@@ -44,12 +42,11 @@ export default function App() {
   if (!session)    return <Login />;
 
   const MODULES = {
-    dashboard:        Dashboard,
-    leads:            Leads,
-    commandes:        Commandes,
-    produits:         Produits,
-    stock:            Stock,
-    ads:              Ads,
+    dashboard:          Dashboard,
+    leads:              Leads,
+    commandes:          Commandes,
+    produits:           Produits,
+    ads:                Ads,
     "stock-historique": StockHistorique,
   };
 
