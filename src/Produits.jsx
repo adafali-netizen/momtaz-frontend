@@ -234,9 +234,8 @@ export default function Produits() {
                 <th>Prix vente</th>
                 <th>Marge</th>
                 <th>Fournisseur</th>
-                <th>Stock</th>
-                <th>Décision</th>
-              </tr>
+<th>Décision</th>
+<th></th>
             </thead>
             <tbody>
               {filtered.map(p => {
