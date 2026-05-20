@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-// Statut stock-orienté : priorité ordre décroissante
 function getStatut(p, stats) {
-  if (stats.joursRest !== null && stats.joursRest < 2)                      return { label: "RÉAPPRO URGENT",  color: "#DC2626", bg: "#FEF2F2" };
-  if (stats.joursRest !== null && stats.joursRest < 4)                      return { label: "RÉAPPRO BIENTÔT", color: "#D97706", bg: "#FFFBEB" };
-  if (stats.capital > 500 && stats.rotation < 20)                           return { label: "LIQUIDER",        color: "#DC2626", bg: "#FEF2F2" };
-  if (stats.capital > 200 && stats.rotation < 30)                           return { label: "SURVEILLER",      color: "#D97706", bg: "#FFFBEB" };
-  if ((p.stock_disponible || 0) <= 0)                                       return { label: "RUPTURE",         color: "#DC2626", bg: "#FEF2F2" };
-  return                                                                            { label: "OK",             color: "#16A34A", bg: "#F0FDF4" };
+  if (stats.joursRest !== null && stats.joursRest < 2)   return { label: "RÉAPPRO URGENT",  color: "#DC2626", bg: "#FEF2F2" };
+  if (stats.joursRest !== null && stats.joursRest < 4)   return { label: "RÉAPPRO BIENTÔT", color: "#D97706", bg: "#FFFBEB" };
+  if (stats.capital > 500 && stats.rotation < 20)        return { label: "LIQUIDER",        color: "#DC2626", bg: "#FEF2F2" };
+  if (stats.capital > 200 && stats.rotation < 30)        return { label: "SURVEILLER",      color: "#D97706", bg: "#FFFBEB" };
+  if ((p.stock_disponible || 0) <= 0)                    return { label: "RUPTURE",         color: "#DC2626", bg: "#FEF2F2" };
+  return                                                        { label: "OK",              color: "#16A34A", bg: "#F0FDF4" };
 }
 
 function ModalAjout({ produits, onClose }) {
@@ -143,64 +142,112 @@ function ModalEdit({ produit, fourns, onClose }) {
 }
 
 export default function Produits() {
-  const [produits,    setProduits]    = useState([]);
-  const [commandes7j, setCommandes7j] = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [showAjout,   setShowAjout]   = useState(false);
-  const [editProduit, setEditProduit] = useState(null);
+  const [produits,     setProduits]     = useState([]);
+  const [commandes,    setCommandes]    = useState([]);
+  const [lastEntrees,  setLastEntrees]  = useState({}); // { produit_id: created_at }
+  const [loading,      setLoading]      = useState(true);
+  const [showAjout,    setShowAjout]    = useState(false);
+  const [editProduit,  setEditProduit]  = useState(null);
 
   useEffect(() => {
     fetchAll();
-    const ch = supabase.channel("produits-rt5")
-      .on("postgres_changes", { event: "*", schema: "public", table: "produits" }, fetchAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, fetchAll)
+    const ch = supabase.channel("produits-rt6")
+      .on("postgres_changes", { event: "*", schema: "public", table: "produits" },        fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" },       fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_movements" }, fetchAll)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
 
   async function fetchAll() {
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const [{ data: p }, { data: c }] = await Promise.all([
-      supabase.from("produits").select("*").order("nom"),
-      supabase.from("commandes")
-        .select("produit, statut, created_at")
-        .gte("created_at", since)
-        .in("statut", ["Expédié", "En livraison", "Livré", "Demande de retour", "Retour en cours"])
-    ]);
-    if (p) setProduits(p);
-    if (c) setCommandes7j(c);
+    // 1. Produits
+    const { data: p } = await supabase.from("produits").select("*").order("nom");
+    if (!p) { setLoading(false); return; }
+    setProduits(p);
+
+    // 2. Dernière entrée stock par produit
+    const { data: mvts } = await supabase
+      .from("stock_movements")
+      .select("produit_id, created_at")
+      .eq("type", "entree")
+      .order("created_at", { ascending: false });
+
+    // Garder seulement la plus récente par produit_id
+    const entrees = {};
+    if (mvts) {
+      mvts.forEach(m => {
+        if (!entrees[m.produit_id]) entrees[m.produit_id] = m.created_at;
+      });
+    }
+    setLastEntrees(entrees);
+
+    // 3. Commandes depuis la plus ancienne date de dernier réappro
+    //    (ou depuis 90j max si aucun mouvement)
+    const dates = Object.values(entrees);
+    const oldest = dates.length > 0
+      ? dates.reduce((min, d) => d < min ? d : min, dates[0])
+      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: c } = await supabase
+      .from("commandes")
+      .select("produit, statut, created_at")
+      .gte("created_at", oldest)
+      .in("statut", ["Expédié", "En livraison", "Livré", "Demande de retour", "Retour en cours"]);
+
+    if (c) setCommandes(c);
     setLoading(false);
   }
 
   // Matching ILIKE identique au trigger Supabase
-  function getExpéd(produit) {
-    return commandes7j.filter(c =>
-      c.produit && (
-        produit.nom.toLowerCase().includes(c.produit.toLowerCase()) ||
-        c.produit.toLowerCase().includes(produit.nom.toLowerCase())
-      )
-    ).length;
+  function matchProduit(nomProduit, nomCommande) {
+    if (!nomCommande) return false;
+    return (
+      nomProduit.toLowerCase().includes(nomCommande.toLowerCase()) ||
+      nomCommande.toLowerCase().includes(nomProduit.toLowerCase())
+    );
   }
 
   function getStats(p) {
-    const expéd      = getExpéd(p);
-    const moyParJour = expéd / 7;
-    const joursRest  = moyParJour > 0 ? (p.stock_disponible || 0) / moyParJour : null;
-    const qtéSugg    = moyParJour > 0 ? Math.max(0, Math.ceil(moyParJour * 7) - (p.stock_disponible || 0)) : 0;
-    const capital    = (p.stock_disponible || 0) * (p.cout_achat || 0);
-    const rotation   = (p.stock_disponible || 0) > 0 ? (expéd / (p.stock_disponible || 0)) * 100 : 0;
-    return { expéd, moyParJour, joursRest, qtéSugg, capital, rotation };
+    const dateEntree = lastEntrees[p.id] || null;
+    const stock      = p.stock_disponible || 0;
+    const capital    = stock * (p.cout_achat || 0);
+
+    if (!dateEntree) {
+      // Pas de mouvement enregistré → rotation inconnue
+      return { expéd: 0, rotation: 0, joursRest: null, qtéSugg: 0, capital, joursDepuis: null, dateEntree: null };
+    }
+
+    const dateRef    = new Date(dateEntree);
+    const now        = new Date();
+    const joursDepuis = Math.max(1, Math.round((now - dateRef) / (1000 * 60 * 60 * 24)));
+
+    // Expéditions depuis le dernier réappro
+    const expéd = commandes.filter(c =>
+      new Date(c.created_at) >= dateRef && matchProduit(p.nom, c.produit)
+    ).length;
+
+    // Stock initial = stock actuel + expéditions depuis réappro
+    const stockInitial = stock + expéd;
+
+    // % Rotation = expéditions / stock initial × 100
+    const rotation = stockInitial > 0 ? (expéd / stockInitial) * 100 : 0;
+
+    // Rythme réel depuis le réappro
+    const moyParJour = expéd / joursDepuis;
+    const joursRest  = moyParJour > 0 ? stock / moyParJour : null;
+    const qtéSugg    = moyParJour > 0 ? Math.max(0, Math.ceil(moyParJour * 7) - stock) : 0;
+
+    return { expéd, rotation, joursRest, qtéSugg, capital, joursDepuis, dateEntree };
   }
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const stockTotal  = produits.reduce((s, p) => s + (p.stock_disponible || 0), 0);
   const valeurImmo  = produits.reduce((s, p) => s + (p.stock_disponible || 0) * (p.cout_achat || 0), 0);
   const nbAlertes   = produits.filter(p => (p.stock_disponible || 0) < (p.stock_minimum || 0)).length;
-  const rotationMoy = produits.length > 0
-    ? produits.reduce((s, p) => s + getStats(p).rotation, 0) / produits.length
-    : 0;
+  const rotations   = produits.map(p => getStats(p).rotation).filter(r => r > 0);
+  const rotationMoy = rotations.length > 0 ? rotations.reduce((s, r) => s + r, 0) / rotations.length : 0;
 
-  // Tri : urgence d'abord (RÉAPPRO URGENT → LIQUIDER → SURVEILLER → OK)
+  // Tri par priorité d'action
   const ORDER = ["RÉAPPRO URGENT", "RUPTURE", "RÉAPPRO BIENTÔT", "LIQUIDER", "SURVEILLER", "OK"];
   const produitsTriés = [...produits].sort((a, b) => {
     const sa = getStatut(a, getStats(a)).label;
@@ -209,6 +256,11 @@ export default function Produits() {
   });
 
   const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
+
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  }
 
   return (
     <>
@@ -228,7 +280,7 @@ export default function Produits() {
         </div>
         <div className="kpi-card">
           <div className="kpi-value">{rotationMoy.toFixed(0)}%</div>
-          <div className="kpi-label">% Rotation moy. (7j)</div>
+          <div className="kpi-label">% Rotation moy.</div>
         </div>
       </div>
 
@@ -256,7 +308,8 @@ export default function Produits() {
                 <th>Fournisseur</th>
                 <th>Stock</th>
                 <th>Capital mobilisé</th>
-                <th>Rotation 7j</th>
+                <th>Dernier réappro</th>
+                <th>Rotation</th>
                 <th>Jours restants</th>
                 <th>Qté réappro</th>
                 <th>Statut</th>
@@ -284,11 +337,20 @@ export default function Produits() {
                     <td className="col-mono" style={{ color: stats.capital > 500 ? "var(--red)" : stats.capital > 200 ? "var(--orange)" : "var(--text)" }}>
                       {stats.capital > 0 ? `${stats.capital.toLocaleString()} MAD` : <span style={{ color: "var(--muted2)" }}>—</span>}
                     </td>
+                    <td style={{ fontSize: 12, color: "var(--muted2)" }}>
+                      {stats.dateEntree
+                        ? <span title={`il y a ${stats.joursDepuis}j`}>{fmtDate(stats.dateEntree)}</span>
+                        : <span style={{ color: "var(--red)", fontSize: 11 }}>non enregistré</span>}
+                    </td>
                     <td>
-                      <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color: stats.rotation >= 30 ? "var(--green)" : stats.rotation >= 10 ? "var(--orange)" : "var(--red)" }}>
-                        {stats.rotation.toFixed(0)}%
-                      </span>
-                      <span style={{ fontSize: 11, color: "var(--muted2)", marginLeft: 4 }}>({stats.expéd} exp.)</span>
+                      {stats.dateEntree ? (
+                        <>
+                          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color: stats.rotation >= 50 ? "var(--green)" : stats.rotation >= 20 ? "var(--orange)" : "var(--red)" }}>
+                            {stats.rotation.toFixed(0)}%
+                          </span>
+                          <span style={{ fontSize: 11, color: "var(--muted2)", marginLeft: 4 }}>({stats.expéd} exp. / {stats.joursDepuis}j)</span>
+                        </>
+                      ) : <span style={{ color: "var(--muted2)" }}>—</span>}
                     </td>
                     <td className="col-mono" style={{ fontWeight: 600, color: stats.joursRest === null ? "var(--muted2)" : stats.joursRest < 2 ? "var(--red)" : stats.joursRest < 4 ? "var(--orange)" : "var(--green)" }}>
                       {stats.joursRest !== null ? `${stats.joursRest.toFixed(1)}j` : "—"}
@@ -312,7 +374,7 @@ export default function Produits() {
             </tbody>
           </table>
           <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)" }}>
-            💡 ✏️ pour modifier · Trié par priorité d'action
+            💡 Rotation = expéditions depuis dernier réappro ÷ stock initial · Trié par priorité d'action
           </div>
         </div>
       )}
