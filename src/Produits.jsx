@@ -2,47 +2,139 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 function getDecision(p) {
-  if (p.decision === "SCALE")     return { label: "SCALE",     color: "#16A34A", bg: "#F0FDF4" };
-  if (p.decision === "STOP")      return { label: "STOP",      color: "#DC2626", bg: "#FEF2F2" };
-  return                                 { label: "OPTIMISER", color: "#D97706", bg: "#FFFBEB" };
+  if (p.decision === "SCALE") return { label: "SCALE",     color: "#16A34A", bg: "#F0FDF4" };
+  if (p.decision === "STOP")  return { label: "STOP",      color: "#DC2626", bg: "#FEF2F2" };
+  return                             { label: "OPTIMISER", color: "#D97706", bg: "#FFFBEB" };
 }
 
-function Modal({ onClose, onCreate }) {
-  const [form, setForm] = useState({ nom: "", cout_achat: "", fournisseur: "", stock_disponible: "" });
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+function Modal({ produits, onClose, onCreate }) {
+  const nomsExistants    = [...new Set(produits.map(p => p.nom))].sort();
+  const fournsExistants  = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
+
+  const [nomMode,    setNomMode]    = useState(nomsExistants.length > 0 ? "existant" : "nouveau");
+  const [nomSelect,  setNomSelect]  = useState(nomsExistants[0] || "");
+  const [nomNouveau, setNomNouveau] = useState("");
+
+  const [fournMode,    setFournMode]    = useState(fournsExistants.length > 0 ? "existant" : "nouveau");
+  const [fournSelect,  setFournSelect]  = useState(fournsExistants[0] || "");
+  const [fournNouveau, setFournNouveau] = useState("");
+
+  const [cout,  setCout]  = useState("");
+  const [stock, setStock] = useState("");
+
+  const nomFinal   = nomMode   === "existant" ? nomSelect   : nomNouveau;
+  const fournFinal = fournMode === "existant" ? fournSelect : fournNouveau;
+
   const submit = async () => {
-    if (!form.nom) return;
-    await onCreate(form);
+    if (!nomFinal) return;
+    // Si produit existant → on ajoute juste du stock
+    const existant = produits.find(p => p.nom === nomFinal);
+    if (existant) {
+      const ajout = +stock || 0;
+      if (ajout > 0) {
+        await supabase.from("produits")
+          .update({ stock_disponible: existant.stock_disponible + ajout })
+          .eq("id", existant.id);
+        await supabase.from("stock_movements").insert([{
+          produit_id: existant.id, type: "entree", quantite: ajout, source: "ajout_manuel"
+        }]);
+      }
+      // Met à jour fournisseur si renseigné
+      if (fournFinal) {
+        await supabase.from("produits").update({ fournisseur: fournFinal }).eq("id", existant.id);
+      }
+    } else {
+      // Nouveau produit
+      await supabase.from("produits").insert([{
+        nom:              nomFinal,
+        cout_achat:       +cout || 0,
+        fournisseur:      fournFinal || null,
+        stock_disponible: +stock || 0,
+        stock_minimum:    5,
+        decision:         "OPTIMISER",
+      }]);
+    }
     onClose();
   };
+
+  const isExistant = produits.some(p => p.nom === nomFinal);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">Nouveau produit</span>
+          <span className="modal-title">{isExistant ? "Ajouter du stock" : "Nouveau produit"}</span>
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
+
+          {/* Produit */}
           <div className="form-group">
-            <label className="form-label">Nom du produit *</label>
-            <input className="form-input" value={form.nom} onChange={e => set("nom", e.target.value)} placeholder="4 boites à lunch..." />
+            <label className="form-label">Produit *</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+              {nomsExistants.length > 0 && (
+                <>
+                  <button className={`btn btn-sm ${nomMode === "existant" ? "btn-primary" : "btn-secondary"}`} onClick={() => setNomMode("existant")}>Existant</button>
+                  <button className={`btn btn-sm ${nomMode === "nouveau" ? "btn-primary" : "btn-secondary"}`} onClick={() => setNomMode("nouveau")}>+ Nouveau</button>
+                </>
+              )}
+            </div>
+            {nomMode === "existant" && nomsExistants.length > 0 ? (
+              <select className="form-select" value={nomSelect} onChange={e => setNomSelect(e.target.value)}>
+                {nomsExistants.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            ) : (
+              <input className="form-input" value={nomNouveau} onChange={e => setNomNouveau(e.target.value)} placeholder="Nom du produit..." />
+            )}
           </div>
-          <div className="form-group">
-            <label className="form-label">Prix achat (MAD)</label>
-            <input className="form-input" type="number" value={form.cout_achat} onChange={e => set("cout_achat", e.target.value)} placeholder="80" />
-          </div>
+
+          {/* Fournisseur */}
           <div className="form-group">
             <label className="form-label">Fournisseur</label>
-            <input className="form-input" value={form.fournisseur} onChange={e => set("fournisseur", e.target.value)} placeholder="Nom du fournisseur..." />
+            <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+              {fournsExistants.length > 0 && (
+                <>
+                  <button className={`btn btn-sm ${fournMode === "existant" ? "btn-primary" : "btn-secondary"}`} onClick={() => setFournMode("existant")}>Existant</button>
+                  <button className={`btn btn-sm ${fournMode === "nouveau" ? "btn-primary" : "btn-secondary"}`} onClick={() => setFournMode("nouveau")}>+ Nouveau</button>
+                </>
+              )}
+            </div>
+            {fournMode === "existant" && fournsExistants.length > 0 ? (
+              <select className="form-select" value={fournSelect} onChange={e => setFournSelect(e.target.value)}>
+                <option value="">— Aucun —</option>
+                {fournsExistants.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            ) : (
+              <input className="form-input" value={fournNouveau} onChange={e => setFournNouveau(e.target.value)} placeholder="Nom du fournisseur..." />
+            )}
           </div>
+
+          {/* Prix achat — seulement si nouveau produit */}
+          {!isExistant && (
+            <div className="form-group">
+              <label className="form-label">Prix achat (MAD)</label>
+              <input className="form-input" type="number" value={cout} onChange={e => setCout(e.target.value)} placeholder="80" />
+            </div>
+          )}
+
+          {/* Stock */}
           <div className="form-group">
-            <label className="form-label">Unités en stock</label>
-            <input className="form-input" type="number" value={form.stock_disponible} onChange={e => set("stock_disponible", e.target.value)} placeholder="50" />
+            <label className="form-label">{isExistant ? "Quantité à ajouter" : "Stock initial"}</label>
+            <input className="form-input" type="number" value={stock} onChange={e => setStock(e.target.value)} placeholder="50" />
           </div>
+
+          {/* Info si produit existant */}
+          {isExistant && (
+            <div style={{ padding: "8px 12px", background: "var(--blue-lt)", borderRadius: 8, fontSize: 12, color: "var(--blue)" }}>
+              ℹ️ Ce produit existe déjà — le stock sera ajouté au stock actuel
+            </div>
+          )}
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
-          <button className="btn btn-primary" onClick={submit}>Créer le produit</button>
+          <button className="btn btn-primary" onClick={submit}>
+            {isExistant ? "Ajouter le stock" : "Créer le produit"}
+          </button>
         </div>
       </div>
     </div>
@@ -71,17 +163,6 @@ export default function Produits() {
     setLoading(false);
   }
 
-  async function createProduit(form) {
-    await supabase.from("produits").insert([{
-      nom:              form.nom,
-      cout_achat:       +form.cout_achat || 0,
-      fournisseur:      form.fournisseur || null,
-      stock_disponible: +form.stock_disponible || 0,
-      stock_minimum:    5,
-      decision:         "OPTIMISER",
-    }]);
-  }
-
   async function updateField(id, field, value) {
     const val = ["cout_achat", "prix_vente", "stock_disponible", "stock_minimum"].includes(field) ? +value : value;
     await supabase.from("produits").update({ [field]: val }).eq("id", id);
@@ -107,7 +188,7 @@ export default function Produits() {
         onKeyDown={e => e.key === "Enter" && updateField(id, field, editVal)}
         autoFocus />
     ) : (
-      <span className={mono ? "col-mono" : ""} style={{ cursor: "text", color: "inherit" }}
+      <span className={mono ? "col-mono" : ""} style={{ cursor: "text" }}
         onDoubleClick={() => { setEditCell({ id, field }); setEditVal(String(value ?? "")); }}>
         {value || <span style={{ color: "var(--muted2)" }}>{placeholder}</span>}
       </span>
@@ -164,25 +245,19 @@ export default function Produits() {
                 return (
                   <tr key={p.id}>
                     <td style={{ fontWeight: 600 }}>{p.nom}</td>
-
                     <td><EditCell id={p.id} field="cout_achat" value={p.cout_achat ? `${p.cout_achat} MAD` : ""} mono placeholder="—" /></td>
-
                     <td><EditCell id={p.id} field="prix_vente" value={p.prix_vente ? `${p.prix_vente} MAD` : ""} mono placeholder="à définir" /></td>
-
                     <td>
                       {p.prix_vente && p.cout_achat
                         ? <span style={{ fontFamily: "JetBrains Mono", fontWeight: 700, color: marge > 0 ? "var(--green)" : "var(--red)" }}>{marge} MAD</span>
                         : <span style={{ color: "var(--muted2)", fontSize: 12 }}>—</span>}
                     </td>
-
                     <td><EditCell id={p.id} field="fournisseur" value={p.fournisseur} placeholder="Ajouter..." /></td>
-
                     <td>
                       <span className="col-mono" style={{ fontWeight: 700, color: p.stock_disponible <= 0 ? "var(--red)" : p.stock_disponible < p.stock_minimum ? "var(--orange)" : "var(--green)" }}>
                         {p.stock_disponible} u
                       </span>
                     </td>
-
                     <td>
                       <span className="decision-badge" onClick={() => toggleDecision(p.id, p.decision)}
                         style={{ color: d.color, background: d.bg, cursor: "pointer" }} title="Cliquer pour changer">
@@ -200,7 +275,7 @@ export default function Produits() {
         </div>
       )}
 
-      {showModal && <Modal onClose={() => setShowModal(false)} onCreate={createProduit} />}
+      {showModal && <Modal produits={produits} onClose={() => setShowModal(false)} onCreate={() => {}} />}
     </>
   );
 }
