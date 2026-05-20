@@ -17,8 +17,15 @@ function Modal({ onClose, onCreate }) {
     cpm: "", ctr: "", cpc: "", visites: "", pct_arrivee: "",
     leads: "", cout_visite: "", conv_site: "", creatives: "",
   });
-  const [avance, setAvance] = useState(false);
+  const [avance,   setAvance]   = useState(false);
+  const [nomsProd, setNomsProd] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    supabase.from("produits").select("nom").order("nom").then(({ data }) => {
+      if (data) setNomsProd(data.map(p => p.nom));
+    });
+  }, []);
 
   // CPL auto-calculé
   const cpl = form.budget_mad && form.leads && +form.leads > 0
@@ -54,7 +61,10 @@ function Modal({ onClose, onCreate }) {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Produit</label>
-              <input className="form-input" value={form.produit} onChange={e => set("produit", e.target.value)} placeholder="Pistolet massage..." />
+              <select className="form-select" value={form.produit} onChange={e => set("produit", e.target.value)}>
+                <option value="">— Aucun —</option>
+                {nomsProd.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Créatives</label>
