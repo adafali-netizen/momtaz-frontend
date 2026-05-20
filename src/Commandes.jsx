@@ -23,7 +23,7 @@ const S_CMD = {
   "Retour reçu":       { color: "#7C3AED", bg: "#F5F3FF", emoji: "✅" },
 };
 
-const TRANSPORTEURS = ["Sendit", "Digylog", "Ameex", "Amana", "Chronopost", "CTM", "Autre"];
+const TRANSPORTEURS = ["Sendit", "Digylog", "Ameex","Autre"];
 const WEBHOOK = "https://momtaz-webhook-production.up.railway.app/api/commande/";
 
 // Statuts qui déclenchent la saisie des frais livraison
