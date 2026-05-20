@@ -1,30 +1,53 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-const STATUTS_CMD = ["À expédier", "Expédié", "En livraison", "Livré", "Demande de retour", "Retour en cours", "Retour reçu", "Annulé"];
+const STATUTS_CMD = [
+  "À expédier", "Expédiée", "Injoignable", "Reportée",
+  "Annulée", "Refusée", "Changement de dest",
+  "Livrée", "Facturée",
+  "Demande de retour", "Retour en cours", "Retour reçu"
+];
 
 const S_CMD = {
-  "À expédier":  { color: "#2563EB", bg: "#EFF6FF", emoji: "📦" },
-  "Expédié":     { color: "#0891B2", bg: "#ECFEFF", emoji: "🚚" },
-  "En livraison":{ color: "#D97706", bg: "#FFFBEB", emoji: "🛵" },
-  "Livré":       { color: "#16A34A", bg: "#F0FDF4", emoji: "✅" },
-"Demande de retour": { color: "#D97706", bg: "#FFFBEB", emoji: "📝" },
-"Retour en cours":   { color: "#DC2626", bg: "#FEF2F2", emoji: "↩️" },
-"Retour reçu":       { color: "#7C3AED", bg: "#F5F3FF", emoji: "✅" },
-  "Annulé":      { color: "#DC2626", bg: "#FEF2F2", emoji: "❌" },
+  "À expédier":        { color: "#2563EB", bg: "#EFF6FF", emoji: "📦" },
+  "Expédiée":          { color: "#0891B2", bg: "#ECFEFF", emoji: "🚚" },
+  "Injoignable":       { color: "#D97706", bg: "#FFFBEB", emoji: "📵" },
+  "Reportée":          { color: "#7C3AED", bg: "#F5F3FF", emoji: "🔔" },
+  "Annulée":           { color: "#DC2626", bg: "#FEF2F2", emoji: "❌" },
+  "Refusée":           { color: "#DC2626", bg: "#FEF2F2", emoji: "🚫" },
+  "Changement de dest":{ color: "#D97706", bg: "#FFFBEB", emoji: "📍" },
+  "Livrée":            { color: "#16A34A", bg: "#F0FDF4", emoji: "✅" },
+  "Facturée":          { color: "#16A34A", bg: "#F0FDF4", emoji: "🧾" },
+  "Demande de retour": { color: "#D97706", bg: "#FFFBEB", emoji: "📝" },
+  "Retour en cours":   { color: "#DC2626", bg: "#FEF2F2", emoji: "↩️" },
+  "Retour reçu":       { color: "#7C3AED", bg: "#F5F3FF", emoji: "✅" },
 };
 
-const TRANSPORTEURS = ["Amana", "Chronopost", "CTM", "Autre"];
+const TRANSPORTEURS = ["Sendit", "Digylog", "Ameex", "Amana", "Chronopost", "CTM", "Autre"];
 const WEBHOOK = "https://momtaz-webhook-production.up.railway.app/api/commande/";
 
+// Statuts qui déclenchent la saisie des frais livraison
+const STATUTS_LIVRAISON = ["Livrée", "Facturée"];
+// Statuts qui déclenchent la saisie des frais retour
+const STATUTS_RETOUR = ["Retour reçu"];
+
 function Modal({ onClose, onCreate }) {
-  const [form, setForm] = useState({ client_nom: "", telephone: "", produit: "", ville: "", quantite: 1, prix: "", transporteur: "Amana" });
+  const [form, setForm] = useState({
+    client_nom: "", telephone: "", produit: "", ville: "",
+    quantite: 1, prix: "", transporteur: "Sendit"
+  });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = async () => { if (!form.client_nom || !form.telephone) return; await onCreate(form); onClose(); };
+  const submit = async () => {
+    if (!form.client_nom || !form.telephone) return;
+    await onCreate(form); onClose();
+  };
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header"><span className="modal-title">Nouvelle commande</span><button className="btn-close" onClick={onClose}>×</button></div>
+        <div className="modal-header">
+          <span className="modal-title">Nouvelle commande</span>
+          <button className="btn-close" onClick={onClose}>×</button>
+        </div>
         <div className="modal-body">
           <div className="form-row">
             <div className="form-group"><label className="form-label">Client *</label><input className="form-input" value={form.client_nom} onChange={e => set("client_nom", e.target.value)} placeholder="Nom complet" /></div>
@@ -38,7 +61,8 @@ function Modal({ onClose, onCreate }) {
             <div className="form-group"><label className="form-label">Qté</label><input className="form-input" type="number" min="1" value={form.quantite} onChange={e => set("quantite", +e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Prix (MAD)</label><input className="form-input" type="number" value={form.prix} onChange={e => set("prix", e.target.value)} placeholder="299" /></div>
           </div>
-          <div className="form-group"><label className="form-label">Transporteur</label>
+          <div className="form-group">
+            <label className="form-label">Transporteur</label>
             <select className="form-select" value={form.transporteur} onChange={e => set("transporteur", e.target.value)}>
               {TRANSPORTEURS.map(t => <option key={t}>{t}</option>)}
             </select>
@@ -54,13 +78,16 @@ function Modal({ onClose, onCreate }) {
 }
 
 export default function Commandes() {
-  const [commandes,  setCommandes]  = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [filtre,     setFiltre]     = useState("tous");
-  const [selected,   setSelected]   = useState(null);
-  const [showModal,  setShowModal]  = useState(false);
-  const [tracking,   setTracking]   = useState({});
-  const [saving,     setSaving]     = useState(false);
+  const [commandes, setCommandes] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [filtre,    setFiltre]    = useState("tous");
+  const [selected,  setSelected]  = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [tracking,  setTracking]  = useState({});
+  const [saving,    setSaving]    = useState(false);
+  // Frais inline
+  const [fraisLivr, setFraisLivr] = useState("");
+  const [fraisRet,  setFraisRet]  = useState("");
 
   useEffect(() => {
     fetchCommandes();
@@ -77,18 +104,68 @@ export default function Commandes() {
   }
 
   async function createCommande(form) {
-    await supabase.from("commandes").insert([{ client_nom: form.client_nom, telephone: form.telephone, produit: form.produit, ville: form.ville, quantite: form.quantite, prix: form.prix || null, transporteur: form.transporteur, statut: "À expédier" }]);
+    await supabase.from("commandes").insert([{
+      client_nom: form.client_nom, telephone: form.telephone,
+      produit: form.produit, ville: form.ville,
+      quantite: form.quantite, prix: form.prix || null,
+      transporteur: form.transporteur, statut: "À expédier"
+    }]);
   }
 
   async function updateStatut(id, statut) {
     setSaving(true);
     const updates = { statut };
-    if (statut === "Expédié") updates.date_expedition = new Date().toISOString();
-    if (statut === "Livré")   updates.date_livraison  = new Date().toISOString();
-    if (statut === "Retour")  updates.date_retour     = new Date().toISOString();
+    if (statut === "Expédiée")  updates.date_expedition = new Date().toISOString();
+    if (statut === "Livrée" || statut === "Facturée") updates.date_livraison = new Date().toISOString();
+    if (statut === "Retour reçu") updates.date_retour  = new Date().toISOString();
+
+    // Frais livraison
+    if (STATUTS_LIVRAISON.includes(statut) && fraisLivr) {
+      updates.frais_livraison = +fraisLivr;
+      // Enregistre dans releve_bancaire
+      const cmd = commandes.find(c => c.id === id);
+      await supabase.from("releve_bancaire").insert([{
+        date:          new Date().toISOString().split("T")[0],
+        mois:          new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+        mode_paiement: cmd?.transporteur || "—",
+        categorie:     "Logistique",
+        intitule:      "Frais livraison",
+        debit:         +fraisLivr,
+        commande_id:   id,
+        produit:       cmd?.produit || null,
+        observation:   `CMD ${id.slice(0, 8)}`,
+      }]);
+    }
+
+    // Frais retour
+    if (STATUTS_RETOUR.includes(statut) && fraisRet) {
+      updates.frais_retour = +fraisRet;
+      const cmd = commandes.find(c => c.id === id);
+      await supabase.from("releve_bancaire").insert([{
+        date:          new Date().toISOString().split("T")[0],
+        mois:          new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+        mode_paiement: cmd?.transporteur || "—",
+        categorie:     "Logistique",
+        intitule:      "Frais retour",
+        debit:         +fraisRet,
+        commande_id:   id,
+        produit:       cmd?.produit || null,
+        observation:   `CMD ${id.slice(0, 8)}`,
+      }]);
+    }
+
     await supabase.from("commandes").update(updates).eq("id", id);
-    try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates) }); } catch (e) {}
+    try {
+      await fetch(WEBHOOK + id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+    } catch (e) {}
+
     if (selected?.id === id) setSelected(s => ({ ...s, ...updates }));
+    setFraisLivr("");
+    setFraisRet("");
     setSaving(false);
   }
 
@@ -100,16 +177,24 @@ export default function Commandes() {
 
   const count    = s => s === "tous" ? commandes.length : commandes.filter(c => c.statut === s).length;
   const filtered = commandes.filter(c => filtre === "tous" || c.statut === filtre);
-  const retours  = count("Retour");
+  const retours  = count("Retour en cours") + count("Demande de retour");
+
+  // Affichage conditionnel frais selon statut sélectionné dans le panel
+  const showFraisLivr = selected && STATUTS_LIVRAISON.includes(selected.statut);
+  const showFraisRet  = selected && STATUTS_RETOUR.includes(selected.statut);
 
   return (
     <>
-      {retours > 0 && <div className="alert-banner danger" style={{ margin: "16px 24px 0" }}>🔴 {retours} retour{retours > 1 ? "s" : ""} en cours</div>}
+      {retours > 0 && (
+        <div className="alert-banner danger" style={{ margin: "16px 24px 0" }}>
+          🔴 {retours} retour{retours > 1 ? "s" : ""} en cours
+        </div>
+      )}
 
       <div className="kpi-row" style={{ padding: "16px 24px 12px" }}>
         <div className={`kpi-card${count("À expédier") > 0 ? " kpi-alert" : ""}`}><div className="kpi-value">{count("À expédier")}</div><div className="kpi-label">À expédier</div></div>
-        <div className="kpi-card"><div className="kpi-value">{count("En livraison") + count("Expédié")}</div><div className="kpi-label">En transit</div></div>
-        <div className="kpi-card kpi-success"><div className="kpi-value">{count("Livré")}</div><div className="kpi-label">Livrés</div></div>
+        <div className="kpi-card"><div className="kpi-value">{count("Expédiée")}</div><div className="kpi-label">Expédiées</div></div>
+        <div className="kpi-card kpi-success"><div className="kpi-value">{count("Livrée") + count("Facturée")}</div><div className="kpi-label">Livrées</div></div>
         <div className={`kpi-card${retours > 0 ? " kpi-warn" : ""}`}><div className="kpi-value">{retours}</div><div className="kpi-label">Retours</div></div>
       </div>
 
@@ -117,7 +202,7 @@ export default function Commandes() {
         <div className="filter-tabs">
           {["tous", ...STATUTS_CMD].map(f => (
             <button key={f} className={`filter-tab${filtre === f ? " active" : ""}`} onClick={() => setFiltre(f)}>
-              {f} <span className="filter-count">{count(f)}</span>
+              {f === "tous" ? "Tous" : (S_CMD[f]?.emoji || "")} {f} <span className="filter-count">{count(f)}</span>
             </button>
           ))}
         </div>
@@ -137,18 +222,24 @@ export default function Commandes() {
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Client</th><th>Téléphone</th><th>Produit</th><th>Ville</th><th>Transporteur</th><th>Tracking</th><th>Statut</th><th>Créé le</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Client</th><th>Téléphone</th><th>Produit</th><th>Ville</th>
+                  <th>Transporteur</th><th>Tracking</th><th>Frais livr.</th><th>Statut</th><th>Créé le</th>
+                </tr>
+              </thead>
               <tbody>
                 {filtered.map(c => {
                   const m = S_CMD[c.statut] || {};
                   return (
-                    <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => setSelected(c)}>
+                    <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => { setSelected(c); setFraisLivr(c.frais_livraison || ""); setFraisRet(c.frais_retour || ""); }}>
                       <td style={{ fontWeight: 600 }}>{c.client_nom || "—"}</td>
                       <td className="col-mono">{c.telephone}</td>
                       <td>{c.produit || "—"}</td>
                       <td className="col-muted">{c.ville || "—"}</td>
                       <td className="col-muted">{c.transporteur || "—"}</td>
                       <td className="col-mono col-muted">{c.tracking || "—"}</td>
+                      <td className="col-mono">{c.frais_livraison ? `${c.frais_livraison} MAD` : <span style={{ color: "var(--muted2)" }}>—</span>}</td>
                       <td><span className="status-badge" style={{ color: m.color, background: m.bg }}>{m.emoji} {c.statut}</span></td>
                       <td className="col-muted">{c.created_at ? new Date(c.created_at).toLocaleDateString("fr-FR") : "—"}</td>
                     </tr>
@@ -170,13 +261,65 @@ export default function Commandes() {
                 </span>
                 <div style={{ marginTop: 8 }}>
                   <div className="panel-info-row">📞 <span className="panel-phone">{selected.telephone}</span></div>
-                  {selected.ville       && <div className="panel-info-row">📍 {selected.ville}</div>}
-                  {selected.produit     && <div className="panel-info-row">🛒 {selected.produit} × {selected.quantite || 1}</div>}
-                  {selected.prix        && <div className="panel-info-row">💰 {selected.prix} MAD</div>}
-                  {selected.conseillere && <div className="panel-info-row">👤 {selected.conseillere}</div>}
+                  {selected.ville   && <div className="panel-info-row">📍 {selected.ville}</div>}
+                  {selected.produit && <div className="panel-info-row">🛒 {selected.produit} × {selected.quantite || 1}</div>}
+                  {selected.prix    && <div className="panel-info-row">💰 {selected.prix} MAD</div>}
                 </div>
               </div>
+
               <div className="panel-body">
+                {/* Frais livraison — affiché si statut livraison */}
+                {(STATUTS_LIVRAISON.includes(selected.statut) || selected.frais_livraison > 0) && (
+                  <div className="panel-section">
+                    <div className="panel-label">💸 Frais livraison (MAD)</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="form-input" type="number" placeholder="25"
+                        value={fraisLivr} onChange={e => setFraisLivr(e.target.value)} />
+                      <button className="btn btn-secondary btn-sm" onClick={async () => {
+                        if (!fraisLivr) return;
+                        await supabase.from("commandes").update({ frais_livraison: +fraisLivr }).eq("id", selected.id);
+                        const cmd = selected;
+                        await supabase.from("releve_bancaire").insert([{
+                          date: new Date().toISOString().split("T")[0],
+                          mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+                          mode_paiement: cmd.transporteur || "—",
+                          categorie: "Logistique", intitule: "Frais livraison",
+                          debit: +fraisLivr, commande_id: selected.id,
+                          produit: cmd.produit || null,
+                          observation: `CMD ${selected.id.slice(0, 8)}`,
+                        }]);
+                        setSelected(s => ({ ...s, frais_livraison: +fraisLivr }));
+                      }}>💾</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Frais retour — affiché si statut retour */}
+                {(STATUTS_RETOUR.includes(selected.statut) || selected.frais_retour > 0) && (
+                  <div className="panel-section">
+                    <div className="panel-label">↩️ Frais retour (MAD)</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="form-input" type="number" placeholder="15"
+                        value={fraisRet} onChange={e => setFraisRet(e.target.value)} />
+                      <button className="btn btn-secondary btn-sm" onClick={async () => {
+                        if (!fraisRet) return;
+                        await supabase.from("commandes").update({ frais_retour: +fraisRet }).eq("id", selected.id);
+                        const cmd = selected;
+                        await supabase.from("releve_bancaire").insert([{
+                          date: new Date().toISOString().split("T")[0],
+                          mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+                          mode_paiement: cmd.transporteur || "—",
+                          categorie: "Logistique", intitule: "Frais retour",
+                          debit: +fraisRet, commande_id: selected.id,
+                          produit: cmd.produit || null,
+                          observation: `CMD ${selected.id.slice(0, 8)}`,
+                        }]);
+                        setSelected(s => ({ ...s, frais_retour: +fraisRet }));
+                      }}>💾</button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="panel-section">
                   <div className="panel-label">Statut expédition</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -192,13 +335,19 @@ export default function Commandes() {
                     })}
                   </div>
                 </div>
+
                 <div className="panel-section">
                   <div className="panel-label">Transporteur</div>
-                  <select className="form-select" value={selected.transporteur || "Amana"}
-                    onChange={async e => { const val = e.target.value; await supabase.from("commandes").update({ transporteur: val }).eq("id", selected.id); setSelected(s => ({ ...s, transporteur: val })); }}>
+                  <select className="form-select" value={selected.transporteur || "Sendit"}
+                    onChange={async e => {
+                      const val = e.target.value;
+                      await supabase.from("commandes").update({ transporteur: val }).eq("id", selected.id);
+                      setSelected(s => ({ ...s, transporteur: val }));
+                    }}>
                     {TRANSPORTEURS.map(t => <option key={t}>{t}</option>)}
                   </select>
                 </div>
+
                 <div className="panel-section">
                   <div className="panel-label">N° Tracking</div>
                   <input className="form-input" placeholder="Numéro de suivi..."
@@ -213,6 +362,7 @@ export default function Commandes() {
           )}
         </div>
       )}
+
       {showModal && <Modal onClose={() => setShowModal(false)} onCreate={createCommande} />}
     </>
   );
