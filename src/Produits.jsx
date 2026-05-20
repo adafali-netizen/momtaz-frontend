@@ -141,7 +141,7 @@ function ModalEdit({ produit, fourns, onClose }) {
   );
 }
 
-export default function Produits() {
+export default function Produits({ navigate }) {
   const [produits,     setProduits]     = useState([]);
   const [commandes,    setCommandes]    = useState([]);
   const [lastEntrees,  setLastEntrees]  = useState({}); // { produit_id: created_at }
@@ -365,8 +365,9 @@ export default function Produits() {
                         {statut.label}
                       </span>
                     </td>
-                    <td>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setEditProduit(p)}>✏️</button>
+                    <td style={{ display: "flex", gap: 6 }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setEditProduit(p)} title="Modifier">✏️</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => navigate("stock-historique", { produit_id: p.id, produit_nom: p.nom })} title="Historique mouvements">📋</button>
                     </td>
                   </tr>
                 );
