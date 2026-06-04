@@ -441,9 +441,7 @@ export default function Produits({ navigate }) {
 
                 return (
                   <tr key={p.id} style={hasVariantes && !isFirst ? { background: "var(--bg-alt, #fafafa)" } : {}}>
-                    <td style={{ fontWeight: 600 }}>
-                      {isFirst ? p.nom : <span style={{ color: "var(--muted2)", paddingLeft: 16, fontSize: 12 }}>↳</span>}
-                    </td>
+                    <td style={{ fontWeight: 600 }}>{p.nom}</td>
                     <td>
                       {p.variante ? (
                         <span style={{
