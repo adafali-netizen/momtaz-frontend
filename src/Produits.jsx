@@ -26,24 +26,28 @@ function ModalAjout({ produits, onClose }) {
   const [variante,   setVariante]   = useState("");
   const [varianteMode, setVarianteMode] = useState("preset"); // "preset" | "custom" | "aucune"
 
-  const nomFinal   = nomMode   === "existant" ? nomSelect  : nomNouveau;
-  const fournFinal = fournMode === "existant" ? fournSel   : fournNouv;
+  const nomFinal      = nomMode   === "existant" ? nomSelect  : nomNouveau;
+  const fournFinal    = fournMode === "existant" ? fournSel   : fournNouv;
   const varianteFinal = varianteMode === "aucune" ? null : variante || null;
 
-  // Si on choisit un produit existant, vérifier si c'est une variante
-  const existant = produits.find(p => p.nom === nomFinal && (!varianteFinal || p.variante === varianteFinal));
+  // Existant = même nom ET même variante (null === null inclus)
+  const existant = nomMode === "existant"
+    ? produits.find(p => p.nom === nomFinal && (p.variante || null) === varianteFinal)
+    : null;
 
   const submit = async () => {
     if (!nomFinal) return;
     if (existant) {
+      // Ajouter stock à un produit existant
       const ajout = +stock || 0;
       if (ajout > 0) {
-        await supabase.from("produits").update({ stock_disponible: existant.stock_disponible + ajout }).eq("id", existant.id);
+        await supabase.from("produits").update({ stock_disponible: (existant.stock_disponible || 0) + ajout }).eq("id", existant.id);
         await supabase.from("stock_movements").insert([{ produit_id: existant.id, type: "entree", quantite: ajout, source: "ajout_manuel" }]);
       }
       if (fournFinal) await supabase.from("produits").update({ fournisseur: fournFinal }).eq("id", existant.id);
     } else {
-      await supabase.from("produits").insert([{
+      // Créer nouveau produit (ou nouvelle variante)
+      const { error } = await supabase.from("produits").insert([{
         nom: nomFinal,
         cout_achat: +cout || 0,
         fournisseur: fournFinal || null,
@@ -52,6 +56,7 @@ function ModalAjout({ produits, onClose }) {
         decision: "OPTIMISER",
         variante: varianteFinal,
       }]);
+      if (error) { console.error("INSERT_ERROR", error.message); return; }
     }
     onClose();
   };
