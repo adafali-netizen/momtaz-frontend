@@ -10,6 +10,8 @@ function getStatut(p, stats) {
   return                                                        { label: "OK",              color: "#16A34A", bg: "#F0FDF4" };
 }
 
+const COULEURS_PRESET = ["Rouge", "Bleu", "Noir", "Blanc", "Vert", "Jaune", "Rose", "Gris", "Orange", "Violet"];
+
 function ModalAjout({ produits, onClose }) {
   const noms   = [...new Set(produits.map(p => p.nom))].sort();
   const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
@@ -21,9 +23,16 @@ function ModalAjout({ produits, onClose }) {
   const [fournNouv,  setFournNouv]  = useState("");
   const [cout,       setCout]       = useState("");
   const [stock,      setStock]      = useState("");
+  const [variante,   setVariante]   = useState("");
+  const [varianteMode, setVarianteMode] = useState("preset"); // "preset" | "custom" | "aucune"
+
   const nomFinal   = nomMode   === "existant" ? nomSelect  : nomNouveau;
   const fournFinal = fournMode === "existant" ? fournSel   : fournNouv;
-  const existant   = produits.find(p => p.nom === nomFinal);
+  const varianteFinal = varianteMode === "aucune" ? null : variante || null;
+
+  // Si on choisit un produit existant, vérifier si c'est une variante
+  const existant = produits.find(p => p.nom === nomFinal && (!varianteFinal || p.variante === varianteFinal));
+
   const submit = async () => {
     if (!nomFinal) return;
     if (existant) {
@@ -34,10 +43,19 @@ function ModalAjout({ produits, onClose }) {
       }
       if (fournFinal) await supabase.from("produits").update({ fournisseur: fournFinal }).eq("id", existant.id);
     } else {
-      await supabase.from("produits").insert([{ nom: nomFinal, cout_achat: +cout || 0, fournisseur: fournFinal || null, stock_disponible: +stock || 0, stock_minimum: 5, decision: "OPTIMISER" }]);
+      await supabase.from("produits").insert([{
+        nom: nomFinal,
+        cout_achat: +cout || 0,
+        fournisseur: fournFinal || null,
+        stock_disponible: +stock || 0,
+        stock_minimum: 5,
+        decision: "OPTIMISER",
+        variante: varianteFinal,
+      }]);
     }
     onClose();
   };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -46,6 +64,7 @@ function ModalAjout({ produits, onClose }) {
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
+          {/* Produit */}
           <div className="form-group">
             <label className="form-label">Produit *</label>
             {noms.length > 0 && (
@@ -58,6 +77,44 @@ function ModalAjout({ produits, onClose }) {
               ? <select className="form-select" value={nomSelect} onChange={e => setNomSelect(e.target.value)}>{noms.map(n => <option key={n}>{n}</option>)}</select>
               : <input className="form-input" value={nomNouveau} onChange={e => setNomNouveau(e.target.value)} placeholder="Nom du produit..." />}
           </div>
+
+          {/* Variante / Couleur */}
+          <div className="form-group">
+            <label className="form-label">Variante / Couleur</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button className={`btn btn-sm ${varianteMode === "preset" ? "btn-primary" : "btn-secondary"}`} onClick={() => setVarianteMode("preset")}>Couleur</button>
+              <button className={`btn btn-sm ${varianteMode === "custom" ? "btn-primary" : "btn-secondary"}`} onClick={() => setVarianteMode("custom")}>Autre</button>
+              <button className={`btn btn-sm ${varianteMode === "aucune" ? "btn-primary" : "btn-secondary"}`} onClick={() => { setVarianteMode("aucune"); setVariante(""); }}>Aucune</button>
+            </div>
+            {varianteMode === "preset" && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {COULEURS_PRESET.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setVariante(c)}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 20,
+                      border: variante === c ? "2px solid var(--blue)" : "1px solid var(--border)",
+                      background: variante === c ? "var(--blue-lt)" : "var(--bg)",
+                      color: variante === c ? "var(--blue)" : "var(--text)",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: variante === c ? 600 : 400,
+                    }}
+                  >{c}</button>
+                ))}
+              </div>
+            )}
+            {varianteMode === "custom" && (
+              <input className="form-input" value={variante} onChange={e => setVariante(e.target.value)} placeholder="ex: XL, 500ml, Parfumé..." />
+            )}
+            {varianteMode === "aucune" && (
+              <div style={{ fontSize: 12, color: "var(--muted2)", padding: "4px 0" }}>Pas de variante pour ce produit</div>
+            )}
+          </div>
+
+          {/* Fournisseur */}
           <div className="form-group">
             <label className="form-label">Fournisseur</label>
             {fourns.length > 0 && (
@@ -70,6 +127,7 @@ function ModalAjout({ produits, onClose }) {
               ? <select className="form-select" value={fournSel} onChange={e => setFournSel(e.target.value)}><option value="">— Aucun —</option>{fourns.map(f => <option key={f}>{f}</option>)}</select>
               : <input className="form-input" value={fournNouv} onChange={e => setFournNouv(e.target.value)} placeholder="Nom du fournisseur..." />}
           </div>
+
           {!existant && (
             <div className="form-group">
               <label className="form-label">Prix achat (MAD)</label>
@@ -96,13 +154,28 @@ function ModalAjout({ produits, onClose }) {
 }
 
 function ModalEdit({ produit, fourns, onClose }) {
-  const [form, setForm] = useState({ nom: produit.nom || "", cout_achat: produit.cout_achat || "", fournisseur: produit.fournisseur || "" });
+  const [form, setForm] = useState({
+    nom: produit.nom || "",
+    cout_achat: produit.cout_achat || "",
+    fournisseur: produit.fournisseur || "",
+    variante: produit.variante || "",
+  });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const [fournMode, setFournMode] = useState(fourns.includes(produit.fournisseur) ? "existant" : "nouveau");
+  const [varianteMode, setVarianteMode] = useState(
+    !produit.variante ? "aucune" : COULEURS_PRESET.includes(produit.variante) ? "preset" : "custom"
+  );
+
   const submit = async () => {
-    await supabase.from("produits").update({ nom: form.nom, cout_achat: +form.cout_achat || 0, fournisseur: form.fournisseur || null }).eq("id", produit.id);
+    await supabase.from("produits").update({
+      nom: form.nom,
+      cout_achat: +form.cout_achat || 0,
+      fournisseur: form.fournisseur || null,
+      variante: varianteMode === "aucune" ? null : form.variante || null,
+    }).eq("id", produit.id);
     onClose();
   };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -114,6 +187,30 @@ function ModalEdit({ produit, fourns, onClose }) {
           <div className="form-group">
             <label className="form-label">Nom du produit</label>
             <input className="form-input" value={form.nom} onChange={e => set("nom", e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Variante / Couleur</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button className={`btn btn-sm ${varianteMode === "preset" ? "btn-primary" : "btn-secondary"}`} onClick={() => setVarianteMode("preset")}>Couleur</button>
+              <button className={`btn btn-sm ${varianteMode === "custom" ? "btn-primary" : "btn-secondary"}`} onClick={() => setVarianteMode("custom")}>Autre</button>
+              <button className={`btn btn-sm ${varianteMode === "aucune" ? "btn-primary" : "btn-secondary"}`} onClick={() => { setVarianteMode("aucune"); set("variante", ""); }}>Aucune</button>
+            </div>
+            {varianteMode === "preset" && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {COULEURS_PRESET.map(c => (
+                  <button key={c} onClick={() => set("variante", c)} style={{
+                    padding: "4px 12px", borderRadius: 20,
+                    border: form.variante === c ? "2px solid var(--blue)" : "1px solid var(--border)",
+                    background: form.variante === c ? "var(--blue-lt)" : "var(--bg)",
+                    color: form.variante === c ? "var(--blue)" : "var(--text)",
+                    cursor: "pointer", fontSize: 13, fontWeight: form.variante === c ? 600 : 400,
+                  }}>{c}</button>
+                ))}
+              </div>
+            )}
+            {varianteMode === "custom" && (
+              <input className="form-input" value={form.variante} onChange={e => set("variante", e.target.value)} placeholder="ex: XL, 500ml..." />
+            )}
           </div>
           <div className="form-group">
             <label className="form-label">Prix achat (MAD)</label>
@@ -144,20 +241,18 @@ function ModalEdit({ produit, fourns, onClose }) {
 export default function Produits({ navigate }) {
   const [produits,     setProduits]     = useState([]);
   const [commandes,    setCommandes]    = useState([]);
-  const [lastEntrees,  setLastEntrees]  = useState({}); // { produit_id: created_at }
+  const [lastEntrees,  setLastEntrees]  = useState({});
   const [loading,      setLoading]      = useState(true);
   const [showAjout,    setShowAjout]    = useState(false);
   const [editProduit,  setEditProduit]  = useState(null);
-  // Seuil min inline edit
   const [editSeuil,    setEditSeuil]    = useState(null);
   const [seuilVal,     setSeuilVal]     = useState("");
-  // Stock rapide par ligne
   const [stockRapide,  setStockRapide]  = useState(null);
   const [stockQte,     setStockQte]     = useState("");
 
   useEffect(() => {
     fetchAll();
-    const ch = supabase.channel("produits-rt6")
+    const ch = supabase.channel("produits-rt7")
       .on("postgres_changes", { event: "*", schema: "public", table: "produits" },        fetchAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "commandes" },       fetchAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "stock_movements" }, fetchAll)
@@ -166,19 +261,16 @@ export default function Produits({ navigate }) {
   }, []);
 
   async function fetchAll() {
-    // 1. Produits
     const { data: p } = await supabase.from("produits").select("*").order("nom");
     if (!p) { setLoading(false); return; }
     setProduits(p);
 
-    // 2. Dernière entrée stock par produit
     const { data: mvts } = await supabase
       .from("stock_movements")
       .select("produit_id, created_at")
       .eq("type", "entree")
       .order("created_at", { ascending: false });
 
-    // Garder seulement la plus récente par produit_id
     const entrees = {};
     if (mvts) {
       mvts.forEach(m => {
@@ -187,8 +279,6 @@ export default function Produits({ navigate }) {
     }
     setLastEntrees(entrees);
 
-    // 3. Commandes depuis la plus ancienne date de dernier réappro
-    //    (ou depuis 90j max si aucun mouvement)
     const dates = Object.values(entrees);
     const oldest = dates.length > 0
       ? dates.reduce((min, d) => d < min ? d : min, dates[0])
@@ -204,7 +294,6 @@ export default function Produits({ navigate }) {
     setLoading(false);
   }
 
-  // Matching ILIKE identique au trigger Supabase
   function matchProduit(nomProduit, nomCommande) {
     if (!nomCommande) return false;
     return (
@@ -214,46 +303,37 @@ export default function Produits({ navigate }) {
   }
 
   function getStats(p) {
-    const dateEntree = lastEntrees[p.id] || null;
-    const stock      = p.stock_disponible || 0;
-    const capital    = stock * (p.cout_achat || 0);
+    const dateEntree  = lastEntrees[p.id] || null;
+    const stock       = p.stock_disponible || 0;
+    const capital     = stock * (p.cout_achat || 0);
 
     if (!dateEntree) {
-      // Pas de mouvement enregistré → rotation inconnue
       return { expéd: 0, rotation: 0, joursRest: null, qtéSugg: 0, capital, joursDepuis: null, dateEntree: null };
     }
 
-    const dateRef    = new Date(dateEntree);
-    const now        = new Date();
+    const dateRef     = new Date(dateEntree);
+    const now         = new Date();
     const joursDepuis = Math.max(1, Math.round((now - dateRef) / (1000 * 60 * 60 * 24)));
 
-    // Expéditions depuis le dernier réappro
     const expéd = commandes.filter(c =>
       new Date(c.created_at) >= dateRef && matchProduit(p.nom, c.produit)
     ).length;
 
-    // Stock initial = stock actuel + expéditions depuis réappro
     const stockInitial = stock + expéd;
-
-    // % Rotation = expéditions / stock initial × 100
-    const rotation = stockInitial > 0 ? (expéd / stockInitial) * 100 : 0;
-
-    // Rythme réel depuis le réappro
-    const moyParJour = expéd / joursDepuis;
-    const joursRest  = moyParJour > 0 ? stock / moyParJour : null;
-    const qtéSugg    = moyParJour > 0 ? Math.max(0, Math.ceil(moyParJour * 7) - stock) : 0;
+    const rotation     = stockInitial > 0 ? (expéd / stockInitial) * 100 : 0;
+    const moyParJour   = expéd / joursDepuis;
+    const joursRest    = moyParJour > 0 ? stock / moyParJour : null;
+    const qtéSugg      = moyParJour > 0 ? Math.max(0, Math.ceil(moyParJour * 7) - stock) : 0;
 
     return { expéd, rotation, joursRest, qtéSugg, capital, joursDepuis, dateEntree };
   }
 
-  // ── KPIs ────────────────────────────────────────────────────────────────────
   const stockTotal  = produits.reduce((s, p) => s + (p.stock_disponible || 0), 0);
   const valeurImmo  = produits.reduce((s, p) => s + (p.stock_disponible || 0) * (p.cout_achat || 0), 0);
   const nbAlertes   = produits.filter(p => (p.stock_disponible || 0) < (p.stock_minimum || 0)).length;
   const rotations   = produits.map(p => getStats(p).rotation).filter(r => r > 0);
   const rotationMoy = rotations.length > 0 ? rotations.reduce((s, r) => s + r, 0) / rotations.length : 0;
 
-  // Tri par priorité d'action
   const ORDER = ["RÉAPPRO URGENT", "RUPTURE", "RÉAPPRO BIENTÔT", "LIQUIDER", "SURVEILLER", "OK"];
   const produitsTriés = [...produits].sort((a, b) => {
     const sa = getStatut(a, getStats(a)).label;
@@ -281,6 +361,13 @@ export default function Produits({ navigate }) {
     if (!iso) return "—";
     return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
   }
+
+  // Grouper par nom pour affichage
+  const groupes = {};
+  produitsTriés.forEach(p => {
+    if (!groupes[p.nom]) groupes[p.nom] = [];
+    groupes[p.nom].push(p);
+  });
 
   return (
     <>
@@ -324,6 +411,7 @@ export default function Produits({ navigate }) {
             <thead>
               <tr>
                 <th>Produit</th>
+                <th>Variante</th>
                 <th>Prix achat</th>
                 <th>Fournisseur</th>
                 <th>Stock</th>
@@ -338,12 +426,32 @@ export default function Produits({ navigate }) {
               </tr>
             </thead>
             <tbody>
-              {produitsTriés.map(p => {
+              {produitsTriés.map((p, idx) => {
                 const stats  = getStats(p);
                 const statut = getStatut(p, stats);
+                // Afficher le nom seulement sur la première variante du groupe
+                const nomGroup = groupes[p.nom];
+                const isFirst  = nomGroup[0].id === p.id;
+                const hasVariantes = nomGroup.length > 1 || nomGroup[0].variante;
+
                 return (
-                  <tr key={p.id}>
-                    <td style={{ fontWeight: 600 }}>{p.nom}</td>
+                  <tr key={p.id} style={hasVariantes && !isFirst ? { background: "var(--bg-alt, #fafafa)" } : {}}>
+                    <td style={{ fontWeight: 600 }}>
+                      {isFirst ? p.nom : <span style={{ color: "var(--muted2)", paddingLeft: 16, fontSize: 12 }}>↳</span>}
+                    </td>
+                    <td>
+                      {p.variante ? (
+                        <span style={{
+                          display: "inline-block",
+                          padding: "2px 10px",
+                          borderRadius: 20,
+                          background: "var(--blue-lt)",
+                          color: "var(--blue)",
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}>{p.variante}</span>
+                      ) : <span style={{ color: "var(--muted2)" }}>—</span>}
+                    </td>
                     <td className="col-mono">
                       {p.cout_achat ? `${p.cout_achat} MAD` : <span style={{ color: "var(--muted2)" }}>—</span>}
                     </td>
@@ -425,7 +533,7 @@ export default function Produits({ navigate }) {
         <div className="modal-overlay" onClick={() => setStockRapide(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">+ Stock — {stockRapide.nom}</span>
+              <span className="modal-title">+ Stock — {stockRapide.nom}{stockRapide.variante ? ` (${stockRapide.variante})` : ""}</span>
               <button className="btn-close" onClick={() => setStockRapide(null)}>×</button>
             </div>
             <div className="modal-body">
