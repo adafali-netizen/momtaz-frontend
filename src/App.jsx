@@ -10,10 +10,17 @@ import Ads from "./Ads";
 import StockHistorique from "./StockHistorique";
 import "./App.css";
 
+const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique"];
+
+function getModuleFromHash() {
+  const hash = window.location.hash.replace("#", "");
+  return VALID_MODULES.includes(hash) ? hash : "dashboard";
+}
+
 export default function App() {
   const [session,      setSession]      = useState(null);
   const [authLoading,  setAuthLoading]  = useState(true);
-  const [module,       setModule]       = useState("dashboard");
+  const [module,       setModule]       = useState(getModuleFromHash);
   const [moduleParams, setModuleParams] = useState({});
 
   useEffect(() => {
@@ -25,9 +32,17 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Sync hash → state (bouton back/forward)
+  useEffect(() => {
+    const onHashChange = () => setModule(getModuleFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   function navigate(mod, params = {}) {
     setModule(mod);
     setModuleParams(params);
+    window.location.hash = mod;
   }
 
   const role = session?.user?.user_metadata?.role || "conseillere";
@@ -36,6 +51,7 @@ export default function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
+    window.location.hash = "dashboard";
   };
 
   if (authLoading) return <div className="loading-screen"><span className="loading-dot" />Connexion...</div>;
