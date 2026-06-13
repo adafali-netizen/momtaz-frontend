@@ -6,6 +6,7 @@ const NAV = [
   { id: "commandes", label: "Commandes", icon: "📦" },
   { id: "produits",  label: "Produits",  icon: "🏷️" },
   { id: "ads",       label: "Ads",       icon: "📣" },
+  { id: "dashboard-analytique", label: "Analytique", icon: "📈" },
 ];
 
 const PAGE_TITLES = {
@@ -15,6 +16,7 @@ const PAGE_TITLES = {
   produits:           { title: "Produits",         sub: "Coûts, stock et décisions" },
   "stock-historique": { title: "Historique stock", sub: "Tous les mouvements" },
   ads:                { title: "Ads",              sub: "Où part l'argent ?" },
+  "dashboard-analytique": { title: "Dashboard Analytique", sub: "CPL MAX, marge nette, décisions" },
 };
 
 export default function Layout({ currentModule, setModule, role, nom, onLogout, children }) {
