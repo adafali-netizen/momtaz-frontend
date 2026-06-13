@@ -314,13 +314,13 @@ export default function DashboardAnalytique() {
   if (loading) return (
     <div style={S.center}>
       <div style={S.spinner} />
-      <p style={{ color: "#4b5563", marginTop: 14, fontSize: 13 }}>Chargement…</p>
+      <p style={{ color: PALETTE.textMuted, marginTop: 14, fontSize: 13 }}>Chargement…</p>
     </div>
   );
 
   if (error) return (
     <div style={S.center}>
-      <p style={{ color: "#ef4444", fontSize: 13 }}>⚠️ {error}</p>
+      <p style={{ color: PALETTE.danger, fontSize: 13 }}>⚠️ {error}</p>
       <button onClick={fetchAll} style={S.btnSm}>Réessayer</button>
     </div>
   );
@@ -335,32 +335,32 @@ export default function DashboardAnalytique() {
             label="Marge nette 7j"
             value={fmt(pouls.marge7j)}
             delta={pouls.delta}
-            color={pouls.marge7j >= 0 ? "#10b981" : "#ef4444"}
+            color={pouls.marge7j >= 0 ? PALETTE.win : PALETTE.danger}
           />
           <Hero
             label="Cash dépensé (ads) 7j"
             value={fmt(pouls.adsTotal7j)}
-            color="#9ca3af"
+            color={PALETTE.textHi}
           />
           <Hero
             label="Cash à risque"
             value={fmt(pouls.cashTransit)}
             subtitle="Expédié non livré"
-            color="#f59e0b"
+            color={PALETTE.warn}
           />
           <Hero
             label="Cash en attente"
             value={fmt(pouls.cashAttente)}
             subtitle={`< ${DELAI_ENCAISSEMENT_J}j encaissement`}
-            color="#06b6d4"
+            color={PALETTE.cash}
           />
         </div>
 
         {pouls.pireProduit && (
           <div style={S.alertBar}>
             <div>
-              <span style={{ color: "#ef4444", fontWeight: 700, fontSize: 13 }}>⛔ ALERTE</span>
-              <span style={{ color: "#f9fafb", fontSize: 13, marginLeft: 10 }}>
+              <span style={{ color: PALETTE.danger, fontWeight: 700, fontSize: 13, letterSpacing: "0.04em" }}>⛔ ALERTE</span>
+              <span style={{ color: PALETTE.textHi, fontSize: 13, marginLeft: 10 }}>
                 <b>{pouls.pireProduit.nom}</b> perd <b>{fmt(pouls.pireProduit.margeTotale)}</b> sur 30j —{" "}
                 {pouls.pireProduit.action}
               </span>
@@ -392,11 +392,11 @@ export default function DashboardAnalytique() {
                   key={m.nom}
                   style={{
                     ...S.tr,
-                    background: selected === m.nom ? "#1a1f2e" : "transparent",
+                    background: selected === m.nom ? PALETTE.surface2 : "transparent",
                     borderLeft: `3px solid ${selected === m.nom ? COLORS[m.color] : "transparent"}`,
                   }}
                   onClick={() => setSelected(m.nom)}
-                  onMouseEnter={e => { if (selected !== m.nom) e.currentTarget.style.background = "#151b27"; }}
+                  onMouseEnter={e => { if (selected !== m.nom) e.currentTarget.style.background = `${PALETTE.surface2}80`; }}
                   onMouseLeave={e => { if (selected !== m.nom) e.currentTarget.style.background = "transparent"; }}
                 >
                   <td style={S.td}>
@@ -406,22 +406,22 @@ export default function DashboardAnalytique() {
                     <span style={S.nomP}>{m.nom}</span>
                   </td>
                   <td style={S.tdR}>{m.totalLeads}</td>
-                  <td style={{ ...S.tdR, color: m.tauxConf < SEUIL_CONF_REPAIR ? "#ef4444" : m.tauxConf >= SEUIL_CONF_SCALE ? "#10b981" : "#9ca3af" }}>
+                  <td style={{ ...S.tdR, color: m.tauxConf < SEUIL_CONF_REPAIR ? PALETTE.danger : m.tauxConf >= SEUIL_CONF_SCALE ? PALETTE.win : PALETTE.textDim, fontWeight: 600 }}>
                     {pct(m.tauxConf)}
                   </td>
-                  <td style={{ ...S.tdR, color: m.tauxLivr < SEUIL_LIVR_REPAIR ? "#ef4444" : m.tauxLivr >= SEUIL_LIVR_SCALE ? "#10b981" : "#9ca3af" }}>
+                  <td style={{ ...S.tdR, color: m.tauxLivr < SEUIL_LIVR_REPAIR ? PALETTE.danger : m.tauxLivr >= SEUIL_LIVR_SCALE ? PALETTE.win : PALETTE.textDim, fontWeight: 600 }}>
                     {pct(m.tauxLivr)}
                   </td>
                   <td style={S.tdR}>{m.velocite.toFixed(1)}</td>
                   <td style={S.tdR}>{m.cacLivre > 0 ? fmt(m.cacLivre) : "—"}</td>
-                  <td style={{ ...S.tdR, color: m.margeNetteUnite > 0 ? "#10b981" : "#ef4444", fontWeight: 600 }}>
+                  <td style={{ ...S.tdR, color: m.margeNetteUnite > 0 ? PALETTE.win : PALETTE.danger, fontWeight: 600 }}>
                     {fmt(m.margeNetteUnite)}
                   </td>
-                  <td style={{ ...S.tdR, color: m.margeTotale > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>
+                  <td style={{ ...S.tdR, color: m.margeTotale > 0 ? PALETTE.win : PALETTE.danger, fontWeight: 700 }}>
                     {fmt(m.margeTotale)}
                   </td>
                   <td style={S.td}>
-                    <span style={{ color: "#4b5563", fontSize: 16 }}>›</span>
+                    <span style={{ color: PALETTE.textMuted, fontSize: 16 }}>›</span>
                   </td>
                 </tr>
               ))}
@@ -444,36 +444,37 @@ export default function DashboardAnalytique() {
             <div>
               {/* Action prescrite */}
               <div style={{
-                padding: "16px 18px",
-                borderRadius: 10,
-                background: `${COLORS[sel.color]}10`,
-                border: `1px solid ${COLORS[sel.color]}30`,
-                marginBottom: 16,
+                padding: "18px 20px",
+                borderRadius: 12,
+                background: `linear-gradient(135deg, ${COLORS[sel.color]}18 0%, ${COLORS[sel.color]}08 100%)`,
+                border: `1px solid ${COLORS[sel.color]}40`,
+                boxShadow: `0 0 32px ${COLORS[sel.color]}10`,
+                marginBottom: 18,
               }}>
-                <p style={{ color: COLORS[sel.color], fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>
+                <p style={{ color: COLORS[sel.color], fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 8px" }}>
                   Action recommandée
                 </p>
-                <p style={{ color: "#f9fafb", fontSize: 14, fontWeight: 500, margin: 0, lineHeight: 1.5 }}>
+                <p style={{ color: PALETTE.textHi, fontSize: 14, fontWeight: 500, margin: 0, lineHeight: 1.55 }}>
                   {sel.action}
                 </p>
               </div>
 
               {/* Courbe */}
-              <p style={{ color: "#4b5563", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
+              <p style={{ color: PALETTE.textMuted, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>
                 Marge nette 30 jours
               </p>
               <ResponsiveContainer width="100%" height={140}>
                 <LineChart data={dailyData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke="#1f2937" />
-                  <XAxis dataKey="date" tick={{ fill: "#4b5563", fontSize: 10 }} interval={6} />
-                  <YAxis tick={{ fill: "#4b5563", fontSize: 10 }} width={40} />
+                  <CartesianGrid strokeDasharray="2 4" stroke={PALETTE.border} />
+                  <XAxis dataKey="date" tick={{ fill: PALETTE.textMuted, fontSize: 10 }} interval={6} />
+                  <YAxis tick={{ fill: PALETTE.textMuted, fontSize: 10 }} width={40} />
                   <Tooltip
-                    contentStyle={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 6, fontSize: 11 }}
-                    labelStyle={{ color: "#9ca3af" }}
-                    itemStyle={{ color: "#f9fafb" }}
+                    contentStyle={{ background: PALETTE.surface2, border: `1px solid ${PALETTE.borderHi}`, borderRadius: 8, fontSize: 11 }}
+                    labelStyle={{ color: PALETTE.textDim }}
+                    itemStyle={{ color: PALETTE.textHi }}
                   />
-                  <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={1} />
-                  <Line type="monotone" dataKey="marge" stroke="#6366f1" strokeWidth={2} dot={false} connectNulls={false} />
+                  <ReferenceLine y={0} stroke={PALETTE.danger} strokeDasharray="3 3" strokeWidth={1} />
+                  <Line type="monotone" dataKey="marge" stroke={PALETTE.accent} strokeWidth={2.5} dot={false} connectNulls={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -485,11 +486,11 @@ export default function DashboardAnalytique() {
       {/* ═══ ZONE 4 — CASHFLOW ═══ */}
       <Section num="03" title="Cashflow 30 jours" sub="Cash réel sorti vs entré">
         <div style={S.cashGrid}>
-          <CashCard label="Cash sorti (ads)" value={`−${fmt(cashflow.sortie)}`} color="#ef4444" />
-          <CashCard label="Cash entré (livré)" value={`+${fmt(cashflow.entree)}`} color="#10b981" />
-          <CashCard label="Cash en transit" value={fmt(cashflow.transit)} color="#f59e0b" subtitle="Expédié, pas encore livré" />
-          <CashCard label="Cash flow net" value={fmt(cashflow.netFlow)} color={cashflow.netFlow >= 0 ? "#10b981" : "#ef4444"} big />
-          <CashCard label="ROI cash" value={`${cashflow.roi.toFixed(2)}x`} color={cashflow.roi >= 1.5 ? "#10b981" : cashflow.roi >= 1 ? "#f59e0b" : "#ef4444"} big />
+          <CashCard label="Cash sorti (ads)" value={`−${fmt(cashflow.sortie)}`} color={PALETTE.danger} />
+          <CashCard label="Cash entré (livré)" value={`+${fmt(cashflow.entree)}`} color={PALETTE.win} />
+          <CashCard label="Cash en transit" value={fmt(cashflow.transit)} color={PALETTE.warn} subtitle="Expédié, pas encore livré" />
+          <CashCard label="Cash flow net" value={fmt(cashflow.netFlow)} color={cashflow.netFlow >= 0 ? PALETTE.win : PALETTE.danger} big />
+          <CashCard label="ROI cash" value={`${cashflow.roi.toFixed(2)}x`} color={cashflow.roi >= 1.5 ? PALETTE.win : cashflow.roi >= 1 ? PALETTE.warn : PALETTE.danger} big />
         </div>
       </Section>
 
@@ -505,11 +506,12 @@ function Hero({ label, value, subtitle, delta, color }) {
   return (
     <div style={S.hero}>
       <p style={S.heroLabel}>{label}</p>
-      <p style={{ ...S.heroValue, color: color || "#f9fafb" }}>{value}</p>
+      <p style={{ ...S.heroValue, color: color || PALETTE.textHi }}>{value}</p>
       {delta !== null && delta !== undefined && (
         <p style={{
-          fontSize: 11, fontWeight: 600, margin: "4px 0 0",
-          color: delta >= 0 ? "#10b981" : "#ef4444",
+          fontSize: 11, fontWeight: 600, margin: "6px 0 0",
+          color: delta >= 0 ? PALETTE.win : PALETTE.danger,
+          letterSpacing: "0.02em",
         }}>
           {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}% vs 7j précédents
         </p>
@@ -534,29 +536,49 @@ function Section({ num, title, sub, children }) {
   );
 }
 
+// ─── PALETTE PREMIUM 2026 ─────────────────────────────────────────────────────
 const COLORS = {
-  scale:    "#10b981",
-  optimize: "#6366f1",
-  test:     "#06b6d4",
-  repair:   "#f59e0b",
-  stop:     "#ef4444",
+  scale:    "#4ade80",  // lime électrique
+  optimize: "#a78bfa",  // violet vif
+  test:     "#22d3ee",  // cyan néon
+  repair:   "#fbbf24",  // amber doré
+  stop:     "#fb7185",  // rose corail
+};
+
+const PALETTE = {
+  bg:        "#0b0a14",      // fond très sombre teinté violet
+  surface:   "#16142a",      // cards
+  surface2:  "#1d1a36",      // cards hover
+  border:    "#2a2647",      // borders
+  borderHi:  "#3d3866",      // borders hover/active
+  textHi:    "#fafaff",      // text primary
+  text:      "#c4c1e0",      // text body
+  textDim:   "#8b87b3",      // text secondary
+  textMuted: "#5a567f",      // text tertiary
+  accent:    "#a78bfa",      // violet (focus, sections)
+  accentHi:  "#c4b5fd",      // violet vif (hover accent)
+  cash:      "#22d3ee",      // cyan (cashflow)
+  win:       "#4ade80",      // lime (gains)
+  warn:      "#fbbf24",      // amber (warnings)
+  danger:    "#fb7185",      // corail (pertes)
 };
 
 function Pill({ decision, colorKey }) {
-  const c = COLORS[colorKey] || "#9ca3af";
+  const c = COLORS[colorKey] || PALETTE.textDim;
   return (
     <span style={{
       display: "inline-block",
-      padding: "3px 10px",
-      borderRadius: 4,
+      padding: "4px 11px",
+      borderRadius: 6,
       fontSize: 10,
       fontWeight: 700,
       textTransform: "uppercase",
-      letterSpacing: "0.06em",
+      letterSpacing: "0.08em",
       color: c,
-      background: `${c}15`,
-      border: `1px solid ${c}40`,
+      background: `${c}18`,
+      border: `1px solid ${c}50`,
       whiteSpace: "nowrap",
+      boxShadow: `0 0 16px ${c}15`,
     }}>{decision}</span>
   );
 }
@@ -572,34 +594,37 @@ function Funnel({ m }) {
 
   return (
     <div>
-      <p style={{ color: "#4b5563", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px" }}>
+      <p style={{ color: PALETTE.textMuted, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 14px" }}>
         Funnel COD
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {steps.map((step, i) => (
           <div key={i} style={{ display: "flex", alignItems: "stretch", gap: 12 }}>
             <div style={{
               flex: 1,
-              padding: "12px 14px",
-              background: step.fuite ? "rgba(239,68,68,0.08)" : "#111827",
-              border: `1px solid ${step.fuite ? "#ef444450" : "#1f2937"}`,
-              borderRadius: 8,
+              padding: "13px 16px",
+              background: step.fuite
+                ? `linear-gradient(90deg, ${PALETTE.danger}18 0%, ${PALETTE.danger}05 100%)`
+                : PALETTE.surface2,
+              border: `1px solid ${step.fuite ? PALETTE.danger + "60" : PALETTE.border}`,
+              borderRadius: 10,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              boxShadow: step.fuite ? `0 0 24px ${PALETTE.danger}15` : "none",
             }}>
               <div>
-                <p style={{ color: "#9ca3af", fontSize: 11, fontWeight: 600, margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <p style={{ color: PALETTE.textDim, fontSize: 11, fontWeight: 600, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   {step.label}
                 </p>
-                {step.sub && <p style={{ color: "#4b5563", fontSize: 11, margin: "2px 0 0" }}>{step.sub}</p>}
+                {step.sub && <p style={{ color: PALETTE.textMuted, fontSize: 11, margin: "3px 0 0" }}>{step.sub}</p>}
               </div>
-              <p style={{ color: "#f9fafb", fontSize: 18, fontWeight: 700, margin: 0, fontVariantNumeric: "tabular-nums" }}>
+              <p style={{ color: PALETTE.textHi, fontSize: 20, fontWeight: 700, margin: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
                 {step.value}
               </p>
             </div>
             {step.fuite && (
-              <div style={{ display: "flex", alignItems: "center", color: "#ef4444", fontSize: 11, fontWeight: 700 }}>
+              <div style={{ display: "flex", alignItems: "center", color: PALETTE.danger, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>
                 ← FUITE
               </div>
             )}
@@ -613,24 +638,26 @@ function Funnel({ m }) {
 function CashCard({ label, value, color, subtitle, big }) {
   return (
     <div style={{
-      padding: big ? "20px 22px" : "14px 16px",
-      borderRadius: 10,
-      background: "#111827",
-      border: "1px solid #1f2937",
+      padding: big ? "20px 22px" : "16px 18px",
+      borderRadius: 12,
+      background: `linear-gradient(180deg, ${PALETTE.surface2} 0%, ${PALETTE.surface} 100%)`,
+      border: `1px solid ${PALETTE.border}`,
+      boxShadow: big ? `0 0 24px ${color}10, 0 1px 0 rgba(255,255,255,0.03) inset` : "0 1px 0 rgba(255,255,255,0.03) inset",
     }}>
-      <p style={{ color: "#4b5563", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>
+      <p style={{ color: PALETTE.textMuted, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 8px" }}>
         {label}
       </p>
       <p style={{
-        color: color || "#f9fafb",
-        fontSize: big ? 26 : 20,
+        color: color || PALETTE.textHi,
+        fontSize: big ? 28 : 20,
         fontWeight: 700,
         margin: 0,
         fontVariantNumeric: "tabular-nums",
+        letterSpacing: "-0.025em",
       }}>
         {value}
       </p>
-      {subtitle && <p style={{ color: "#4b5563", fontSize: 11, margin: "4px 0 0" }}>{subtitle}</p>}
+      {subtitle && <p style={{ color: PALETTE.textMuted, fontSize: 11, margin: "5px 0 0" }}>{subtitle}</p>}
     </div>
   );
 }
@@ -653,9 +680,10 @@ const S = {
     maxWidth: 1180,
     margin: "0 auto",
     fontFamily: "'Inter', -apple-system, system-ui, sans-serif",
-    color: "#f9fafb",
-    background: "#0a0e1a",
+    color: PALETTE.textHi,
+    background: PALETTE.bg,
     minHeight: "100vh",
+    backgroundImage: "radial-gradient(ellipse at top, rgba(167,139,250,0.06), transparent 60%)",
   },
 
   // Zone 1 — Pouls
@@ -669,28 +697,29 @@ const S = {
     marginBottom: 12,
   },
   hero: {
-    padding: "16px 18px",
-    background: "#111827",
-    border: "1px solid #1f2937",
-    borderRadius: 10,
+    padding: "18px 20px",
+    background: `linear-gradient(180deg, ${PALETTE.surface} 0%, rgba(22,20,42,0.6) 100%)`,
+    border: `1px solid ${PALETTE.border}`,
+    borderRadius: 12,
+    boxShadow: "0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.25)",
   },
   heroLabel: {
-    color: "#4b5563",
+    color: PALETTE.textMuted,
     fontSize: 10,
     fontWeight: 600,
     textTransform: "uppercase",
-    letterSpacing: "0.08em",
+    letterSpacing: "0.1em",
     margin: "0 0 8px",
   },
   heroValue: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: 700,
     margin: 0,
     fontVariantNumeric: "tabular-nums",
-    letterSpacing: "-0.02em",
+    letterSpacing: "-0.025em",
   },
   heroSub: {
-    color: "#4b5563",
+    color: PALETTE.textMuted,
     fontSize: 11,
     margin: "4px 0 0",
   },
@@ -700,51 +729,55 @@ const S = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "12px 16px",
-    background: "rgba(239,68,68,0.08)",
-    border: "1px solid rgba(239,68,68,0.3)",
-    borderRadius: 10,
+    padding: "14px 18px",
+    background: `linear-gradient(90deg, rgba(251,113,133,0.12) 0%, rgba(251,113,133,0.04) 100%)`,
+    border: `1px solid ${PALETTE.danger}40`,
+    borderRadius: 12,
+    boxShadow: `0 0 0 1px ${PALETTE.danger}10, 0 8px 32px rgba(251,113,133,0.08)`,
   },
   alertBtn: {
-    padding: "6px 14px",
-    borderRadius: 6,
-    border: "1px solid #ef4444",
-    background: "transparent",
-    color: "#ef4444",
+    padding: "7px 16px",
+    borderRadius: 8,
+    border: `1px solid ${PALETTE.danger}`,
+    background: `${PALETTE.danger}15`,
+    color: PALETTE.danger,
     fontSize: 12,
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: "pointer",
     fontFamily: "inherit",
+    transition: "all 0.15s",
   },
 
   // Section
   section: {
-    background: "#0d1320",
-    border: "1px solid #1f2937",
-    borderRadius: 12,
-    padding: "20px 22px 22px",
+    background: PALETTE.surface,
+    border: `1px solid ${PALETTE.border}`,
+    borderRadius: 14,
+    padding: "22px 24px 24px",
     marginBottom: 16,
+    boxShadow: "0 1px 0 rgba(255,255,255,0.03) inset",
   },
   sectionHead: {
-    marginBottom: 18,
+    marginBottom: 20,
   },
   sectionNum: {
     fontSize: 10,
-    color: "#6366f1",
+    color: PALETTE.accent,
     fontWeight: 700,
-    letterSpacing: "0.1em",
+    letterSpacing: "0.12em",
     margin: "0 0 4px",
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: 600,
-    color: "#f9fafb",
+    color: PALETTE.textHi,
     margin: 0,
+    letterSpacing: "-0.01em",
   },
   sectionSub: {
     fontSize: 12,
-    color: "#4b5563",
-    margin: "3px 0 0",
+    color: PALETTE.textMuted,
+    margin: "4px 0 0",
   },
 
   // Table
@@ -755,29 +788,29 @@ const S = {
   },
   th: {
     textAlign: "left",
-    color: "#4b5563",
+    color: PALETTE.textMuted,
     fontWeight: 600,
     fontSize: 10,
     textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    padding: "10px 12px 10px 16px",
-    borderBottom: "1px solid #1f2937",
+    letterSpacing: "0.1em",
+    padding: "12px 12px 12px 16px",
+    borderBottom: `1px solid ${PALETTE.border}`,
     whiteSpace: "nowrap",
   },
   tr: {
-    borderBottom: "1px solid #131a26",
+    borderBottom: `1px solid ${PALETTE.border}50`,
     cursor: "pointer",
     transition: "background 0.12s",
-    height: 44,
+    height: 46,
   },
   td: {
-    padding: "10px 12px 10px 16px",
-    color: "#d1d5db",
+    padding: "11px 12px 11px 16px",
+    color: PALETTE.text,
     verticalAlign: "middle",
   },
   tdR: {
-    padding: "10px 12px",
-    color: "#9ca3af",
+    padding: "11px 12px",
+    color: PALETTE.textDim,
     textAlign: "right",
     fontVariantNumeric: "tabular-nums",
     verticalAlign: "middle",
@@ -785,7 +818,7 @@ const S = {
   },
   nomP: {
     fontWeight: 600,
-    color: "#f9fafb",
+    color: PALETTE.textHi,
     fontSize: 13,
   },
 
@@ -812,19 +845,19 @@ const S = {
     minHeight: 400,
   },
   spinner: {
-    width: 28,
-    height: 28,
-    border: "2px solid #1f2937",
-    borderTop: "2px solid #6366f1",
+    width: 30,
+    height: 30,
+    border: `2px solid ${PALETTE.border}`,
+    borderTop: `2px solid ${PALETTE.accent}`,
     borderRadius: "50%",
     animation: "spin 0.8s linear infinite",
   },
   btnSm: {
-    padding: "6px 14px",
-    borderRadius: 6,
-    border: "1px solid #1f2937",
-    background: "transparent",
-    color: "#9ca3af",
+    padding: "7px 14px",
+    borderRadius: 8,
+    border: `1px solid ${PALETTE.border}`,
+    background: PALETTE.surface,
+    color: PALETTE.text,
     fontSize: 12,
     cursor: "pointer",
     fontFamily: "inherit",
