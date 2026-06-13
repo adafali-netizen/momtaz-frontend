@@ -65,6 +65,7 @@ export default function App() {
     produits:           Produits,
     ads:                Ads,
     "stock-historique": StockHistorique,
+    "dashboard-analytique": DashboardAnalytique,
   };
 
   const Active = MODULES[module] || Dashboard;
