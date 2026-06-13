@@ -1,19 +1,21 @@
 /**
- * DashboardAnalytique.jsx — Momtaz ERP
- * Colonnes Supabase vérifiées le 13/06/2026
+ * DashboardAnalytique.jsx — Cockpit COD Momtaz
+ * Architecture 4 zones : Pouls → Décisions → Drill → Cashflow
  *
- * CONSTANTES MÉTIER (modifier ici si besoin) :
- *   EMBALLAGE_PAR_CMD  = 4 MAD  (sous-traitance stock/emballage)
- *   CONFIRMATION_PAR_LIVRE = 10 MAD  (10 DH par commande livrée)
- *   MIN_LEADS_TEST     = 20
- *   SEUIL_MARGE        = 20 MAD
+ * COLONNES SUPABASE UTILISÉES :
+ *   produits   : nom, prix_vente, cout_achat
+ *   leads      : produit, statut, created_at
+ *   commandes  : produit, statut, created_at, frais_livraison, prix
+ *   ads_spend  : produit, budget_mad, date
+ *
+ * CONSTANTES MÉTIER : modifiables en tête de fichier.
  */
 
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer, Legend,
+  Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 
 const supabase = createClient(
@@ -22,152 +24,158 @@ const supabase = createClient(
 );
 
 // ─── CONSTANTES MÉTIER ────────────────────────────────────────────────────────
-const EMBALLAGE_PAR_CMD       = 4;   // MAD
-const CONFIRMATION_PAR_LIVRE  = 10;  // MAD
-const MIN_LEADS_TEST          = 20;
-const SEUIL_MARGE             = 20;  // MAD marge nette min pour SCALE
+const EMBALLAGE              = 4;    // MAD / commande
+const CONFIRMATION_PAR_LIVRE = 10;   // MAD / livré
+const MIN_LEADS_TEST         = 20;
+const SEUIL_MARGE_UNITE      = 20;   // MAD
+const SEUIL_VELOCITE         = 3;    // livrés / jour
+const SEUIL_CONF_SCALE       = 0.35;
+const SEUIL_LIVR_SCALE       = 0.55;
+const SEUIL_CONF_REPAIR      = 0.25;
+const SEUIL_LIVR_REPAIR      = 0.40;
+const DELAI_ENCAISSEMENT_J   = 20;
 
-// Statuts leads
 const STATUTS_CONFIRMES = ["Confirmé", "Confirmée"];
-// Statuts commandes
-const STATUTS_LIVRES   = ["Livrée", "Facturée"];
-const STATUTS_EXPEDIES = ["Expédiée", "Livrée", "Facturée"];
+const STATUTS_LIVRES    = ["Livrée", "Facturée"];
+const STATUTS_EXPEDIES  = ["Expédiée"]; // pas encore livrée
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-function getLast30Days() {
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const daysAgo = (n) => {
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return d.toISOString();
+};
+const inLastDays = (iso, n) => iso && new Date(iso) >= new Date(daysAgo(n));
+
+function getDays(n) {
+  const arr = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    arr.push(d.toISOString().slice(0, 10));
   }
-  return days;
+  return arr;
 }
 
-function movingAvg(data, key, window = 3) {
-  return data.map((d, i) => {
-    const slice = data.slice(Math.max(0, i - window + 1), i + 1);
-    const vals  = slice.map(x => x[key]).filter(v => v !== null && v !== undefined);
-    const avg   = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
-    return { ...d, ma3: avg !== null ? Math.round(avg) : null };
-  });
-}
-
-function computeMetrics(produit, leads, commandes, adsSpend) {
+// ─── CALCUL MÉTRIQUES PAR PRODUIT ─────────────────────────────────────────────
+function computeMetrics(produit, leads, commandes, adsSpend, periodDays = 30) {
   const nom = produit.nom;
+  const prixVente = parseFloat(produit.prix_vente) || 0;
+  const coutAchat = parseFloat(produit.cout_achat) || 0;
 
-  // ── Leads ──────────────────────────────────────────────────────────────────
-  const leadsP     = leads.filter(l => l.produit === nom);
-  const confirmes  = leadsP.filter(l => STATUTS_CONFIRMES.includes(l.statut));
+  // Filtres période
+  const leadsP = leads.filter(l => l.produit === nom && inLastDays(l.created_at, periodDays));
+  const cmdsP  = commandes.filter(c => c.produit === nom && inLastDays(c.created_at, periodDays));
+  const adsP   = adsSpend.filter(a => a.produit === nom && inLastDays(a.date, periodDays));
+
   const totalLeads = leadsP.length;
+  const nbConfirmes = leadsP.filter(l => STATUTS_CONFIRMES.includes(l.statut)).length;
 
-  // ── Commandes ──────────────────────────────────────────────────────────────
-  const commandesP = commandes.filter(c => c.produit === nom);
-  const livres     = commandesP.filter(c => STATUTS_LIVRES.includes(c.statut));
-  const expedies   = commandesP.filter(c => STATUTS_EXPEDIES.includes(c.statut));
+  const livres   = cmdsP.filter(c => STATUTS_LIVRES.includes(c.statut));
+  const expedies = cmdsP.filter(c => STATUTS_EXPEDIES.includes(c.statut));
 
-  const tauxConf = totalLeads > 0 ? confirmes.length / totalLeads : 0;
-  const tauxLivr = expedies.length > 0 ? livres.length / expedies.length : 0;
+  const nbLivres   = livres.length;
+  const nbExpedies = expedies.length;
+  const totalExpedShipped = nbExpedies + nbLivres; // tout ce qui est sorti
 
-  // ── Frais livraison moyen (depuis commandes livrées) ──────────────────────
-  const fraisLivrTotal  = livres.reduce((s, c) => s + (parseFloat(c.frais_livraison) || 0), 0);
-  const fraisLivrMoyen  = livres.length > 0 ? fraisLivrTotal / livres.length : 0;
+  const tauxConf = totalLeads > 0 ? nbConfirmes / totalLeads : 0;
+  const tauxLivr = totalExpedShipped > 0 ? nbLivres / totalExpedShipped : 0;
 
-  // ── Ads spend ──────────────────────────────────────────────────────────────
-  const totalAds = adsSpend
-    .filter(a => a.produit === nom)
-    .reduce((s, a) => s + (parseFloat(a.budget_mad) || 0), 0);
+  // Frais livraison moyen
+  const fraisLivrTotal = livres.reduce((s, c) => s + (parseFloat(c.frais_livraison) || 0), 0);
+  const fraisLivrMoyen = nbLivres > 0 ? fraisLivrTotal / nbLivres : 25; // fallback 25 MAD
 
-  const cplReel = totalLeads > 0 ? totalAds / totalLeads : 0;
+  // Ads
+  const adsTotal = adsP.reduce((s, a) => s + (parseFloat(a.budget_mad) || 0), 0);
 
-  // ── Marge brute par unité livrée ──────────────────────────────────────────
-  // = prix_vente - cout_achat - frais_livraison_moyen - emballage - confirmation
-  const margeBrute = (parseFloat(produit.prix_vente) || 0)
-    - (parseFloat(produit.cout_achat)  || 0)
-    - fraisLivrMoyen
-    - EMBALLAGE_PAR_CMD
-    - CONFIRMATION_PAR_LIVRE;
+  // Métriques économiques
+  const margeBrute = prixVente - coutAchat - fraisLivrMoyen - EMBALLAGE - CONFIRMATION_PAR_LIVRE;
+  const cplMax    = margeBrute * tauxConf * tauxLivr;
+  const cplReel   = totalLeads > 0 ? adsTotal / totalLeads : 0;
+  const cacLivre  = nbLivres > 0 ? adsTotal / nbLivres : (tauxConf * tauxLivr > 0 ? cplReel / (tauxConf * tauxLivr) : 0);
 
-  // ── CPL MAX ───────────────────────────────────────────────────────────────
-  // = marge_brute × taux_conf × taux_livr
-  const cplMax = margeBrute * tauxConf * tauxLivr;
+  const margeNetteUnite = margeBrute - cacLivre;
+  const margeTotale     = nbLivres * margeNetteUnite;
 
-  // ── Marge nette par livré ─────────────────────────────────────────────────
-  // coût acquisition par livré = CPL_réel / (taux_conf × taux_livr)
-  const denomAcq   = tauxConf * tauxLivr;
-  const coutAcqLiv = denomAcq > 0 ? cplReel / denomAcq : 0;
-  const margeNette = margeBrute - coutAcqLiv;
+  // Vélocité : livrés / jours actifs (max periodDays)
+  const dateFirstLead = leadsP.length > 0
+    ? Math.min(...leadsP.map(l => new Date(l.created_at).getTime()))
+    : Date.now();
+  const joursActifs = Math.max(1, Math.min(periodDays, Math.ceil((Date.now() - dateFirstLead) / 86400000)));
+  const velocite = nbLivres / joursActifs;
 
-  // ── Décision ──────────────────────────────────────────────────────────────
-  let decision = "EN TEST";
+  // Cash en transit (expédiées non livrées, le client paiera)
+  const cashTransit = nbExpedies * prixVente;
+
+  // Cash en attente d'encaissement (livré récemment < DELAI_ENCAISSEMENT_J)
+  const cashAttente = livres
+    .filter(c => inLastDays(c.created_at, DELAI_ENCAISSEMENT_J))
+    .reduce((s, c) => s + prixVente, 0);
+
+  // CA livré
+  const caLivre = nbLivres * prixVente;
+
+  // ── DÉCISION ──────────────────────────────────────────────────────────────
+  let decision, action, color;
   if (totalLeads < MIN_LEADS_TEST) {
     decision = "EN TEST";
-  } else if (tauxLivr >= 0.6 && tauxConf >= 0.4 && margeNette > SEUIL_MARGE) {
-    decision = "SCALE";
-  } else if (tauxConf >= 0.25 && tauxLivr >= 0.4 && margeNette > 0) {
-    decision = "OPTIMISER";
-  } else {
+    action = `Attendre ${MIN_LEADS_TEST - totalLeads} leads pour décider`;
+    color = "test";
+  } else if (margeNetteUnite <= 0) {
     decision = "STOP";
+    action = "Couper les ads aujourd'hui. Liquider le stock restant.";
+    color = "stop";
+  } else if (margeTotale < 0) {
+    decision = "STOP";
+    action = "Pertes confirmées sur 30j. Couper immédiatement.";
+    color = "stop";
+  } else if (tauxConf < SEUIL_CONF_REPAIR) {
+    decision = "RÉPARER";
+    action = `Conf ${pct(tauxConf)} < 25%. Revoir script conseillère AVANT de scaler.`;
+    color = "repair";
+  } else if (tauxLivr < SEUIL_LIVR_REPAIR) {
+    decision = "RÉPARER";
+    action = `Livraison ${pct(tauxLivr)} < 40%. Vérifier transporteur / zone / qualité produit.`;
+    color = "repair";
+  } else if (
+    margeNetteUnite > SEUIL_MARGE_UNITE
+    && velocite >= SEUIL_VELOCITE
+    && tauxConf >= SEUIL_CONF_SCALE
+    && tauxLivr >= SEUIL_LIVR_SCALE
+  ) {
+    decision = "SCALE";
+    action = `Tous les voyants verts. Augmenter budget ads +30% cette semaine.`;
+    color = "scale";
+  } else {
+    decision = "OPTIMISER";
+    const faiblesse = velocite < SEUIL_VELOCITE
+      ? `vélocité ${velocite.toFixed(1)}/j faible`
+      : (margeNetteUnite < SEUIL_MARGE_UNITE
+        ? `marge nette ${fmt(margeNetteUnite)} sous le seuil`
+        : `conf/livr à améliorer`);
+    action = `Marge OK mais ${faiblesse}. Tester nouveau creative avant de scaler.`;
+    color = "optimize";
+  }
+
+  // Identifier l'étape la plus faible du funnel (pour drill)
+  let fuiteEtape = null;
+  if (totalLeads >= MIN_LEADS_TEST) {
+    if (tauxConf < SEUIL_CONF_REPAIR) fuiteEtape = "confirmation";
+    else if (tauxLivr < SEUIL_LIVR_REPAIR) fuiteEtape = "livraison";
+    else if (cplReel > cplMax) fuiteEtape = "ads";
   }
 
   return {
-    nom,
-    totalLeads,
-    nbConfirmes: confirmes.length,
-    nbLivres:    livres.length,
-    nbExpedies:  expedies.length,
-    tauxConf,
-    tauxLivr,
-    fraisLivrMoyen,
-    totalAds,
-    cplReel,
-    cplMax,
-    margeBrute,
-    margeNette,
-    decision,
-    rentable: cplReel > 0 && cplReel <= cplMax && margeNette > 0,
-    prixVente: parseFloat(produit.prix_vente) || 0,
-    coutAchat: parseFloat(produit.cout_achat) || 0,
+    nom, prixVente, coutAchat,
+    totalLeads, nbConfirmes, nbExpedies, nbLivres, totalExpedShipped,
+    tauxConf, tauxLivr,
+    fraisLivrMoyen, adsTotal,
+    margeBrute, cplMax, cplReel, cacLivre,
+    margeNetteUnite, margeTotale,
+    velocite, joursActifs,
+    cashTransit, cashAttente, caLivre,
+    decision, action, color,
+    fuiteEtape,
   };
-}
-
-function computeDailyData(nom, produits, commandes, adsSpend) {
-  const p = produits.find(x => x.nom === nom);
-  const prixVente  = p ? parseFloat(p.prix_vente) || 0 : 0;
-  const coutAchat  = p ? parseFloat(p.cout_achat)  || 0 : 0;
-
-  const days = getLast30Days();
-  const raw  = days.map(date => {
-    const livresJour = commandes.filter(
-      c => c.produit === nom
-        && STATUTS_LIVRES.includes(c.statut)
-        && (c.created_at || "").slice(0, 10) === date
-    );
-    const fraisLivrJour = livresJour.reduce(
-      (s, c) => s + (parseFloat(c.frais_livraison) || 0), 0
-    );
-    const adsJour = adsSpend
-      .filter(a => a.produit === nom && (a.date || "").slice(0, 10) === date)
-      .reduce((s, a) => s + (parseFloat(a.budget_mad) || 0), 0);
-
-    const nbLivres = livresJour.length;
-
-    // Marge nette jour = revenus_livres - couts_livres - ads
-    const revenu   = nbLivres * prixVente;
-    const couts    = nbLivres * coutAchat
-                   + fraisLivrJour
-                   + nbLivres * EMBALLAGE_PAR_CMD
-                   + nbLivres * CONFIRMATION_PAR_LIVRE
-                   + adsJour;
-
-    const marge = (nbLivres > 0 || adsJour > 0)
-      ? Math.round(revenu - couts)
-      : null;
-
-    return { date: date.slice(5), nbLivres, adsJour, marge };
-  });
-
-  return movingAvg(raw, "marge");
 }
 
 // ─── COMPOSANT PRINCIPAL ──────────────────────────────────────────────────────
@@ -185,44 +193,30 @@ export default function DashboardAnalytique() {
   async function fetchAll() {
     setLoading(true); setError(null);
     try {
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-      const sinceISO  = since.toISOString();
+      const sinceISO  = daysAgo(60); // on charge 60j pour pouvoir comparer 30j vs 30j
       const sinceDate = sinceISO.slice(0, 10);
 
-      const [
-        { data: pData,  error: pErr },
-        { data: lData,  error: lErr },
-        { data: cData,  error: cErr },
-        { data: aData,  error: aErr },
-      ] = await Promise.all([
-        supabase.from("produits")
-          .select("nom, prix_vente, cout_achat"),
-        supabase.from("leads")
-          .select("produit, statut, created_at")
-          .gte("created_at", sinceISO),
-        supabase.from("commandes")
-          .select("produit, statut, created_at, frais_livraison")
-          .gte("created_at", sinceISO),
-        supabase.from("ads_spend")
-          .select("produit, budget_mad, date")
-          .gte("date", sinceDate),
+      const [pr, ld, cm, ad] = await Promise.all([
+        supabase.from("produits").select("nom, prix_vente, cout_achat"),
+        supabase.from("leads").select("produit, statut, created_at").gte("created_at", sinceISO),
+        supabase.from("commandes").select("produit, statut, created_at, frais_livraison").gte("created_at", sinceISO),
+        supabase.from("ads_spend").select("produit, budget_mad, date").gte("date", sinceDate),
       ]);
 
-      if (pErr || lErr || cErr || aErr)
-        throw pErr || lErr || cErr || aErr;
+      const err = pr.error || ld.error || cm.error || ad.error;
+      if (err) throw err;
 
-      // Déduplique produits par nom (variantes → garder 1 ligne par nom)
-      const nomsVus = new Set();
-      const produitsUniques = (pData || []).filter(p => {
-        if (nomsVus.has(p.nom)) return false;
-        nomsVus.add(p.nom); return true;
+      // Déduplique produits par nom
+      const seen = new Set();
+      const produitsUniques = (pr.data || []).filter(p => {
+        if (seen.has(p.nom)) return false;
+        seen.add(p.nom); return true;
       });
 
       setProduits(produitsUniques);
-      setLeads(lData    || []);
-      setCommandes(cData || []);
-      setAdsSpend(aData  || []);
+      setLeads(ld.data    || []);
+      setCommandes(cm.data || []);
+      setAdsSpend(ad.data  || []);
       if (produitsUniques.length) setSelected(produitsUniques[0].nom);
     } catch (e) {
       setError(e?.message || "Erreur inconnue");
@@ -231,26 +225,96 @@ export default function DashboardAnalytique() {
     }
   }
 
-  const allMetrics = useMemo(() =>
-    produits.map(p => computeMetrics(p, leads, commandes, adsSpend)),
+  // Métriques 30j et 7j
+  const metrics30j = useMemo(() =>
+    produits.map(p => computeMetrics(p, leads, commandes, adsSpend, 30))
+      .sort((a, b) => a.margeTotale - b.margeTotale), // pertes en haut
     [produits, leads, commandes, adsSpend]
   );
 
-  const selMetrics = useMemo(() =>
-    allMetrics.find(m => m.nom === selected) || null,
-    [allMetrics, selected]
+  const metrics7j = useMemo(() =>
+    produits.map(p => computeMetrics(p, leads, commandes, adsSpend, 7)),
+    [produits, leads, commandes, adsSpend]
   );
 
+  // Métrique 7j précédents (J-14 à J-7) pour delta
+  const metrics7jPrev = useMemo(() => {
+    const filtered = (arr, key) => arr.filter(x => {
+      const t = new Date(x[key] || x.date).getTime();
+      return t >= Date.now() - 14 * 86400000 && t < Date.now() - 7 * 86400000;
+    });
+    return produits.map(p => computeMetrics(
+      p,
+      filtered(leads, "created_at"),
+      filtered(commandes, "created_at"),
+      filtered(adsSpend, "date"),
+      7
+    ));
+  }, [produits, leads, commandes, adsSpend]);
+
+  const sel = useMemo(() =>
+    metrics30j.find(m => m.nom === selected) || null,
+    [metrics30j, selected]
+  );
+
+  // KPIs Zone 1
+  const pouls = useMemo(() => {
+    const sum = (arr, key) => arr.reduce((s, x) => s + (x[key] || 0), 0);
+    const marge7j     = sum(metrics7j, "margeTotale");
+    const margePrev   = sum(metrics7jPrev, "margeTotale");
+    const adsTotal7j  = sum(metrics7j, "adsTotal");
+    const cashTransit = sum(metrics30j, "cashTransit");
+    const cashAttente = sum(metrics30j, "cashAttente");
+
+    const delta = margePrev !== 0
+      ? ((marge7j - margePrev) / Math.abs(margePrev)) * 100
+      : null;
+
+    // Pire produit (la plus grosse fuite)
+    const pireProduit = metrics30j.find(m => m.decision === "STOP");
+
+    return { marge7j, delta, adsTotal7j, cashTransit, cashAttente, pireProduit };
+  }, [metrics7j, metrics7jPrev, metrics30j]);
+
+  // Courbe 30j pour produit sélectionné
   const dailyData = useMemo(() => {
-    if (!selected) return [];
-    return computeDailyData(selected, produits, commandes, adsSpend);
-  }, [selected, produits, commandes, adsSpend]);
+    if (!sel) return [];
+    const days = getDays(30);
+    return days.map(d => {
+      const livresJour = commandes.filter(
+        c => c.produit === sel.nom
+          && STATUTS_LIVRES.includes(c.statut)
+          && (c.created_at || "").slice(0, 10) === d
+      ).length;
+      const adsJour = adsSpend
+        .filter(a => a.produit === sel.nom && (a.date || "").slice(0, 10) === d)
+        .reduce((s, a) => s + (parseFloat(a.budget_mad) || 0), 0);
+
+      const revenu = livresJour * sel.prixVente;
+      const coutsLivr = livresJour * (sel.coutAchat + sel.fraisLivrMoyen + EMBALLAGE + CONFIRMATION_PAR_LIVRE);
+      const marge = (livresJour > 0 || adsJour > 0)
+        ? Math.round(revenu - coutsLivr - adsJour)
+        : null;
+
+      return { date: d.slice(5), marge };
+    });
+  }, [sel, commandes, adsSpend]);
+
+  // Cashflow global 30j
+  const cashflow = useMemo(() => {
+    const sortie     = metrics30j.reduce((s, m) => s + m.adsTotal, 0);
+    const entree     = metrics30j.reduce((s, m) => s + m.caLivre, 0);
+    const transit    = metrics30j.reduce((s, m) => s + m.cashTransit, 0);
+    const netFlow    = entree - sortie;
+    const roi        = sortie > 0 ? entree / sortie : 0;
+    return { sortie, entree, transit, netFlow, roi };
+  }, [metrics30j]);
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={S.center}>
       <div style={S.spinner} />
-      <p style={{ color: "#64748b", marginTop: 14, fontSize: 13 }}>Chargement des données…</p>
+      <p style={{ color: "#4b5563", marginTop: 14, fontSize: 13 }}>Chargement…</p>
     </div>
   );
 
@@ -264,300 +328,506 @@ export default function DashboardAnalytique() {
   return (
     <div style={S.page}>
 
-      {/* HEADER */}
-      <div style={S.pageHeader}>
-        <div>
-          <h1 style={S.h1}>Dashboard Analytique</h1>
-          <p style={S.subtitle}>30 derniers jours · {produits.length} produits</p>
+      {/* ═══ ZONE 1 — POULS ═══ */}
+      <div style={S.zonePouls}>
+        <div style={S.pulseGrid}>
+          <Hero
+            label="Marge nette 7j"
+            value={fmt(pouls.marge7j)}
+            delta={pouls.delta}
+            color={pouls.marge7j >= 0 ? "#10b981" : "#ef4444"}
+          />
+          <Hero
+            label="Cash dépensé (ads) 7j"
+            value={fmt(pouls.adsTotal7j)}
+            color="#9ca3af"
+          />
+          <Hero
+            label="Cash à risque"
+            value={fmt(pouls.cashTransit)}
+            subtitle="Expédié non livré"
+            color="#f59e0b"
+          />
+          <Hero
+            label="Cash en attente"
+            value={fmt(pouls.cashAttente)}
+            subtitle={`< ${DELAI_ENCAISSEMENT_J}j encaissement`}
+            color="#06b6d4"
+          />
         </div>
-        <button onClick={fetchAll} style={S.btnSm}>↻ Actualiser</button>
+
+        {pouls.pireProduit && (
+          <div style={S.alertBar}>
+            <div>
+              <span style={{ color: "#ef4444", fontWeight: 700, fontSize: 13 }}>⛔ ALERTE</span>
+              <span style={{ color: "#f9fafb", fontSize: 13, marginLeft: 10 }}>
+                <b>{pouls.pireProduit.nom}</b> perd <b>{fmt(pouls.pireProduit.margeTotale)}</b> sur 30j —{" "}
+                {pouls.pireProduit.action}
+              </span>
+            </div>
+            <button
+              style={S.alertBtn}
+              onClick={() => setSelected(pouls.pireProduit.nom)}
+            >
+              Voir détail →
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── ZONE 1 — CPL Réel vs CPL MAX ─────────────────────────────────── */}
-      <Zone num="01" titre="Alerte CPL — Rentabilité par produit">
+      {/* ═══ ZONE 2 — TABLEAU DÉCISIONS ═══ */}
+      <Section num="01" title="Décisions par produit" sub="Trié par marge 30j (pertes en haut)">
         <div style={{ overflowX: "auto" }}>
           <table style={S.table}>
             <thead>
               <tr>
-                {[
-                  "Produit", "Leads", "Conf.", "Livr.",
-                  "Frais livr. moy.", "Ads (MAD)", "CPL Réel",
-                  "CPL MAX", "Marge nette/livré", "Statut"
-                ].map(h => <th key={h} style={S.th}>{h}</th>)}
+                {["Décision", "Produit", "Leads", "Conf", "Livr", "Vél./j", "CAC", "Marge/livré", "Marge 30j", ""].map(h => (
+                  <th key={h} style={S.th}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {allMetrics.map(m => (
+              {metrics30j.map(m => (
                 <tr
                   key={m.nom}
                   style={{
                     ...S.tr,
-                    background: selected === m.nom ? "#1e293b" : "transparent",
-                    cursor: "pointer",
+                    background: selected === m.nom ? "#1a1f2e" : "transparent",
+                    borderLeft: `3px solid ${selected === m.nom ? COLORS[m.color] : "transparent"}`,
                   }}
                   onClick={() => setSelected(m.nom)}
+                  onMouseEnter={e => { if (selected !== m.nom) e.currentTarget.style.background = "#151b27"; }}
+                  onMouseLeave={e => { if (selected !== m.nom) e.currentTarget.style.background = "transparent"; }}
                 >
-                  <td style={S.td}><span style={S.nomP}>{m.nom}</span></td>
-                  <td style={S.tdR}>{m.totalLeads}</td>
-                  <td style={S.tdR}>{pct(m.tauxConf)}</td>
-                  <td style={S.tdR}>{pct(m.tauxLivr)}</td>
-                  <td style={S.tdR}>{m.fraisLivrMoyen > 0 ? fmt(m.fraisLivrMoyen) : "—"}</td>
-                  <td style={S.tdR}>{m.totalAds > 0 ? fmt(m.totalAds) : "—"}</td>
-                  <td style={{ ...S.tdR, color: m.rentable ? "#4ade80" : "#f87171" }}>
-                    {m.cplReel > 0 ? fmt(m.cplReel) : "—"}
-                  </td>
-                  <td style={S.tdR}>{fmt(m.cplMax)}</td>
-                  <td style={{
-                    ...S.tdR, fontWeight: 700,
-                    color: m.margeNette > 0 ? "#4ade80" : "#f87171",
-                  }}>
-                    {fmt(m.margeNette)}
+                  <td style={S.td}>
+                    <Pill decision={m.decision} colorKey={m.color} />
                   </td>
                   <td style={S.td}>
-                    <span style={chip(m.rentable)}>
-                      {m.rentable ? "🟢 RENTABLE" : "🔴 PERTE"}
-                    </span>
+                    <span style={S.nomP}>{m.nom}</span>
+                  </td>
+                  <td style={S.tdR}>{m.totalLeads}</td>
+                  <td style={{ ...S.tdR, color: m.tauxConf < SEUIL_CONF_REPAIR ? "#ef4444" : m.tauxConf >= SEUIL_CONF_SCALE ? "#10b981" : "#9ca3af" }}>
+                    {pct(m.tauxConf)}
+                  </td>
+                  <td style={{ ...S.tdR, color: m.tauxLivr < SEUIL_LIVR_REPAIR ? "#ef4444" : m.tauxLivr >= SEUIL_LIVR_SCALE ? "#10b981" : "#9ca3af" }}>
+                    {pct(m.tauxLivr)}
+                  </td>
+                  <td style={S.tdR}>{m.velocite.toFixed(1)}</td>
+                  <td style={S.tdR}>{m.cacLivre > 0 ? fmt(m.cacLivre) : "—"}</td>
+                  <td style={{ ...S.tdR, color: m.margeNetteUnite > 0 ? "#10b981" : "#ef4444", fontWeight: 600 }}>
+                    {fmt(m.margeNetteUnite)}
+                  </td>
+                  <td style={{ ...S.tdR, color: m.margeTotale > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>
+                    {fmt(m.margeTotale)}
+                  </td>
+                  <td style={S.td}>
+                    <span style={{ color: "#4b5563", fontSize: 16 }}>›</span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p style={S.hint}>
-          CPL MAX = (PV − PA − Livr. − {EMBALLAGE_PAR_CMD} − {CONFIRMATION_PAR_LIVRE}) × Taux conf × Taux livr &nbsp;·&nbsp;
-          Cliquer sur une ligne pour voir le détail ci-dessous
-        </p>
-      </Zone>
+      </Section>
 
-      {/* TABS sélecteur produit */}
-      {produits.length > 1 && (
-        <div style={S.tabs}>
-          {produits.map(p => {
-            const m = allMetrics.find(x => x.nom === p.nom);
-            return (
-              <button
-                key={p.nom}
-                onClick={() => setSelected(p.nom)}
-                style={{
-                  ...S.tab,
-                  ...(selected === p.nom ? S.tabActive : {}),
-                  borderColor: selected === p.nom
-                    ? (m?.rentable ? "#4ade80" : "#f87171")
-                    : "#1e293b",
-                }}
-              >
-                {p.nom}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* ═══ ZONE 3 — DRILL PRODUIT SÉLECTIONNÉ ═══ */}
+      {sel && (
+        <Section num="02" title={`Diagnostic — ${sel.nom}`} sub={`Décision : ${sel.decision}`}>
+          <div style={S.drillGrid}>
 
-      {selMetrics && (
-        <>
-          {/* ── ZONE 2 — Courbe marge nette 30j ──────────────────────────── */}
-          <Zone num="02" titre={`Marge nette quotidienne — ${selected}`}>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={dailyData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 11 }} />
-                <YAxis tick={{ fill: "#475569", fontSize: 11 }} unit=" MAD" width={70} />
-                <Tooltip
-                  contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: "#94a3b8" }}
-                  itemStyle={{ color: "#e2e8f0" }}
-                  formatter={(v, name) => [v !== null ? `${v} MAD` : "—", name]}
-                />
-                <ReferenceLine
-                  y={0} stroke="#ef4444" strokeDasharray="4 4"
-                  label={{ value: "Seuil 0", fill: "#ef4444", fontSize: 10, position: "insideTopRight" }}
-                />
-                <Line
-                  type="monotone" dataKey="marge" stroke="#38bdf8"
-                  strokeWidth={2} dot={false} name="Marge nette" connectNulls={false}
-                />
-                <Line
-                  type="monotone" dataKey="ma3" stroke="#f59e0b"
-                  strokeWidth={1.5} dot={false} strokeDasharray="5 3"
-                  name="Moy. mobile 3j" connectNulls
-                />
-                <Legend wrapperStyle={{ color: "#64748b", fontSize: 12, paddingTop: 8 }} />
-              </LineChart>
-            </ResponsiveContainer>
-            <p style={S.hint}>
-              Marge nette jour = (Livrés × PV) − cout_achat − frais_livraison − {EMBALLAGE_PAR_CMD} MAD/cmd − {CONFIRMATION_PAR_LIVRE} MAD/livré − Ads
-            </p>
-          </Zone>
-
-          {/* ── ZONE 3 — Diagnostic (seulement si en perte) ──────────────── */}
-          {!selMetrics.rentable && selMetrics.totalLeads >= MIN_LEADS_TEST && (
-            <Zone num="03" titre={`Diagnostic — Pourquoi ${selected} est en perte ?`}>
-              <div style={S.diagGrid}>
-                <DiagCard
-                  titre="CPL trop élevé ?"
-                  ok={selMetrics.cplReel <= selMetrics.cplMax || selMetrics.cplReel === 0}
-                  valeur={selMetrics.cplReel > 0
-                    ? `Réel ${fmt(selMetrics.cplReel)} vs MAX ${fmt(selMetrics.cplMax)}`
-                    : `CPL MAX = ${fmt(selMetrics.cplMax)}`}
-                  action={selMetrics.cplReel > selMetrics.cplMax
-                    ? "Réduire le budget ou améliorer le ciblage publicitaire"
-                    : "CPL sous contrôle — chercher ailleurs"}
-                />
-                <DiagCard
-                  titre="Taux de confirmation ?"
-                  ok={selMetrics.tauxConf >= 0.25}
-                  valeur={pct(selMetrics.tauxConf)}
-                  action={selMetrics.tauxConf < 0.25
-                    ? "Revoir le script de la conseillère / qualité des leads"
-                    : "Confirmation correcte"}
-                />
-                <DiagCard
-                  titre="Taux de livraison ?"
-                  ok={selMetrics.tauxLivr >= 0.4}
-                  valeur={pct(selMetrics.tauxLivr)}
-                  action={selMetrics.tauxLivr < 0.4
-                    ? "Vérifier zones géo, délais, ou qualité produit"
-                    : "Livraison correcte"}
-                />
-                <DiagCard
-                  titre="Marge brute suffisante ?"
-                  ok={selMetrics.margeBrute > 50}
-                  valeur={fmt(selMetrics.margeBrute)}
-                  action={selMetrics.margeBrute <= 50
-                    ? `PV ${fmt(selMetrics.prixVente)} − PA ${fmt(selMetrics.coutAchat)} − Livr. ${fmt(selMetrics.fraisLivrMoyen)} − ${EMBALLAGE_PAR_CMD + CONFIRMATION_PAR_LIVRE} MAD frais fixes`
-                    : "Marge brute suffisante — le problème vient des ads"}
-                />
-              </div>
-            </Zone>
-          )}
-
-          {/* ── ZONE 4 — Décisions tous produits ─────────────────────────── */}
-          <Zone num="04" titre="Décisions produits">
-            <div style={S.cardGrid}>
-              {allMetrics.map(m => (
-                <DecisionCard
-                  key={m.nom} m={m}
-                  active={m.nom === selected}
-                  onClick={() => setSelected(m.nom)}
-                />
-              ))}
+            {/* FUNNEL */}
+            <div>
+              <Funnel m={sel} />
             </div>
-          </Zone>
-        </>
+
+            {/* DROITE : action + courbe */}
+            <div>
+              {/* Action prescrite */}
+              <div style={{
+                padding: "16px 18px",
+                borderRadius: 10,
+                background: `${COLORS[sel.color]}10`,
+                border: `1px solid ${COLORS[sel.color]}30`,
+                marginBottom: 16,
+              }}>
+                <p style={{ color: COLORS[sel.color], fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>
+                  Action recommandée
+                </p>
+                <p style={{ color: "#f9fafb", fontSize: 14, fontWeight: 500, margin: 0, lineHeight: 1.5 }}>
+                  {sel.action}
+                </p>
+              </div>
+
+              {/* Courbe */}
+              <p style={{ color: "#4b5563", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
+                Marge nette 30 jours
+              </p>
+              <ResponsiveContainer width="100%" height={140}>
+                <LineChart data={dailyData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="2 4" stroke="#1f2937" />
+                  <XAxis dataKey="date" tick={{ fill: "#4b5563", fontSize: 10 }} interval={6} />
+                  <YAxis tick={{ fill: "#4b5563", fontSize: 10 }} width={40} />
+                  <Tooltip
+                    contentStyle={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 6, fontSize: 11 }}
+                    labelStyle={{ color: "#9ca3af" }}
+                    itemStyle={{ color: "#f9fafb" }}
+                  />
+                  <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={1} />
+                  <Line type="monotone" dataKey="marge" stroke="#6366f1" strokeWidth={2} dot={false} connectNulls={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+          </div>
+        </Section>
       )}
+
+      {/* ═══ ZONE 4 — CASHFLOW ═══ */}
+      <Section num="03" title="Cashflow 30 jours" sub="Cash réel sorti vs entré">
+        <div style={S.cashGrid}>
+          <CashCard label="Cash sorti (ads)" value={`−${fmt(cashflow.sortie)}`} color="#ef4444" />
+          <CashCard label="Cash entré (livré)" value={`+${fmt(cashflow.entree)}`} color="#10b981" />
+          <CashCard label="Cash en transit" value={fmt(cashflow.transit)} color="#f59e0b" subtitle="Expédié, pas encore livré" />
+          <CashCard label="Cash flow net" value={fmt(cashflow.netFlow)} color={cashflow.netFlow >= 0 ? "#10b981" : "#ef4444"} big />
+          <CashCard label="ROI cash" value={`${cashflow.roi.toFixed(2)}x`} color={cashflow.roi >= 1.5 ? "#10b981" : cashflow.roi >= 1 ? "#f59e0b" : "#ef4444"} big />
+        </div>
+      </Section>
 
     </div>
   );
 }
 
-// ─── SOUS-COMPOSANTS ──────────────────────────────────────────────────────────
-function Zone({ num, titre, children }) {
+// ═══════════════════════════════════════════════════════════════════════════════
+// SOUS-COMPOSANTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function Hero({ label, value, subtitle, delta, color }) {
   return (
-    <div style={S.zone}>
-      <div style={S.zoneHead}>
-        <span style={S.zoneNum}>{num}</span>
-        <h2 style={S.zoneTitle}>{titre}</h2>
+    <div style={S.hero}>
+      <p style={S.heroLabel}>{label}</p>
+      <p style={{ ...S.heroValue, color: color || "#f9fafb" }}>{value}</p>
+      {delta !== null && delta !== undefined && (
+        <p style={{
+          fontSize: 11, fontWeight: 600, margin: "4px 0 0",
+          color: delta >= 0 ? "#10b981" : "#ef4444",
+        }}>
+          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}% vs 7j précédents
+        </p>
+      )}
+      {subtitle && <p style={S.heroSub}>{subtitle}</p>}
+    </div>
+  );
+}
+
+function Section({ num, title, sub, children }) {
+  return (
+    <div style={S.section}>
+      <div style={S.sectionHead}>
+        <div>
+          <p style={S.sectionNum}>{num}</p>
+          <h2 style={S.sectionTitle}>{title}</h2>
+          {sub && <p style={S.sectionSub}>{sub}</p>}
+        </div>
       </div>
       {children}
     </div>
   );
 }
 
-function DiagCard({ titre, ok, valeur, action }) {
-  return (
-    <div style={{
-      padding: "14px 16px", borderRadius: 10,
-      border: `1px solid ${ok ? "#22d3ee20" : "#f8717130"}`,
-      background: ok ? "rgba(34,211,238,0.04)" : "rgba(248,113,113,0.06)",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <span>{ok ? "✅" : "❌"}</span>
-        <span style={{ color: "#cbd5e1", fontWeight: 600, fontSize: 13 }}>{titre}</span>
-      </div>
-      <p style={{ color: ok ? "#4ade80" : "#f87171", fontSize: 20, fontWeight: 700, margin: "0 0 6px" }}>
-        {valeur}
-      </p>
-      <p style={{ color: "#64748b", fontSize: 12, margin: 0, lineHeight: 1.5 }}>{action}</p>
-    </div>
-  );
-}
-
-const DCFG = {
-  SCALE:     { color: "#4ade80", bg: "rgba(74,222,128,0.08)",  icon: "🚀" },
-  OPTIMISER: { color: "#f59e0b", bg: "rgba(245,158,11,0.08)",  icon: "⚙️" },
-  "EN TEST": { color: "#38bdf8", bg: "rgba(56,189,248,0.06)",  icon: "🧪" },
-  STOP:      { color: "#f87171", bg: "rgba(248,113,113,0.08)", icon: "🛑" },
+const COLORS = {
+  scale:    "#10b981",
+  optimize: "#6366f1",
+  test:     "#06b6d4",
+  repair:   "#f59e0b",
+  stop:     "#ef4444",
 };
 
-function DecisionCard({ m, active, onClick }) {
-  const c = DCFG[m.decision] || DCFG["EN TEST"];
+function Pill({ decision, colorKey }) {
+  const c = COLORS[colorKey] || "#9ca3af";
   return (
-    <div onClick={onClick} style={{
-      padding: "16px 18px", borderRadius: 12, cursor: "pointer",
-      border: `1px solid ${active ? c.color : "#1e293b"}`,
-      background: active ? c.bg : "#0a0f1a",
-      transition: "border-color .15s",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <span style={{ color: "#94a3b8", fontSize: 12, fontWeight: 500 }}>{m.nom}</span>
-        <span style={{
-          fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
-          color: c.color, background: c.bg,
-        }}>{c.icon} {m.decision}</span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
-        <Kv k="Leads" v={m.totalLeads} />
-        <Kv k="Livrés" v={m.nbLivres} />
-        <Kv k="Marge nette/livré" v={fmt(m.margeNette)} color={m.margeNette > 0 ? "#4ade80" : "#f87171"} />
-        <Kv k="CPL réel" v={m.cplReel > 0 ? fmt(m.cplReel) : "—"} />
+    <span style={{
+      display: "inline-block",
+      padding: "3px 10px",
+      borderRadius: 4,
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.06em",
+      color: c,
+      background: `${c}15`,
+      border: `1px solid ${c}40`,
+      whiteSpace: "nowrap",
+    }}>{decision}</span>
+  );
+}
+
+function Funnel({ m }) {
+  const steps = [
+    { label: "Ads spend",  value: fmt(m.adsTotal), sub: `CPL réel ${fmt(m.cplReel)}`, fuite: m.fuiteEtape === "ads" },
+    { label: "Leads",      value: m.totalLeads,    sub: null, fuite: false },
+    { label: "Confirmés",  value: m.nbConfirmes,   sub: `${pct(m.tauxConf)} conv`, fuite: m.fuiteEtape === "confirmation" },
+    { label: "Expédiés",   value: m.nbExpedies + m.nbLivres, sub: null, fuite: false },
+    { label: "Livrés",     value: m.nbLivres,      sub: `${pct(m.tauxLivr)} livr · CA ${fmt(m.caLivre)}`, fuite: m.fuiteEtape === "livraison" },
+  ];
+
+  return (
+    <div>
+      <p style={{ color: "#4b5563", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px" }}>
+        Funnel COD
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {steps.map((step, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "stretch", gap: 12 }}>
+            <div style={{
+              flex: 1,
+              padding: "12px 14px",
+              background: step.fuite ? "rgba(239,68,68,0.08)" : "#111827",
+              border: `1px solid ${step.fuite ? "#ef444450" : "#1f2937"}`,
+              borderRadius: 8,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}>
+              <div>
+                <p style={{ color: "#9ca3af", fontSize: 11, fontWeight: 600, margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  {step.label}
+                </p>
+                {step.sub && <p style={{ color: "#4b5563", fontSize: 11, margin: "2px 0 0" }}>{step.sub}</p>}
+              </div>
+              <p style={{ color: "#f9fafb", fontSize: 18, fontWeight: 700, margin: 0, fontVariantNumeric: "tabular-nums" }}>
+                {step.value}
+              </p>
+            </div>
+            {step.fuite && (
+              <div style={{ display: "flex", alignItems: "center", color: "#ef4444", fontSize: 11, fontWeight: 700 }}>
+                ← FUITE
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function Kv({ k, v, color }) {
+function CashCard({ label, value, color, subtitle, big }) {
   return (
-    <div>
-      <p style={{ color: "#334155", fontSize: 10, textTransform: "uppercase", letterSpacing: ".05em", margin: 0 }}>{k}</p>
-      <p style={{ color: color || "#e2e8f0", fontSize: 14, fontWeight: 600, margin: "2px 0 0" }}>{v}</p>
+    <div style={{
+      padding: big ? "20px 22px" : "14px 16px",
+      borderRadius: 10,
+      background: "#111827",
+      border: "1px solid #1f2937",
+    }}>
+      <p style={{ color: "#4b5563", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>
+        {label}
+      </p>
+      <p style={{
+        color: color || "#f9fafb",
+        fontSize: big ? 26 : 20,
+        fontWeight: 700,
+        margin: 0,
+        fontVariantNumeric: "tabular-nums",
+      }}>
+        {value}
+      </p>
+      {subtitle && <p style={{ color: "#4b5563", fontSize: 11, margin: "4px 0 0" }}>{subtitle}</p>}
     </div>
   );
 }
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
-const fmt = v => (isNaN(v) || v === null) ? "—" : Math.round(v).toLocaleString("fr-MA") + " MAD";
-const pct = v => (isNaN(v) || v === null) ? "—" : (v * 100).toFixed(1) + "%";
-const chip = ok => ({
-  padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700,
-  background: ok ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)",
-  color: ok ? "#4ade80" : "#f87171",
-  border: `1px solid ${ok ? "#4ade8040" : "#f8717140"}`,
-  whiteSpace: "nowrap",
-});
+function fmt(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  const n = Math.round(v);
+  return n.toLocaleString("fr-MA").replace(/\u00a0/g, " ") + " MAD";
+}
+function pct(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  return (v * 100).toFixed(0) + "%";
+}
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const S = {
-  page:      { padding: "24px 20px", maxWidth: 1140, margin: "0 auto", fontFamily: "'Inter', system-ui, sans-serif", color: "#e2e8f0" },
-  pageHeader:{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 },
-  h1:        { fontSize: 22, fontWeight: 700, color: "#f1f5f9", margin: "0 0 4px" },
-  subtitle:  { fontSize: 12, color: "#475569", margin: 0 },
-  zone:      { background: "#0d1520", border: "1px solid #1e293b", borderRadius: 14, padding: "20px 20px 22px", marginBottom: 20 },
-  zoneHead:  { display: "flex", alignItems: "center", gap: 10, marginBottom: 18 },
-  zoneNum:   { fontSize: 11, fontWeight: 700, color: "#38bdf8", background: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.2)", borderRadius: 6, padding: "2px 8px", letterSpacing: ".06em" },
-  zoneTitle: { fontSize: 15, fontWeight: 600, color: "#cbd5e1", margin: 0 },
-  table:     { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th:        { textAlign: "left", color: "#334155", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", padding: "8px 12px", borderBottom: "1px solid #1e293b" },
-  tr:        { borderBottom: "1px solid #0d1520" },
-  td:        { padding: "10px 12px", color: "#cbd5e1", verticalAlign: "middle" },
-  tdR:       { padding: "10px 12px", color: "#94a3b8", textAlign: "right", fontVariantNumeric: "tabular-nums", verticalAlign: "middle" },
-  nomP:      { fontWeight: 600, color: "#e2e8f0", fontSize: 13 },
-  hint:      { color: "#1e293b", fontSize: 11, marginTop: 10, marginBottom: 0 },
-  tabs:      { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
-  tab:       { padding: "6px 14px", borderRadius: 8, border: "1px solid #1e293b", background: "transparent", color: "#475569", fontSize: 12, cursor: "pointer", fontFamily: "inherit", transition: "all .15s" },
-  tabActive: { background: "#1e293b", color: "#e2e8f0" },
-  diagGrid:  { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 },
-  cardGrid:  { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 },
-  center:    { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300 },
-  spinner:   { width: 28, height: 28, border: "2px solid #1e293b", borderTop: "2px solid #38bdf8", borderRadius: "50%", animation: "spin .8s linear infinite" },
-  btnSm:     { padding: "6px 14px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#64748b", fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
+  page: {
+    padding: "24px 20px",
+    maxWidth: 1180,
+    margin: "0 auto",
+    fontFamily: "'Inter', -apple-system, system-ui, sans-serif",
+    color: "#f9fafb",
+    background: "#0a0e1a",
+    minHeight: "100vh",
+  },
+
+  // Zone 1 — Pouls
+  zonePouls: {
+    marginBottom: 24,
+  },
+  pulseGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 12,
+    marginBottom: 12,
+  },
+  hero: {
+    padding: "16px 18px",
+    background: "#111827",
+    border: "1px solid #1f2937",
+    borderRadius: 10,
+  },
+  heroLabel: {
+    color: "#4b5563",
+    fontSize: 10,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    margin: "0 0 8px",
+  },
+  heroValue: {
+    fontSize: 28,
+    fontWeight: 700,
+    margin: 0,
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: "-0.02em",
+  },
+  heroSub: {
+    color: "#4b5563",
+    fontSize: 11,
+    margin: "4px 0 0",
+  },
+
+  // Alert bar
+  alertBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "12px 16px",
+    background: "rgba(239,68,68,0.08)",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 10,
+  },
+  alertBtn: {
+    padding: "6px 14px",
+    borderRadius: 6,
+    border: "1px solid #ef4444",
+    background: "transparent",
+    color: "#ef4444",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+
+  // Section
+  section: {
+    background: "#0d1320",
+    border: "1px solid #1f2937",
+    borderRadius: 12,
+    padding: "20px 22px 22px",
+    marginBottom: 16,
+  },
+  sectionHead: {
+    marginBottom: 18,
+  },
+  sectionNum: {
+    fontSize: 10,
+    color: "#6366f1",
+    fontWeight: 700,
+    letterSpacing: "0.1em",
+    margin: "0 0 4px",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 600,
+    color: "#f9fafb",
+    margin: 0,
+  },
+  sectionSub: {
+    fontSize: 12,
+    color: "#4b5563",
+    margin: "3px 0 0",
+  },
+
+  // Table
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: 13,
+  },
+  th: {
+    textAlign: "left",
+    color: "#4b5563",
+    fontWeight: 600,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    padding: "10px 12px 10px 16px",
+    borderBottom: "1px solid #1f2937",
+    whiteSpace: "nowrap",
+  },
+  tr: {
+    borderBottom: "1px solid #131a26",
+    cursor: "pointer",
+    transition: "background 0.12s",
+    height: 44,
+  },
+  td: {
+    padding: "10px 12px 10px 16px",
+    color: "#d1d5db",
+    verticalAlign: "middle",
+  },
+  tdR: {
+    padding: "10px 12px",
+    color: "#9ca3af",
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  nomP: {
+    fontWeight: 600,
+    color: "#f9fafb",
+    fontSize: 13,
+  },
+
+  // Drill
+  drillGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)",
+    gap: 24,
+  },
+
+  // Cashflow
+  cashGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 12,
+  },
+
+  // Loading
+  center: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 400,
+  },
+  spinner: {
+    width: 28,
+    height: 28,
+    border: "2px solid #1f2937",
+    borderTop: "2px solid #6366f1",
+    borderRadius: "50%",
+    animation: "spin 0.8s linear infinite",
+  },
+  btnSm: {
+    padding: "6px 14px",
+    borderRadius: 6,
+    border: "1px solid #1f2937",
+    background: "transparent",
+    color: "#9ca3af",
+    fontSize: 12,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    marginTop: 12,
+  },
 };
