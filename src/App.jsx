@@ -8,6 +8,7 @@ import Commandes from "./Commandes";
 import Produits from "./Produits";
 import Ads from "./Ads";
 import StockHistorique from "./StockHistorique";
+import DashboardAnalytique from "./DashboardAnalytique";
 import "./App.css";
 
 const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique"];
