@@ -302,39 +302,55 @@ const displayEvents = localEvents ?? events;
     setEditMode(true);
   }
 
-  async function saveEdit() {
-    setSavingEdit(true);
-    await supabase.from("leads").update(editForm).eq("id", lead.id);
-    const champs = [
-      { key: "client_nom", label: "Nom" },
-      { key: "telephone",  label: "Téléphone" },
-      { key: "ville",      label: "Ville" },
-      { key: "adresse",    label: "Adresse" },
-      { key: "produit",    label: "Produit" },
-      { key: "quantite",   label: "Quantité" },
-      { key: "prix",       label: "Prix" },
-    ];
-    const modifs = champs
-      .filter(c => String(editForm[c.key]) !== String(lead[c.key] || ""))
-      .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
-    if (modifs.length > 0) {
-      await supabase.from("lead_events").insert([{
-        lead_id:    lead.id,
-        type:       "✏️ Modification",
-        note:       modifs.join(" | "),
-        created_at: new Date().toISOString(),
-      }]);
-    }
-if (onEdit) onEdit(lead.id, editForm);
-    setSavingEdit(false);
-    setEditMode(false);
+async function saveEdit() {
+  setSavingEdit(true);
 
-    // Recharger l'historique
-    const { data: newEvents } = await supabase
-      .from("lead_events").select("*")
-      .eq("lead_id", lead.id)
-      .order("created_at", { ascending: false }).limit(8);
-    setLocalEvents(newEvents || []);
+  const { error } = await supabase.from("leads").update(editForm).eq("id", lead.id);
+  
+  if (error) {
+    alert("Erreur sauvegarde : " + error.message);
+    setSavingEdit(false);
+    return;
+  }
+
+  // Logger les changements
+  const champs = [
+    { key: "client_nom", label: "Nom" },
+    { key: "telephone",  label: "Téléphone" },
+    { key: "ville",      label: "Ville" },
+    { key: "adresse",    label: "Adresse" },
+    { key: "produit",    label: "Produit" },
+    { key: "quantite",   label: "Quantité" },
+    { key: "prix",       label: "Prix" },
+  ];
+
+  const modifs = champs
+    .filter(c => {
+      const avant  = lead[c.key] === null || lead[c.key] === undefined ? "" : String(lead[c.key]);
+      const apres  = editForm[c.key] === null || editForm[c.key] === undefined ? "" : String(editForm[c.key]);
+      return avant !== apres;
+    })
+    .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
+
+  if (modifs.length > 0) {
+    await supabase.from("lead_events").insert([{
+      lead_id:    lead.id,
+      type:       "✏️ Modification",
+      note:       modifs.join(" | "),
+      created_at: new Date().toISOString(),
+    }]);
+  }
+
+  // Recharger l'historique
+  const { data: newEvents } = await supabase
+    .from("lead_events").select("*")
+    .eq("lead_id", lead.id)
+    .order("created_at", { ascending: false }).limit(8);
+  setLocalEvents(newEvents || []);
+
+  if (onEdit) onEdit(lead.id, editForm);
+  setSavingEdit(false);
+  setEditMode(false);
   }
 
   function handleCommentChange(val) {
