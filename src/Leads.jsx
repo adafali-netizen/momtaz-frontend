@@ -633,8 +633,8 @@ export default function Leads({ role, nom }) {
     setEvents(data || []);
   }
 
-  async function updateStatut(id, statut) {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
+async function updateStatut(id, statut, ancienStatut) {
+  setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
     setSelected(prev => prev?.id === id ? { ...prev, statut } : prev);
 
     await supabase.from("leads").update({ statut }).eq("id", id);
