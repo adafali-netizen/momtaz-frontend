@@ -613,6 +613,10 @@ export default function Leads({ role, nom }) {
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
 if (statut === "Confirmé") {
+      console.log("=== CRÉATION COMMANDE ===", id);
+      await supabase.from("commandes").delete().eq("lead_id", id);
+      const { data: leadData, error: leadError } = await supabase.from("leads").select("*").eq("id", id).single();
+      console.log("Lead data:", leadData, "Error:", leadError);
       await supabase.from("commandes").delete().eq("lead_id", id);
       const { data: leadData } = await supabase.from("leads").select("*").eq("id", id).single();
       const lead = leadData;
