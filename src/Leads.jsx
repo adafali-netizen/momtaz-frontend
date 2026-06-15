@@ -272,6 +272,8 @@ function LeadTimeline({ events }) {
 }
 
 function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
+  const [localEvents, setLocalEvents] = useState(null);
+const displayEvents = localEvents ?? events;
   const [commentaire, setCommentaire] = useState(lead.commentaire || "");
   const [saving,      setSaving]      = useState(false);
   const [editMode,    setEditMode]    = useState(false);
@@ -323,9 +325,16 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
         created_at: new Date().toISOString(),
       }]);
     }
-    if (onEdit) onEdit(lead.id, editForm);
+if (onEdit) onEdit(lead.id, editForm);
     setSavingEdit(false);
     setEditMode(false);
+
+    // Recharger l'historique
+    const { data: newEvents } = await supabase
+      .from("lead_events").select("*")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: false }).limit(8);
+    setLocalEvents(newEvents || []);
   }
 
   function handleCommentChange(val) {
@@ -490,7 +499,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
         {/* Timeline */}
         <section>
           <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Historique</div>
-          <LeadTimeline events={events} />
+          <LeadTimeline events={displayEvents} />
         </section>
 
         {/* Note */}
