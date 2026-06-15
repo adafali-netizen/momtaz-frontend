@@ -175,8 +175,11 @@ export default function Commandes() {
     if (selected?.id === id) setSelected(s => ({ ...s, tracking: val }));
   }
 
-  const count    = s => s === "tous" ? commandes.length : commandes.filter(c => c.statut === s).length;
-  const filtered = commandes.filter(c => filtre === "tous" || c.statut === filtre);
+const count    = s => s === "tous" ? commandes.length : commandes.filter(c => c.statut === s).length;
+const filtered = commandes.filter(c => {
+  if (filtre === "tous") return c.statut !== "Annulée";
+  return c.statut === filtre;
+});
   const retours  = count("Retour en cours") + count("Demande de retour");
 
   // Affichage conditionnel frais selon statut sélectionné dans le panel
@@ -211,7 +214,7 @@ export default function Commandes() {
 
       {loading ? (
         <div className="state-wrap"><div className="spinner" /> Chargement...</div>
-      ) : commandes.length === 0 ? (
+) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">📦</div>
           <div className="empty-title">Aucune commande</div>
