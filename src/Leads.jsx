@@ -238,113 +238,93 @@ function AnnulerCommande({ leadId, onAnnule }) {
 }
 
 function ZoneTraitement({ lead, onUpdate }) {
-  const cta   = getMainCTA(lead.statut);
-const fermé = ["Annulé", "Pas intéressé", "Numéro faux"].includes(lead.statut);
-  const actifs = STATUTS.filter(s => s.group === "actif"  && s.key !== lead.statut);
-  const fermés = STATUTS.filter(s => s.group === "fermé"  && s.key !== lead.statut);
+  const [saving, setSaving] = useState(false);
+
+  const tousStatuts = [
+    { key: "À appeler",         emoji: "📋", color: "#2563EB", bg: "#EFF6FF" },
+    { key: "Injoignable",       emoji: "📵", color: "#D97706", bg: "#FFFBEB" },
+    { key: "Demande de rappel", emoji: "🔔", color: "#7C3AED", bg: "#F5F3FF" },
+    { key: "Confirmé",          emoji: "✅", color: "#16A34A", bg: "#F0FDF4" },
+    { key: "Pas intéressé",     emoji: "🚫", color: "#64748B", bg: "#F8FAFC" },
+    { key: "Numéro faux",       emoji: "⚠️", color: "#DC2626", bg: "#FEF2F2" },
+    { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
+  ];
+
+  const current = tousStatuts.find(s => s.key === lead.statut) || tousStatuts[0];
+
+  async function handleChange(newStatut) {
+    if (newStatut === lead.statut) return;
+    setSaving(true);
+
+    if (newStatut === "Annulé" && lead.statut === "Confirmé") {
+      const { data: cmd } = await supabase.from("commandes")
+        .select("statut").eq("lead_id", lead.id).maybeSingle();
+      if (cmd && cmd.statut !== "À expédier") {
+        alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
+        setSaving(false);
+        return;
+      }
+      if (!window.confirm("Confirmer l'annulation de la commande ?")) {
+        setSaving(false);
+        return;
+      }
+      await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
+      await supabase.from("lead_events").insert([{
+        lead_id: lead.id, type: "❌ Commande annulée",
+        note: "Annulation demandée par le client",
+        created_at: new Date().toISOString(),
+      }]);
+    }
+
+    await onUpdate(newStatut);
+    setSaving(false);
+  }
+
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
-      <div style={{ padding: "10px 14px", background: fermé ? "var(--surface2)" : "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)", borderBottom: "1px solid var(--border)" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em", color: fermé ? "var(--muted2)" : "rgba(255,255,255,.5)" }}>Zone de traitement</div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: fermé ? "var(--muted)" : "rgba(255,255,255,.9)", marginTop: 2 }}>
-          {lead.statut === "Confirmé" ? "✅ Lead confirmé — commande validée" :
-           lead.statut === "Annulé"   ? "❌ Lead annulé" :
-           lead.statut === "Pas intéressé" ? "🚫 Lead clôturé" :
-           lead.statut === "Numéro faux"   ? "⚠️ Numéro invalide" :
-           "Choisir l'issue de cet appel"}
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: "var(--radius)", overflow: "hidden",
+    }}>
+      <div style={{
+        padding: "10px 14px",
+        background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+        borderBottom: "1px solid var(--border)",
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em", color: "rgba(255,255,255,.5)" }}>
+          Zone de traitement
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.9)", marginTop: 2 }}>
+          Statut actuel : {current.emoji} {lead.statut}
         </div>
       </div>
-      <div style={{ padding: "14px" }}>
-        {cta && (
-          <button onClick={() => onUpdate(cta.next)} style={{
-            width: "100%", padding: "13px 16px", background: cta.color, color: "#fff",
-            border: "none", borderRadius: "var(--radius)", fontSize: 14, fontWeight: 800,
-            cursor: "pointer", boxShadow: `0 4px 14px ${cta.shadow}44`, letterSpacing: ".01em",
-            transition: "all .15s", marginBottom: 10,
-          }}
-            onMouseOver={e => e.currentTarget.style.transform = "translateY(-1px)"}
-            onMouseOut={e => e.currentTarget.style.transform = "translateY(0)"}
-          >{cta.label}</button>
-        )}
-        {!fermé && actifs.length > 0 && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {actifs.map(s => (
-              <button key={s.key} onClick={() => onUpdate(s.key)} style={{
-                flex: 1, padding: "8px 6px", background: s.bg, color: s.color,
-                border: `1px solid ${s.color}33`, borderRadius: 6, fontSize: 11,
-                fontWeight: 700, cursor: "pointer", textAlign: "center", transition: "all .12s",
-              }}
-                onMouseOver={e => e.currentTarget.style.boxShadow = `0 2px 8px ${s.color}33`}
-                onMouseOut={e => e.currentTarget.style.boxShadow = "none"}
-              >
-                <div style={{ fontSize: 14 }}>{s.emoji}</div>
-                <div style={{ fontSize: 10, marginTop: 2 }}>{s.key}</div>
-              </button>
-            ))}
-          </div>
-        )}
-        {!fermé && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Clôturer</div>
-            <div style={{ display: "flex", gap: 6 }}>
-{[...fermés, ...(lead.statut === "Confirmé" ? [S["Annulé"]] : [])].map(s => (
-  <button
-    key={s.key}
-    onClick={async () => {
-      if (s.key === "Annulé" && lead.statut === "Confirmé") {
-        // Vérifier statut commande avant d'annuler
-        const { data: cmd } = await supabase.from("commandes")
-          .select("statut").eq("lead_id", lead.id).maybeSingle();
-        if (cmd && cmd.statut !== "À expédier") {
-          alert("⚠️ Commande déjà expédiée — annulation impossible depuis l'ERP. Contactez la logistique.");
-          return;
-        }
-        if (!window.confirm("Confirmer l'annulation ?")) return;
-        // Annuler la commande
-        await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
-        await supabase.from("lead_events").insert([{
-          lead_id: lead.id,
-          type: "❌ Commande annulée",
-          note: "Annulation demandée par le client",
-          created_at: new Date().toISOString(),
-        }]);
-      }
-      onUpdate(s.key);
-    }}
-    style={{
-      flex: 1, padding: "7px 6px",
-      background: "var(--surface2)",
-      border: "1px solid var(--border)",
-      borderRadius: 6, fontSize: 10, fontWeight: 600,
-      color: "var(--muted)", cursor: "pointer",
-      transition: "all .12s",
-    }}
-    onMouseOver={e => { e.currentTarget.style.background = s.bg; e.currentTarget.style.color = s.color; e.currentTarget.style.borderColor = s.color + "44"; }}
-    onMouseOut={e =>  { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.color = "var(--muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
-  >
-    {s.emoji} {s.key}
-  </button>
-))}
-            </div>
-          </div>
-        )}
-{fermé && lead.statut !== "Confirmé" && (
-  <button
-    onClick={() => onUpdate("À appeler")}
-    style={{
-      width: "100%", padding: "8px", background: "var(--surface2)",
-      border: "1px solid var(--border)", borderRadius: 6,
-      fontSize: 12, fontWeight: 600, color: "var(--muted)", cursor: "pointer",
-    }}
-  >
-    🔄 Réouvrir ce lead
-  </button>
-)}
 
-{lead.statut === "Confirmé" && (
-  <AnnulerCommande leadId={lead.id} onAnnule={onUpdate} />
-)}
-        
+      <div style={{ padding: "14px" }}>
+        <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>
+          Changer le statut
+        </div>
+        <select
+          value={lead.statut}
+          onChange={e => handleChange(e.target.value)}
+          disabled={saving}
+          style={{
+            width: "100%", padding: "10px 12px",
+            background: current.bg,
+            border: `1px solid ${current.color}44`,
+            borderRadius: 8, fontSize: 13, fontWeight: 600,
+            color: current.color, cursor: "pointer",
+            outline: "none", appearance: "auto",
+            fontFamily: "inherit",
+          }}
+        >
+          {tousStatuts.map(s => (
+            <option key={s.key} value={s.key}>{s.emoji} {s.key}</option>
+          ))}
+        </select>
+        {saving && (
+          <p style={{ fontSize: 11, color: "var(--muted2)", margin: "8px 0 0", textAlign: "center" }}>
+            ⏳ Enregistrement...
+          </p>
+        )}
       </div>
     </div>
   );
