@@ -851,20 +851,15 @@ async function updateStatut(id, statut) {
         </div>
 
         {/* Panel */}
-        {selected && (
-          <LeadDetailPanel
-  lead={selected}
-  events={events}
-  onClose={() => setSelected(null)}
-  onUpdate={statut => updateStatut(selected.id, statut)}
-  onEdit={(id, form) => {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
-    setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
-  }}
-/>
-          />
-        )}
-      </div>
-    </div>
-  );
-}
+{selected && (
+  <LeadDetailPanel
+    lead={selected}
+    events={events}
+    onClose={() => setSelected(null)}
+    onUpdate={statut => updateStatut(selected.id, statut)}
+    onEdit={(id, form) => {
+      setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
+      setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
+    }}
+  />
+)}
