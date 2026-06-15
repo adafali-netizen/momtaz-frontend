@@ -636,7 +636,6 @@ if (statut === "Confirmé") {
       // Supprimer la commande quand le lead quitte Confirmé
       await supabase.from("commandes").delete().eq("lead_id", id);
     }
-    }
 
     if (selected?.id === id) fetchEvents(id);
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
