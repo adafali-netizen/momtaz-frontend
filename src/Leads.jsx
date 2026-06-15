@@ -194,10 +194,6 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
         setSaving(false);
         return;
       }
-      if (!window.confirm("Confirmer l'annulation de la commande ?")) {
-        setNewStatut(lead.statut);
-        setSaving(false);
-        return;
       }
       await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
       await supabase.from("lead_events").insert([{
