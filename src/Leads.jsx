@@ -181,105 +181,28 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   const current  = tousStatuts.find(s => s.key === newStatut)  || tousStatuts[0];
   const modified = newStatut !== lead.statut;
 
-  async function handleSave() {
-    setSaving(true);
+async function handleSave() {
+  setSaving(true);
 
-    // Vérification annulation commande
-    if (newStatut === "Annulé" && lead.statut === "Confirmé") {
-      const { data: cmd } = await supabase.from("commandes")
-        .select("statut").eq("lead_id", lead.id).maybeSingle();
-      if (cmd && cmd.statut !== "À expédier") {
-        alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
-        setNewStatut(lead.statut);
-        setSaving(false);
-        return;
-      }
-      }
-      await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
-      await supabase.from("lead_events").insert([{
-        lead_id: lead.id, type: "❌ Commande annulée",
-        note: "Annulation demandée par le client",
-        created_at: new Date().toISOString(),
-      }]);
+  if (newStatut === "Annulé" && lead.statut === "Confirmé") {
+    const { data: cmd } = await supabase.from("commandes")
+      .select("statut").eq("lead_id", lead.id).maybeSingle();
+    if (cmd && cmd.statut !== "À expédier") {
+      alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
+      setNewStatut(lead.statut);
+      setSaving(false);
+      return;
     }
-
-await onUpdate(newStatut, ancienStatut);
-    setSaving(false);
+    await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
+    await supabase.from("lead_events").insert([{
+      lead_id: lead.id, type: "❌ Commande annulée",
+      note: "Annulation demandée par le client",
+      created_at: new Date().toISOString(),
+    }]);
   }
 
-  return (
-    <div style={{
-      background: "var(--surface)", border: "1px solid var(--border)",
-      borderRadius: "var(--radius)", overflow: "hidden",
-    }}>
-      <div style={{
-        padding: "10px 14px",
-        background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
-        borderBottom: "1px solid var(--border)",
-      }}>
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em", color: "rgba(255,255,255,.5)" }}>
-          Zone de traitement
-        </div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.9)", marginTop: 2 }}>
-          Statut actuel : {tousStatuts.find(s => s.key === lead.statut)?.emoji} {lead.statut}
-        </div>
-      </div>
-
-      <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>
-            Changer le statut
-          </div>
-          <select
-            value={newStatut}
-            onChange={e => setNewStatut(e.target.value)}
-            disabled={saving}
-            style={{
-              width: "100%", padding: "10px 12px",
-              background: current.bg,
-              border: `1px solid ${current.color}44`,
-              borderRadius: 8, fontSize: 13, fontWeight: 600,
-              color: current.color, cursor: "pointer",
-              outline: "none", fontFamily: "inherit",
-            }}
-          >
-            {tousStatuts.map(s => (
-              <option key={s.key} value={s.key}>{s.emoji} {s.key}</option>
-            ))}
-          </select>
-        </div>
-
-        {modified && (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                flex: 1, padding: "10px",
-                background: current.color, color: "#fff",
-                border: "none", borderRadius: 8,
-                fontSize: 13, fontWeight: 700, cursor: "pointer",
-              }}
-            >
-              {saving ? "⏳ Enregistrement..." : `✓ Enregistrer — ${current.emoji} ${newStatut}`}
-            </button>
-            <button
-              onClick={() => setNewStatut(lead.statut)}
-              disabled={saving}
-              style={{
-                padding: "10px 14px",
-                background: "var(--surface2)", color: "var(--muted)",
-                border: "1px solid var(--border)", borderRadius: 8,
-                fontSize: 12, cursor: "pointer", fontFamily: "inherit",
-              }}
-            >
-              Annuler
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  await onUpdate(newStatut, ancienStatut);
+  setSaving(false);
 }
 
 // ─── TIMELINE ────────────────────────────────────────────────────────────────
