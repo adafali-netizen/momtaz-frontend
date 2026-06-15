@@ -581,13 +581,54 @@ export default function Leads({ role, nom }) {
     setEvents(data || []);
   }
 
-  async function updateStatut(id, statut) {
+async function updateStatut(id, statut) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
     setSelected(prev => prev?.id === id ? { ...prev, statut } : prev);
+
     await supabase.from("leads").update({ statut }).eq("id", id);
-    await supabase.from("lead_events").insert([{ lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString() }]);
+    await supabase.from("lead_events").insert([{
+      lead_id: id,
+      type: `Statut → ${statut}`,
+      created_at: new Date().toISOString()
+    }]);
+
+    // Création commande si lead confirmé
+    if (statut === "Confirmé") {
+      const lead = leads.find(l => l.id === id);
+      if (lead) {
+        const { data: existing } = await supabase
+          .from("commandes")
+          .select("id")
+          .eq("lead_id", id)
+          .maybeSingle();
+
+        if (!existing) {
+          await supabase.from("commandes").insert([{
+            lead_id:     id,
+            client_nom:  lead.client_nom,
+            telephone:   lead.telephone,
+            ville:       lead.ville,
+            adresse:     lead.adresse,
+            produit:     lead.produit,
+            quantite:    lead.quantite || 1,
+            prix:        lead.prix,
+            source:      lead.source,
+            conseillere: lead.conseillere,
+            statut:      "À expédier",
+            created_at:  new Date().toISOString(),
+          }]);
+        }
+      }
+    }
+
     if (selected?.id === id) fetchEvents(id);
-    try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
+    try {
+      await fetch(WEBHOOK + id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statut })
+      });
+    } catch {}
   }
 
   // ── KPIs globaux ──
