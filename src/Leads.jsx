@@ -509,6 +509,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
     </aside>
   );
 }
+}
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
 
