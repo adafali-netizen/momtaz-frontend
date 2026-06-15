@@ -184,18 +184,10 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   async function handleSave() {
     setSaving(true);
 
-    if (newStatut === "Annulé" && lead.statut === "Confirmé") {
-      const { data: cmd } = await supabase.from("commandes")
-        .select("statut").eq("lead_id", lead.id).maybeSingle();
-      if (cmd && cmd.statut !== "À expédier") {
-        alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
-        setNewStatut(lead.statut);
-        setSaving(false);
-        return;
-      }
-      await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
+if (newStatut === "Annulé" && lead.statut === "Confirmé") {
+      await supabase.from("commandes").delete().eq("lead_id", lead.id);
       await supabase.from("lead_events").insert([{
-        lead_id: lead.id, type: "❌ Commande annulée",
+        lead_id: lead.id, type: "❌ Commande supprimée",
         note: "Annulation demandée par le client",
         created_at: new Date().toISOString(),
       }]);
@@ -620,27 +612,30 @@ export default function Leads({ role, nom }) {
     await supabase.from("lead_events").insert([{
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
-
-    if (statut === "Confirmé") {
+if (statut === "Confirmé") {
+      // Supprimer toute commande existante puis recréer
+      await supabase.from("commandes").delete().eq("lead_id", id);
       const lead = leads.find(l => l.id === id);
       if (lead) {
-        const { data: existing } = await supabase.from("commandes").select("id").eq("lead_id", id).maybeSingle();
-        if (!existing) {
-          await supabase.from("commandes").insert([{
-            lead_id: id, client_nom: lead.client_nom, telephone: lead.telephone,
-            ville: lead.ville, adresse: lead.adresse, produit: lead.produit,
-            quantite: lead.quantite || 1, prix: lead.prix, source: lead.source,
-            conseillere: lead.conseillere, statut: "À expédier",
-            created_at: new Date().toISOString(),
-          }]);
-        }
+        await supabase.from("commandes").insert([{
+          lead_id:     id,
+          client_nom:  lead.client_nom,
+          telephone:   lead.telephone,
+          ville:       lead.ville,
+          adresse:     lead.adresse,
+          produit:     lead.produit,
+          quantite:    lead.quantite || 1,
+          prix:        lead.prix,
+          source:      lead.source,
+          conseillere: lead.conseillere,
+          statut:      "À expédier",
+          created_at:  new Date().toISOString(),
+        }]);
       }
     } else if (ancienStatut === "Confirmé" && statut !== "Confirmé") {
-      const { data: cmd } = await supabase.from("commandes")
-        .select("id, statut").eq("lead_id", id).maybeSingle();
-      if (cmd && cmd.statut === "À expédier") {
-        await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", id);
-      }
+      // Supprimer la commande quand le lead quitte Confirmé
+      await supabase.from("commandes").delete().eq("lead_id", id);
+    }
     }
 
     if (selected?.id === id) fetchEvents(id);
