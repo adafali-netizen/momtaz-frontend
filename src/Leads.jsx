@@ -239,7 +239,7 @@ function AnnulerCommande({ leadId, onAnnule }) {
 
 function ZoneTraitement({ lead, onUpdate }) {
   const cta   = getMainCTA(lead.statut);
-  const fermé = ["Annulé", "Pas intéressé", "Numéro faux", "Confirmé"].includes(lead.statut);
+const fermé = ["Annulé", "Pas intéressé", "Numéro faux"].includes(lead.statut);
   const actifs = STATUTS.filter(s => s.group === "actif"  && s.key !== lead.statut);
   const fermés = STATUTS.filter(s => s.group === "fermé"  && s.key !== lead.statut);
   return (
@@ -287,16 +287,44 @@ function ZoneTraitement({ lead, onUpdate }) {
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Clôturer</div>
             <div style={{ display: "flex", gap: 6 }}>
-              {fermés.map(s => (
-                <button key={s.key} onClick={() => onUpdate(s.key)} style={{
-                  flex: 1, padding: "7px 6px", background: "var(--surface2)",
-                  border: "1px solid var(--border)", borderRadius: 6, fontSize: 10,
-                  fontWeight: 600, color: "var(--muted)", cursor: "pointer", transition: "all .12s",
-                }}
-                  onMouseOver={e => { e.currentTarget.style.background = s.bg; e.currentTarget.style.color = s.color; e.currentTarget.style.borderColor = s.color + "44"; }}
-                  onMouseOut={e =>  { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.color = "var(--muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
-                >{s.emoji} {s.key}</button>
-              ))}
+{[...fermés, ...(lead.statut === "Confirmé" ? [S["Annulé"]] : [])].map(s => (
+  <button
+    key={s.key}
+    onClick={async () => {
+      if (s.key === "Annulé" && lead.statut === "Confirmé") {
+        // Vérifier statut commande avant d'annuler
+        const { data: cmd } = await supabase.from("commandes")
+          .select("statut").eq("lead_id", lead.id).maybeSingle();
+        if (cmd && cmd.statut !== "À expédier") {
+          alert("⚠️ Commande déjà expédiée — annulation impossible depuis l'ERP. Contactez la logistique.");
+          return;
+        }
+        if (!window.confirm("Confirmer l'annulation ?")) return;
+        // Annuler la commande
+        await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
+        await supabase.from("lead_events").insert([{
+          lead_id: lead.id,
+          type: "❌ Commande annulée",
+          note: "Annulation demandée par le client",
+          created_at: new Date().toISOString(),
+        }]);
+      }
+      onUpdate(s.key);
+    }}
+    style={{
+      flex: 1, padding: "7px 6px",
+      background: "var(--surface2)",
+      border: "1px solid var(--border)",
+      borderRadius: 6, fontSize: 10, fontWeight: 600,
+      color: "var(--muted)", cursor: "pointer",
+      transition: "all .12s",
+    }}
+    onMouseOver={e => { e.currentTarget.style.background = s.bg; e.currentTarget.style.color = s.color; e.currentTarget.style.borderColor = s.color + "44"; }}
+    onMouseOut={e =>  { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.color = "var(--muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+  >
+    {s.emoji} {s.key}
+  </button>
+))}
             </div>
           </div>
         )}
