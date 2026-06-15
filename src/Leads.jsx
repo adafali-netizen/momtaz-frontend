@@ -414,11 +414,294 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   const [editMode,    setEditMode]    = useState(false);
   const [editForm,    setEditForm]    = useState({});
   const [savingEdit,  setSavingEdit]  = useState(false);
+  const [produits,    setProduits]    = useState([]);
   const saveTimeout = useRef(null);
 
   useEffect(() => { setCommentaire(lead.commentaire || ""); }, [lead.id]);
   useEffect(() => { setEditMode(false); }, [lead.id]);
+  useEffect(() => {
+    supabase.from("produits").select("nom, prix_vente").order("nom")
+      .then(({ data }) => setProduits(data || []));
+  }, []);
 
+  function openEdit() {
+    setEditForm({
+      client_nom: lead.client_nom || "",
+      telephone:  lead.telephone  || "",
+      ville:      lead.ville      || "",
+      adresse:    lead.adresse    || "",
+      produit:    lead.produit    || "",
+      quantite:   lead.quantite   || 1,
+      prix:       lead.prix       || "",
+    });
+    setEditMode(true);
+  }
+
+  async function saveEdit() {
+    setSavingEdit(true);
+    await supabase.from("leads").update(editForm).eq("id", lead.id);
+
+    // Logger les changements dans l'historique
+    const champs = [
+      { key: "client_nom", label: "Nom" },
+      { key: "telephone",  label: "Téléphone" },
+      { key: "ville",      label: "Ville" },
+      { key: "adresse",    label: "Adresse" },
+      { key: "produit",    label: "Produit" },
+      { key: "quantite",   label: "Quantité" },
+      { key: "prix",       label: "Prix" },
+    ];
+    const modifs = champs
+      .filter(c => String(editForm[c.key]) !== String(lead[c.key] || ""))
+      .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
+
+    if (modifs.length > 0) {
+      await supabase.from("lead_events").insert([{
+        lead_id:    lead.id,
+        type:       `✏️ Modification`,
+        note:       modifs.join(" | "),
+        created_at: new Date().toISOString(),
+      }]);
+    }
+
+    if (onEdit) onEdit(lead.id, editForm);
+    setSavingEdit(false);
+    setEditMode(false);
+  }
+
+  function handleCommentChange(val) {
+    setCommentaire(val);
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    saveTimeout.current = setTimeout(async () => {
+      setSaving(true);
+      await supabase.from("leads").update({ commentaire: val }).eq("id", lead.id);
+      try { await fetch(WEBHOOK + lead.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentaire: val }) }); } catch {}
+      setSaving(false);
+    }, 1500);
+  }
+
+  const urgent  = isUrgent(lead);
+  const overdue = isOverdue(lead);
+
+  return (
+    <aside style={{
+      width: 360, flexShrink: 0,
+      background: "var(--surface)",
+      borderLeft: "1px solid var(--border)",
+      display: "flex", flexDirection: "column",
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "14px 18px",
+        background: urgent ? "#FFF5F5" : overdue ? "#FFFDF0" : "var(--surface2)",
+        borderBottom: "1px solid var(--border)",
+        flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "var(--text)", letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {lead.client_nom || "Sans nom"}
+            </div>
+            {(urgent || overdue) && (
+              <div style={{ fontSize: 10, fontWeight: 800, color: urgent ? "#DC2626" : "#D97706", marginTop: 2, letterSpacing: ".05em" }}>
+                {urgent ? "⚡ URGENT — Appeler maintenant" : "⏰ RAPPEL EN RETARD"}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button onClick={openEdit} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--muted2)", fontSize: 12, cursor: "pointer", padding: "3px 8px" }}>✏️</button>
+            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted2)", fontSize: 20, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <StatusBadge statut={lead.statut} size="md" />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <a href={`tel:${lead.telephone}`} style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            fontSize: 15, color: "var(--blue)", fontWeight: 800,
+            textDecoration: "none", fontFamily: "JetBrains Mono, monospace",
+            padding: "6px 10px", background: "var(--blue-lt)",
+            borderRadius: 6, border: "1px solid #BFDBFE",
+            width: "fit-content",
+          }}>
+            📞 {lead.telephone}
+          </a>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 4 }}>
+            {lead.ville && <span style={{ fontSize: 12, color: "var(--muted)" }}>📍 {lead.ville}{lead.adresse ? ` · ${lead.adresse}` : ""}</span>}
+            {lead.conseillere && <span style={{ fontSize: 12, color: "var(--muted)" }}>👤 {lead.conseillere.trim()}</span>}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--muted2)", fontFamily: "JetBrains Mono, monospace", marginTop: 2 }}>
+            🕐 {fmtDateComplete(lead.created_at)} · il y a {timeAgo(lead.created_at)}
+          </div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+        {/* ── MODE ÉDITION ── */}
+        {editMode && (
+          <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 12 }}>
+              Modifier les informations
+            </div>
+
+            {[
+              { label: "Nom client", key: "client_nom", type: "text" },
+              { label: "Téléphone",  key: "telephone",  type: "text" },
+              { label: "Ville",      key: "ville",      type: "text" },
+              { label: "Adresse",    key: "adresse",    type: "text" },
+            ].map(({ label, key, type }) => (
+              <div key={key} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>{label}</div>
+                <input
+                  type={type}
+                  value={editForm[key] || ""}
+                  onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                  style={{
+                    width: "100%", padding: "7px 10px",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    borderRadius: 6, fontSize: 12, color: "var(--text)",
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                  onFocus={e => e.target.style.borderColor = "var(--blue)"}
+                  onBlur={e => e.target.style.borderColor = "var(--border)"}
+                />
+              </div>
+            ))}
+
+            {/* Produit — liste déroulante */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>Produit</div>
+              <select
+                value={editForm.produit || ""}
+                onChange={e => {
+                  const p = produits.find(x => x.nom === e.target.value);
+                  setEditForm(f => ({
+                    ...f,
+                    produit: e.target.value,
+                    prix: p ? p.prix_vente : f.prix,
+                  }));
+                }}
+                style={{
+                  width: "100%", padding: "7px 10px",
+                  background: "var(--surface)", border: "1px solid var(--border)",
+                  borderRadius: 6, fontSize: 12, color: "var(--text)",
+                  outline: "none", boxSizing: "border-box",
+                }}
+              >
+                <option value="">-- Choisir un produit --</option>
+                {produits.map(p => (
+                  <option key={p.nom} value={p.nom}>{p.nom} — {p.prix_vente} MAD</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Quantité + Prix */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>Quantité</div>
+                <input
+                  type="number" min="1"
+                  value={editForm.quantite || 1}
+                  onChange={e => setEditForm(f => ({ ...f, quantite: +e.target.value }))}
+                  style={{
+                    width: "100%", padding: "7px 10px",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    borderRadius: 6, fontSize: 12, color: "var(--text)",
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>Prix (MAD)</div>
+                <input
+                  type="number"
+                  value={editForm.prix || ""}
+                  onChange={e => setEditForm(f => ({ ...f, prix: +e.target.value }))}
+                  style={{
+                    width: "100%", padding: "7px 10px",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    borderRadius: 6, fontSize: 12, color: "var(--text)",
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button
+                onClick={saveEdit}
+                disabled={savingEdit}
+                style={{ flex: 1, padding: "8px", background: "var(--blue)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+              >
+                {savingEdit ? "⏳ Sauvegarde..." : "💾 Enregistrer"}
+              </button>
+              <button
+                onClick={() => setEditMode(false)}
+                style={{ padding: "8px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, color: "var(--muted)", cursor: "pointer" }}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── ZONE TRAITEMENT ── */}
+        <ZoneTraitement lead={lead} onUpdate={onUpdate} />
+
+        {/* Commande */}
+        {lead.produit && (
+          <section>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Commande</div>
+            <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 12px" }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)", marginBottom: 6 }}>{lead.produit}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {lead.quantite && <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: "var(--muted)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>Qté {lead.quantite}</span>}
+                {lead.prix > 0 && <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: "var(--blue)", background: "var(--blue-lt)", border: "1px solid #BFDBFE", borderRadius: 4, padding: "2px 8px", fontWeight: 700 }}>{lead.prix} MAD</span>}
+                {lead.source && <span style={{ fontSize: 11, color: "var(--muted2)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>via {lead.source}</span>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Timeline */}
+        <section>
+          <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Historique</div>
+          <LeadTimeline events={events} />
+        </section>
+
+        {/* Note */}
+        <section>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)" }}>Note opérateur</div>
+            {saving  && <span style={{ fontSize: 10, color: "var(--muted2)", fontStyle: "italic" }}>⏳ Sauvegarde...</span>}
+            {!saving && commentaire && <span style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>✓ Sauvegardé</span>}
+          </div>
+          <textarea
+            value={commentaire}
+            onChange={e => handleCommentChange(e.target.value)}
+            placeholder="Ajouter une note sur ce lead..."
+            style={{
+              width: "100%", minHeight: 80,
+              background: "var(--surface2)", border: "1px solid var(--border)",
+              borderRadius: "var(--radius)", color: "var(--text)",
+              padding: "9px 11px", fontSize: 12, resize: "vertical",
+              outline: "none", lineHeight: 1.6, fontFamily: "Inter, sans-serif",
+              transition: "border-color .12s", boxSizing: "border-box",
+            }}
+            onFocus={e => e.target.style.borderColor = "var(--blue)"}
+            onBlur={e => e.target.style.borderColor = "var(--border)"}
+          />
+        </section>
+      </div>
+    </aside>
+  );
+}
   function openEdit() {
     setEditForm({
       client_nom: lead.client_nom || "",
