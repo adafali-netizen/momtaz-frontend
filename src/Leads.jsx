@@ -51,15 +51,6 @@ function isOverdue(lead) {
   return new Date(lead.rappel_at) < new Date();
 }
 
-function getMainCTA(statut) {
-  switch (statut) {
-    case "À appeler":         return { label: "✅ Confirmer la commande", next: "Confirmé",          color: "#16A34A", shadow: "#16A34A" };
-    case "Injoignable":       return { label: "🔔 Demande de rappel",    next: "Demande de rappel", color: "#7C3AED", shadow: "#7C3AED" };
-    case "Demande de rappel": return { label: "✅ Confirmer la commande", next: "Confirmé",          color: "#16A34A", shadow: "#16A34A" };
-    default:                  return null;
-  }
-}
-
 function StatusBadge({ statut, size = "sm" }) {
   const m = S[statut] || { color: "#64748B", bg: "#F8FAFC", emoji: "•" };
   return (
@@ -88,16 +79,14 @@ function ConseillereStats({ leads, filtreConseillere, setFiltreConseillere }) {
       flexShrink: 0, flexWrap: "wrap", alignItems: "center",
     }}>
       <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted2)", textTransform: "uppercase", letterSpacing: ".08em", marginRight: 4 }}>Conseillères</span>
-      <button
-        onClick={() => setFiltreConseillere("tous")}
-        style={{
-          padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: filtreConseillere === "tous" ? 700 : 500,
-          background: filtreConseillere === "tous" ? "var(--blue)" : "var(--surface)",
-          color: filtreConseillere === "tous" ? "#fff" : "var(--muted)",
-          border: `1px solid ${filtreConseillere === "tous" ? "var(--blue)" : "var(--border)"}`,
-          cursor: "pointer",
-        }}
-      >Toutes · {leads.length}</button>
+      <button onClick={() => setFiltreConseillere("tous")} style={{
+        padding: "5px 12px", borderRadius: 20, fontSize: 11,
+        fontWeight: filtreConseillere === "tous" ? 700 : 500,
+        background: filtreConseillere === "tous" ? "var(--blue)" : "var(--surface)",
+        color: filtreConseillere === "tous" ? "#fff" : "var(--muted)",
+        border: `1px solid ${filtreConseillere === "tous" ? "var(--blue)" : "var(--border)"}`,
+        cursor: "pointer",
+      }}>Toutes · {leads.length}</button>
       {agents.map(agent => {
         const agentLeads = leads.filter(l => l.conseillere === agent);
         const confirmes  = agentLeads.filter(l => l.statut === "Confirmé" && new Date(l.updated_at || l.created_at).toDateString() === today).length;
@@ -116,9 +105,7 @@ function ConseillereStats({ leads, filtreConseillere, setFiltreConseillere }) {
               {agent.trim().split(" ")[0]}
             </span>
             <span style={{ display: "flex", gap: 4 }}>
-              <span style={{ fontSize: 10, fontFamily: "JetBrains Mono, monospace", fontWeight: 700, color: active ? "rgba(255,255,255,.7)" : "var(--muted2)" }}>
-                {agentLeads.length}
-              </span>
+              <span style={{ fontSize: 10, fontFamily: "JetBrains Mono, monospace", fontWeight: 700, color: active ? "rgba(255,255,255,.7)" : "var(--muted2)" }}>{agentLeads.length}</span>
               {confirmes > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: active ? "#86EFAC" : "#16A34A", background: active ? "rgba(255,255,255,.1)" : "#F0FDF4", padding: "0 5px", borderRadius: 8 }}>✅{confirmes}</span>}
               {urgents > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: active ? "#FCA5A5" : "#DC2626", background: active ? "rgba(255,255,255,.1)" : "#FEF2F2", padding: "0 5px", borderRadius: 8 }}>⚡{urgents}</span>}
               {aTraiter > 0  && <span style={{ fontSize: 10, fontWeight: 700, color: active ? "rgba(255,255,255,.6)" : "var(--muted2)", background: active ? "rgba(255,255,255,.1)" : "var(--surface2)", padding: "0 5px", borderRadius: 8 }}>{aTraiter}</span>}
@@ -164,81 +151,22 @@ function LeadCard({ lead, selected, onClick }) {
         </div>
       </div>
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-        {lead.ville     && <span style={{ fontSize: 10, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>📍 {lead.ville}</span>}
-        {lead.produit   && <span style={{ fontSize: 10, color: "var(--blue)", background: "var(--blue-lt)", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{lead.produit}</span>}
-        {lead.prix > 0  && <span style={{ fontSize: 10, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
+        {lead.ville      && <span style={{ fontSize: 10, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>📍 {lead.ville}</span>}
+        {lead.produit    && <span style={{ fontSize: 10, color: "var(--blue)", background: "var(--blue-lt)", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{lead.produit}</span>}
+        {lead.prix > 0   && <span style={{ fontSize: 10, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
         {lead.conseillere && <span style={{ fontSize: 10, color: "var(--muted2)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px", marginLeft: "auto" }}>👤 {lead.conseillere.trim().split(" ")[0]}</span>}
       </div>
     </div>
   );
 }
 
-function AnnulerCommande({ leadId, onAnnule }) {
-  const [statutCmd, setStatutCmd] = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [saving,    setSaving]    = useState(false);
-
-  useEffect(() => {
-    supabase.from("commandes").select("id, statut")
-      .eq("lead_id", leadId).maybeSingle()
-      .then(({ data }) => {
-        setStatutCmd(data?.statut || null);
-        setLoading(false);
-      });
-  }, [leadId]);
-
-  async function annuler() {
-    if (!window.confirm("Confirmer l'annulation de cette commande ?")) return;
-    setSaving(true);
-
-    // Annuler la commande
-    await supabase.from("commandes")
-      .update({ statut: "Annulée" })
-      .eq("lead_id", leadId);
-
-    // Logger dans lead_events
-    await supabase.from("lead_events").insert([{
-      lead_id:    leadId,
-      type:       "❌ Commande annulée",
-      note:       "Annulation demandée par le client après confirmation",
-      created_at: new Date().toISOString(),
-    }]);
-
-    // Remettre le lead en "Annulé"
-    await onAnnule("Annulé");
-    setSaving(false);
-  }
-
-  if (loading) return null;
-
-  const peutAnnuler = statutCmd === "À expédier";
-
-  return (
-    <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-      {peutAnnuler ? (
-        <button
-          onClick={annuler}
-          disabled={saving}
-          style={{
-            width: "100%", padding: "8px",
-            background: "#FEF2F2", border: "1px solid #FECACA",
-            borderRadius: 6, fontSize: 12, fontWeight: 700,
-            color: "#DC2626", cursor: "pointer",
-          }}
-        >
-          {saving ? "⏳ Annulation..." : "❌ Annuler la commande"}
-        </button>
-      ) : (
-        <div style={{ fontSize: 11, color: "var(--muted2)", textAlign: "center", padding: "6px 0" }}>
-          ⚠️ Commande déjà expédiée — annulation impossible depuis l'ERP
-        </div>
-      )}
-    </div>
-  );
-}
+// ─── ZONE TRAITEMENT — menu déroulant avec bouton Enregistrer ────────────────
 
 function ZoneTraitement({ lead, onUpdate }) {
-  const [saving, setSaving] = useState(false);
+  const [newStatut, setNewStatut] = useState(lead.statut);
+  const [saving,    setSaving]    = useState(false);
+
+  useEffect(() => { setNewStatut(lead.statut); }, [lead.id, lead.statut]);
 
   const tousStatuts = [
     { key: "À appeler",         emoji: "📋", color: "#2563EB", bg: "#EFF6FF" },
@@ -250,21 +178,24 @@ function ZoneTraitement({ lead, onUpdate }) {
     { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
   ];
 
-  const current = tousStatuts.find(s => s.key === lead.statut) || tousStatuts[0];
+  const current  = tousStatuts.find(s => s.key === newStatut)  || tousStatuts[0];
+  const modified = newStatut !== lead.statut;
 
-  async function handleChange(newStatut) {
-    if (newStatut === lead.statut) return;
+  async function handleSave() {
     setSaving(true);
 
+    // Vérification annulation commande
     if (newStatut === "Annulé" && lead.statut === "Confirmé") {
       const { data: cmd } = await supabase.from("commandes")
         .select("statut").eq("lead_id", lead.id).maybeSingle();
       if (cmd && cmd.statut !== "À expédier") {
         alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
+        setNewStatut(lead.statut);
         setSaving(false);
         return;
       }
       if (!window.confirm("Confirmer l'annulation de la commande ?")) {
+        setNewStatut(lead.statut);
         setSaving(false);
         return;
       }
@@ -294,41 +225,68 @@ function ZoneTraitement({ lead, onUpdate }) {
           Zone de traitement
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.9)", marginTop: 2 }}>
-          Statut actuel : {current.emoji} {lead.statut}
+          Statut actuel : {tousStatuts.find(s => s.key === lead.statut)?.emoji} {lead.statut}
         </div>
       </div>
 
-      <div style={{ padding: "14px" }}>
-        <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>
-          Changer le statut
+      <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>
+            Changer le statut
+          </div>
+          <select
+            value={newStatut}
+            onChange={e => setNewStatut(e.target.value)}
+            disabled={saving}
+            style={{
+              width: "100%", padding: "10px 12px",
+              background: current.bg,
+              border: `1px solid ${current.color}44`,
+              borderRadius: 8, fontSize: 13, fontWeight: 600,
+              color: current.color, cursor: "pointer",
+              outline: "none", fontFamily: "inherit",
+            }}
+          >
+            {tousStatuts.map(s => (
+              <option key={s.key} value={s.key}>{s.emoji} {s.key}</option>
+            ))}
+          </select>
         </div>
-        <select
-          value={lead.statut}
-          onChange={e => handleChange(e.target.value)}
-          disabled={saving}
-          style={{
-            width: "100%", padding: "10px 12px",
-            background: current.bg,
-            border: `1px solid ${current.color}44`,
-            borderRadius: 8, fontSize: 13, fontWeight: 600,
-            color: current.color, cursor: "pointer",
-            outline: "none", appearance: "auto",
-            fontFamily: "inherit",
-          }}
-        >
-          {tousStatuts.map(s => (
-            <option key={s.key} value={s.key}>{s.emoji} {s.key}</option>
-          ))}
-        </select>
-        {saving && (
-          <p style={{ fontSize: 11, color: "var(--muted2)", margin: "8px 0 0", textAlign: "center" }}>
-            ⏳ Enregistrement...
-          </p>
+
+        {modified && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                flex: 1, padding: "10px",
+                background: current.color, color: "#fff",
+                border: "none", borderRadius: 8,
+                fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              {saving ? "⏳ Enregistrement..." : `✓ Enregistrer — ${current.emoji} ${newStatut}`}
+            </button>
+            <button
+              onClick={() => setNewStatut(lead.statut)}
+              disabled={saving}
+              style={{
+                padding: "10px 14px",
+                background: "var(--surface2)", color: "var(--muted)",
+                border: "1px solid var(--border)", borderRadius: 8,
+                fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Annuler
+            </button>
+          </div>
         )}
       </div>
     </div>
   );
 }
+
+// ─── TIMELINE ────────────────────────────────────────────────────────────────
 
 function LeadTimeline({ events }) {
   if (!events || events.length === 0) {
@@ -353,9 +311,11 @@ function LeadTimeline({ events }) {
   );
 }
 
+// ─── DETAIL PANEL ────────────────────────────────────────────────────────────
+
 function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   const [localEvents, setLocalEvents] = useState(null);
-const displayEvents = localEvents ?? events;
+  const displayEvents = localEvents ?? events;
   const [commentaire, setCommentaire] = useState(lead.commentaire || "");
   const [saving,      setSaving]      = useState(false);
   const [editMode,    setEditMode]    = useState(false);
@@ -364,7 +324,7 @@ const displayEvents = localEvents ?? events;
   const [produits,    setProduits]    = useState([]);
   const saveTimeout = useRef(null);
 
-  useEffect(() => { setCommentaire(lead.commentaire || ""); }, [lead.id]);
+  useEffect(() => { setCommentaire(lead.commentaire || ""); setLocalEvents(null); }, [lead.id]);
   useEffect(() => { setEditMode(false); }, [lead.id]);
   useEffect(() => {
     supabase.from("produits").select("nom, prix_vente").order("nom")
@@ -384,68 +344,65 @@ const displayEvents = localEvents ?? events;
     setEditMode(true);
   }
 
-async function saveEdit() {
-  setSavingEdit(true);
+  async function saveEdit() {
+    setSavingEdit(true);
+    const { error } = await supabase.from("leads").update(editForm).eq("id", lead.id);
+    if (error) {
+      alert("Erreur sauvegarde : " + error.message);
+      setSavingEdit(false);
+      return;
+    }
 
-  const { error } = await supabase.from("leads").update(editForm).eq("id", lead.id);
-  
-  if (error) {
-    alert("Erreur sauvegarde : " + error.message);
+    // Logger les changements
+    const champs = [
+      { key: "client_nom", label: "Nom" },
+      { key: "telephone",  label: "Téléphone" },
+      { key: "ville",      label: "Ville" },
+      { key: "adresse",    label: "Adresse" },
+      { key: "produit",    label: "Produit" },
+      { key: "quantite",   label: "Quantité" },
+      { key: "prix",       label: "Prix" },
+    ];
+    const modifs = champs
+      .filter(c => {
+        const avant = lead[c.key] === null || lead[c.key] === undefined ? "" : String(lead[c.key]);
+        const apres = editForm[c.key] === null || editForm[c.key] === undefined ? "" : String(editForm[c.key]);
+        return avant !== apres;
+      })
+      .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
+
+    if (modifs.length > 0) {
+      await supabase.from("lead_events").insert([{
+        lead_id:    lead.id,
+        type:       "✏️ Modification",
+        note:       modifs.join(" | "),
+        created_at: new Date().toISOString(),
+      }]);
+    }
+
+    // Mettre à jour la commande liée
+    if (lead.statut === "Confirmé") {
+      await supabase.from("commandes").update({
+        client_nom: editForm.client_nom,
+        telephone:  editForm.telephone,
+        ville:      editForm.ville,
+        adresse:    editForm.adresse,
+        produit:    editForm.produit,
+        quantite:   editForm.quantite,
+        prix:       editForm.prix,
+      }).eq("lead_id", lead.id);
+    }
+
+    // Recharger l'historique
+    const { data: newEvents } = await supabase
+      .from("lead_events").select("*")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: false }).limit(8);
+    setLocalEvents(newEvents || []);
+
+    if (onEdit) onEdit(lead.id, editForm);
     setSavingEdit(false);
-    return;
-  }
-
-  // Logger les changements
-  const champs = [
-    { key: "client_nom", label: "Nom" },
-    { key: "telephone",  label: "Téléphone" },
-    { key: "ville",      label: "Ville" },
-    { key: "adresse",    label: "Adresse" },
-    { key: "produit",    label: "Produit" },
-    { key: "quantite",   label: "Quantité" },
-    { key: "prix",       label: "Prix" },
-  ];
-
-  const modifs = champs
-    .filter(c => {
-      const avant  = lead[c.key] === null || lead[c.key] === undefined ? "" : String(lead[c.key]);
-      const apres  = editForm[c.key] === null || editForm[c.key] === undefined ? "" : String(editForm[c.key]);
-      return avant !== apres;
-    })
-    .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
-
-  if (modifs.length > 0) {
-    await supabase.from("lead_events").insert([{
-      lead_id:    lead.id,
-      type:       "✏️ Modification",
-      note:       modifs.join(" | "),
-      created_at: new Date().toISOString(),
-    }]);
-  }
-
-  // Recharger l'historique
-  const { data: newEvents } = await supabase
-    .from("lead_events").select("*")
-    .eq("lead_id", lead.id)
-    .order("created_at", { ascending: false }).limit(8);
-  setLocalEvents(newEvents || []);
-
-  // Mettre à jour la commande liée si elle existe
-if (lead.statut === "Confirmé") {
-  await supabase.from("commandes").update({
-    client_nom: editForm.client_nom,
-    telephone:  editForm.telephone,
-    ville:      editForm.ville,
-    adresse:    editForm.adresse,
-    produit:    editForm.produit,
-    quantite:   editForm.quantite,
-    prix:       editForm.prix,
-  }).eq("lead_id", lead.id);
-}
-
-  if (onEdit) onEdit(lead.id, editForm);
-  setSavingEdit(false);
-  setEditMode(false);
+    setEditMode(false);
   }
 
   function handleCommentChange(val) {
@@ -531,9 +488,7 @@ if (lead.statut === "Confirmé") {
             ].map(({ label, key, type }) => (
               <div key={key} style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>{label}</div>
-                <input
-                  type={type}
-                  value={editForm[key] || ""}
+                <input type={type} value={editForm[key] || ""}
                   onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
                   style={{ width: "100%", padding: "7px 10px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, color: "var(--text)", outline: "none", boxSizing: "border-box" }}
                   onFocus={e => e.target.style.borderColor = "var(--blue)"}
@@ -542,11 +497,10 @@ if (lead.statut === "Confirmé") {
               </div>
             ))}
 
-            {/* Produit — liste déroulante */}
+            {/* Produit */}
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>Produit</div>
-              <select
-                value={editForm.produit || ""}
+              <select value={editForm.produit || ""}
                 onChange={e => {
                   const p = produits.find(x => x.nom === e.target.value);
                   setEditForm(f => ({ ...f, produit: e.target.value, prix: p ? p.prix_vente : f.prix }));
@@ -554,9 +508,7 @@ if (lead.statut === "Confirmé") {
                 style={{ width: "100%", padding: "7px 10px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, color: "var(--text)", outline: "none", boxSizing: "border-box" }}
               >
                 <option value="">-- Choisir un produit --</option>
-                {produits.map(p => (
-                  <option key={p.nom} value={p.nom}>{p.nom} — {p.prix_vente} MAD</option>
-                ))}
+                {produits.map(p => <option key={p.nom} value={p.nom}>{p.nom} — {p.prix_vente} MAD</option>)}
               </select>
             </div>
 
@@ -617,12 +569,10 @@ if (lead.statut === "Confirmé") {
         <section>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)" }}>Note opérateur</div>
-            {saving        && <span style={{ fontSize: 10, color: "var(--muted2)", fontStyle: "italic" }}>⏳ Sauvegarde...</span>}
+            {saving         && <span style={{ fontSize: 10, color: "var(--muted2)", fontStyle: "italic" }}>⏳ Sauvegarde...</span>}
             {!saving && commentaire && <span style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>✓ Sauvegardé</span>}
           </div>
-          <textarea
-            value={commentaire}
-            onChange={e => handleCommentChange(e.target.value)}
+          <textarea value={commentaire} onChange={e => handleCommentChange(e.target.value)}
             placeholder="Ajouter une note sur ce lead..."
             style={{
               width: "100%", minHeight: 80,
@@ -640,6 +590,8 @@ if (lead.statut === "Confirmé") {
     </aside>
   );
 }
+
+// ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
 
 export default function Leads({ role, nom }) {
   const [leads,             setLeads]             = useState([]);
@@ -770,8 +722,7 @@ export default function Leads({ role, nom }) {
           <input
             style={{ width: "100%", padding: "7px 12px 7px 32px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", fontSize: 13, color: "var(--text)", outline: "none", boxSizing: "border-box", transition: "border-color .12s" }}
             placeholder="Nom, téléphone, ville..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+            value={search} onChange={e => setSearch(e.target.value)}
             onFocus={e => e.target.style.borderColor = "var(--blue)"}
             onBlur={e => e.target.style.borderColor = "var(--border)"}
           />
