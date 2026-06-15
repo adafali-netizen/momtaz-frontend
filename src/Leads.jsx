@@ -613,9 +613,9 @@ export default function Leads({ role, nom }) {
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
 if (statut === "Confirmé") {
-      // Supprimer toute commande existante puis recréer
       await supabase.from("commandes").delete().eq("lead_id", id);
-      const lead = leads.find(l => l.id === id);
+      const { data: leadData } = await supabase.from("leads").select("*").eq("id", id).single();
+      const lead = leadData;
       if (lead) {
         await supabase.from("commandes").insert([{
           lead_id:     id,
