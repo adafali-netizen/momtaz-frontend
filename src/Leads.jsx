@@ -348,6 +348,19 @@ async function saveEdit() {
     .order("created_at", { ascending: false }).limit(8);
   setLocalEvents(newEvents || []);
 
+  // Mettre à jour la commande liée si elle existe
+if (lead.statut === "Confirmé") {
+  await supabase.from("commandes").update({
+    client_nom: editForm.client_nom,
+    telephone:  editForm.telephone,
+    ville:      editForm.ville,
+    adresse:    editForm.adresse,
+    produit:    editForm.produit,
+    quantite:   editForm.quantite,
+    prix:       editForm.prix,
+  }).eq("lead_id", lead.id);
+}
+
   if (onEdit) onEdit(lead.id, editForm);
   setSavingEdit(false);
   setEditMode(false);
