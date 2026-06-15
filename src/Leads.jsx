@@ -408,10 +408,37 @@ function LeadTimeline({ events }) {
 
 // ─── DETAIL PANEL ─────────────────────────────────────────────────────────────
 
-function LeadDetailPanel({ lead, events, onClose, onUpdate }) {
+function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   const [commentaire, setCommentaire] = useState(lead.commentaire || "");
   const [saving,      setSaving]      = useState(false);
+  const [editMode,    setEditMode]    = useState(false);
+  const [editForm,    setEditForm]    = useState({});
+  const [savingEdit,  setSavingEdit]  = useState(false);
   const saveTimeout = useRef(null);
+
+  useEffect(() => { setCommentaire(lead.commentaire || ""); }, [lead.id]);
+  useEffect(() => { setEditMode(false); }, [lead.id]);
+
+  function openEdit() {
+    setEditForm({
+      client_nom: lead.client_nom || "",
+      telephone:  lead.telephone  || "",
+      ville:      lead.ville      || "",
+      adresse:    lead.adresse    || "",
+      produit:    lead.produit    || "",
+      quantite:   lead.quantite   || 1,
+      prix:       lead.prix       || "",
+    });
+    setEditMode(true);
+  }
+
+  async function saveEdit() {
+    setSavingEdit(true);
+    await supabase.from("leads").update(editForm).eq("id", lead.id);
+    if (onEdit) onEdit(lead.id, editForm);
+    setSavingEdit(false);
+    setEditMode(false);
+  }
 
   useEffect(() => { setCommentaire(lead.commentaire || ""); }, [lead.id]);
 
@@ -455,7 +482,10 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate }) {
               </div>
             )}
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted2)", fontSize: 20, cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}>×</button>
+       <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+  <button onClick={openEdit} style={{ background:"none", border:"1px solid var(--border)", borderRadius:6, color:"var(--muted2)", fontSize:12, cursor:"pointer", padding:"3px 8px" }}>✏️</button>
+  <button onClick={onClose} style={{ background:"none", border:"none", color:"var(--muted2)", fontSize:20, cursor:"pointer", padding:"0 2px", lineHeight:1 }}>×</button>
+</div>
         </div>
 
         <div style={{ marginBottom: 10 }}>
@@ -486,7 +516,55 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate }) {
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
-
+{/* ── MODE ÉDITION ── */}
+{editMode && (
+  <div style={{ background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius)", padding:14 }}>
+    <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".08em", color:"var(--muted2)", marginBottom:12 }}>
+      Modifier les informations
+    </div>
+    {[
+      { label:"Nom client",  key:"client_nom", type:"text"   },
+      { label:"Téléphone",   key:"telephone",  type:"text"   },
+      { label:"Ville",       key:"ville",      type:"text"   },
+      { label:"Adresse",     key:"adresse",    type:"text"   },
+      { label:"Produit",     key:"produit",    type:"text"   },
+      { label:"Quantité",    key:"quantite",   type:"number" },
+      { label:"Prix (MAD)",  key:"prix",       type:"number" },
+    ].map(({label, key, type}) => (
+      <div key={key} style={{ marginBottom:8 }}>
+        <div style={{ fontSize:10, color:"var(--muted2)", marginBottom:3 }}>{label}</div>
+        <input
+          type={type}
+          value={editForm[key] || ""}
+          onChange={e => setEditForm(f => ({ ...f, [key]: type==="number" ? +e.target.value : e.target.value }))}
+          style={{
+            width:"100%", padding:"7px 10px",
+            background:"var(--surface)", border:"1px solid var(--border)",
+            borderRadius:6, fontSize:12, color:"var(--text)",
+            outline:"none", boxSizing:"border-box",
+          }}
+          onFocus={e => e.target.style.borderColor = "var(--blue)"}
+          onBlur={e => e.target.style.borderColor = "var(--border)"}
+        />
+      </div>
+    ))}
+    <div style={{ display:"flex", gap:8, marginTop:12 }}>
+      <button
+        onClick={saveEdit}
+        disabled={savingEdit}
+        style={{ flex:1, padding:"8px", background:"var(--blue)", color:"#fff", border:"none", borderRadius:6, fontSize:12, fontWeight:700, cursor:"pointer" }}
+      >
+        {savingEdit ? "⏳ Sauvegarde..." : "💾 Enregistrer"}
+      </button>
+      <button
+        onClick={() => setEditMode(false)}
+        style={{ padding:"8px 14px", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:6, fontSize:12, color:"var(--muted)", cursor:"pointer" }}
+      >
+        Annuler
+      </button>
+    </div>
+  </div>
+)}
         {/* ── ZONE TRAITEMENT (premier, dominant) ── */}
         <ZoneTraitement lead={lead} onUpdate={onUpdate} />
 
@@ -775,10 +853,15 @@ async function updateStatut(id, statut) {
         {/* Panel */}
         {selected && (
           <LeadDetailPanel
-            lead={selected}
-            events={events}
-            onClose={() => setSelected(null)}
-            onUpdate={statut => updateStatut(selected.id, statut)}
+  lead={selected}
+  events={events}
+  onClose={() => setSelected(null)}
+  onUpdate={statut => updateStatut(selected.id, statut)}
+  onEdit={(id, form) => {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
+    setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
+  }}
+/>
           />
         )}
       </div>
