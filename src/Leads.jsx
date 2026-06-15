@@ -173,6 +173,70 @@ function LeadCard({ lead, selected, onClick }) {
   );
 }
 
+function AnnulerCommande({ leadId, onAnnule }) {
+  const [statutCmd, setStatutCmd] = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [saving,    setSaving]    = useState(false);
+
+  useEffect(() => {
+    supabase.from("commandes").select("id, statut")
+      .eq("lead_id", leadId).maybeSingle()
+      .then(({ data }) => {
+        setStatutCmd(data?.statut || null);
+        setLoading(false);
+      });
+  }, [leadId]);
+
+  async function annuler() {
+    if (!window.confirm("Confirmer l'annulation de cette commande ?")) return;
+    setSaving(true);
+
+    // Annuler la commande
+    await supabase.from("commandes")
+      .update({ statut: "Annulée" })
+      .eq("lead_id", leadId);
+
+    // Logger dans lead_events
+    await supabase.from("lead_events").insert([{
+      lead_id:    leadId,
+      type:       "❌ Commande annulée",
+      note:       "Annulation demandée par le client après confirmation",
+      created_at: new Date().toISOString(),
+    }]);
+
+    // Remettre le lead en "Annulé"
+    await onAnnule("Annulé");
+    setSaving(false);
+  }
+
+  if (loading) return null;
+
+  const peutAnnuler = statutCmd === "À expédier";
+
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+      {peutAnnuler ? (
+        <button
+          onClick={annuler}
+          disabled={saving}
+          style={{
+            width: "100%", padding: "8px",
+            background: "#FEF2F2", border: "1px solid #FECACA",
+            borderRadius: 6, fontSize: 12, fontWeight: 700,
+            color: "#DC2626", cursor: "pointer",
+          }}
+        >
+          {saving ? "⏳ Annulation..." : "❌ Annuler la commande"}
+        </button>
+      ) : (
+        <div style={{ fontSize: 11, color: "var(--muted2)", textAlign: "center", padding: "6px 0" }}>
+          ⚠️ Commande déjà expédiée — annulation impossible depuis l'ERP
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ZoneTraitement({ lead, onUpdate }) {
   const cta   = getMainCTA(lead.statut);
   const fermé = ["Annulé", "Pas intéressé", "Numéro faux", "Confirmé"].includes(lead.statut);
@@ -236,13 +300,23 @@ function ZoneTraitement({ lead, onUpdate }) {
             </div>
           </div>
         )}
-        {fermé && lead.statut !== "Confirmé" && (
-          <button onClick={() => onUpdate("À appeler")} style={{
-            width: "100%", padding: "8px", background: "var(--surface2)",
-            border: "1px solid var(--border)", borderRadius: 6,
-            fontSize: 12, fontWeight: 600, color: "var(--muted)", cursor: "pointer",
-          }}>🔄 Réouvrir ce lead</button>
-        )}
+{fermé && lead.statut !== "Confirmé" && (
+  <button
+    onClick={() => onUpdate("À appeler")}
+    style={{
+      width: "100%", padding: "8px", background: "var(--surface2)",
+      border: "1px solid var(--border)", borderRadius: 6,
+      fontSize: 12, fontWeight: 600, color: "var(--muted)", cursor: "pointer",
+    }}
+  >
+    🔄 Réouvrir ce lead
+  </button>
+)}
+
+{lead.statut === "Confirmé" && (
+  <AnnulerCommande leadId={lead.id} onAnnule={onUpdate} />
+)}
+        
       </div>
     </div>
   );
