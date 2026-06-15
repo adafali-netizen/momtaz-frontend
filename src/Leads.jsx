@@ -657,16 +657,16 @@ if (statut === "Confirmé") {
           }]);
         }
       }
-    } else {
-      // Si le lead quitte le statut Confirmé → annuler la commande
-if (ancienStatut === "Confirmé") {
-        const { data: cmd } = await supabase.from("commandes")
-          .select("id, statut").eq("lead_id", id).maybeSingle();
-        if (cmd && cmd.statut === "À expédier") {
-          // Annuler seulement si pas encore expédiée
-          await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", id);
-        }
+} else if (ancienStatut === "Confirmé" && statut !== "Confirmé") {
+      // Lead quitte Confirmé → annuler la commande si pas encore expédiée
+      const { data: cmd } = await supabase.from("commandes")
+        .select("id, statut").eq("lead_id", id).maybeSingle();
+      if (cmd && cmd.statut === "À expédier") {
+        await supabase.from("commandes")
+          .update({ statut: "Annulée" })
+          .eq("lead_id", id);
       }
+    }
     }
 
     if (selected?.id === id) fetchEvents(id);
