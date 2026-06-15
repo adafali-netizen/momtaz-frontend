@@ -863,3 +863,7 @@ async function updateStatut(id, statut) {
     }}
   />
 )}
+</div>
+    </div>
+  );
+}
