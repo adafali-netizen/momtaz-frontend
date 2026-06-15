@@ -642,7 +642,8 @@ export default function Leads({ role, nom }) {
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
 
-    if (statut === "Confirmé") {
+if (statut === "Confirmé") {
+      // Créer la commande si elle n'existe pas encore
       const lead = leads.find(l => l.id === id);
       if (lead) {
         const { data: existing } = await supabase.from("commandes").select("id").eq("lead_id", id).maybeSingle();
@@ -654,6 +655,17 @@ export default function Leads({ role, nom }) {
             conseillere: lead.conseillere, statut: "À expédier",
             created_at: new Date().toISOString(),
           }]);
+        }
+      }
+    } else {
+      // Si le lead quitte le statut Confirmé → annuler la commande
+      const leadActuel = leads.find(l => l.id === id);
+      if (leadActuel?.statut === "Confirmé") {
+        const { data: cmd } = await supabase.from("commandes")
+          .select("id, statut").eq("lead_id", id).maybeSingle();
+        if (cmd && cmd.statut === "À expédier") {
+          // Annuler seulement si pas encore expédiée
+          await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", id);
         }
       }
     }
