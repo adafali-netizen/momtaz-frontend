@@ -630,7 +630,6 @@ if (statut === "Confirmé") {
           produit:     lead.produit,
           quantite:    lead.quantite || 1,
           prix:        lead.prix,
-          source:      lead.source,
           conseillere: lead.conseillere,
           statut:      "À expédier",
           created_at:  new Date().toISOString(),
