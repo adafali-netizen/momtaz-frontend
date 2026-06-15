@@ -637,13 +637,12 @@ async function updateStatut(id, statut, ancienStatut) {
   setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
     setSelected(prev => prev?.id === id ? { ...prev, statut } : prev);
 
-    await supabase.from("leads").update({ statut }).eq("id", id);
+  await supabase.from("leads").update({ statut }).eq("id", id);
     await supabase.from("lead_events").insert([{
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
 
-if (statut === "Confirmé") {
-      // Créer la commande si elle n'existe pas encore
+    if (statut === "Confirmé") {
       const lead = leads.find(l => l.id === id);
       if (lead) {
         const { data: existing } = await supabase.from("commandes").select("id").eq("lead_id", id).maybeSingle();
@@ -657,22 +656,17 @@ if (statut === "Confirmé") {
           }]);
         }
       }
-} else if (ancienStatut === "Confirmé" && statut !== "Confirmé") {
-      // Lead quitte Confirmé → annuler la commande si pas encore expédiée
+    } else if (ancienStatut === "Confirmé" && statut !== "Confirmé") {
       const { data: cmd } = await supabase.from("commandes")
         .select("id, statut").eq("lead_id", id).maybeSingle();
       if (cmd && cmd.statut === "À expédier") {
-        await supabase.from("commandes")
-          .update({ statut: "Annulée" })
-          .eq("lead_id", id);
+        await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", id);
       }
-    }
     }
 
     if (selected?.id === id) fetchEvents(id);
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
   }
-
   const today = new Date().toDateString();
   const kpis = {
     total:     leads.length,
