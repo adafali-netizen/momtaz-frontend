@@ -160,7 +160,7 @@ function LeadCard({ lead, selected, onClick }) {
   );
 }
 
-// ─── ZONE TRAITEMENT — menu déroulant avec bouton Enregistrer ────────────────
+// ─── ZONE TRAITEMENT ─────────────────────────────────────────────────────────
 
 function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   const [newStatut, setNewStatut] = useState(lead.statut);
@@ -178,31 +178,106 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
     { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
   ];
 
-  const current  = tousStatuts.find(s => s.key === newStatut)  || tousStatuts[0];
+  const current  = tousStatuts.find(s => s.key === newStatut) || tousStatuts[0];
   const modified = newStatut !== lead.statut;
 
-async function handleSave() {
-  setSaving(true);
+  async function handleSave() {
+    setSaving(true);
 
-  if (newStatut === "Annulé" && lead.statut === "Confirmé") {
-    const { data: cmd } = await supabase.from("commandes")
-      .select("statut").eq("lead_id", lead.id).maybeSingle();
-    if (cmd && cmd.statut !== "À expédier") {
-      alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
-      setNewStatut(lead.statut);
-      setSaving(false);
-      return;
+    if (newStatut === "Annulé" && lead.statut === "Confirmé") {
+      const { data: cmd } = await supabase.from("commandes")
+        .select("statut").eq("lead_id", lead.id).maybeSingle();
+      if (cmd && cmd.statut !== "À expédier") {
+        alert("⚠️ Commande déjà expédiée — annulation impossible. Contactez la logistique.");
+        setNewStatut(lead.statut);
+        setSaving(false);
+        return;
+      }
+      await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
+      await supabase.from("lead_events").insert([{
+        lead_id: lead.id, type: "❌ Commande annulée",
+        note: "Annulation demandée par le client",
+        created_at: new Date().toISOString(),
+      }]);
     }
-    await supabase.from("commandes").update({ statut: "Annulée" }).eq("lead_id", lead.id);
-    await supabase.from("lead_events").insert([{
-      lead_id: lead.id, type: "❌ Commande annulée",
-      note: "Annulation demandée par le client",
-      created_at: new Date().toISOString(),
-    }]);
+
+    await onUpdate(newStatut, ancienStatut);
+    setSaving(false);
   }
 
-  await onUpdate(newStatut, ancienStatut);
-  setSaving(false);
+  return (
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: "var(--radius)", overflow: "hidden",
+    }}>
+      <div style={{
+        padding: "10px 14px",
+        background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+        borderBottom: "1px solid var(--border)",
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em", color: "rgba(255,255,255,.5)" }}>
+          Zone de traitement
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.9)", marginTop: 2 }}>
+          Statut actuel : {tousStatuts.find(s => s.key === lead.statut)?.emoji} {lead.statut}
+        </div>
+      </div>
+
+      <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>
+            Changer le statut
+          </div>
+          <select
+            value={newStatut}
+            onChange={e => setNewStatut(e.target.value)}
+            disabled={saving}
+            style={{
+              width: "100%", padding: "10px 12px",
+              background: current.bg,
+              border: `1px solid ${current.color}44`,
+              borderRadius: 8, fontSize: 13, fontWeight: 600,
+              color: current.color, cursor: "pointer",
+              outline: "none", fontFamily: "inherit",
+            }}
+          >
+            {tousStatuts.map(s => (
+              <option key={s.key} value={s.key}>{s.emoji} {s.key}</option>
+            ))}
+          </select>
+        </div>
+
+        {modified && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                flex: 1, padding: "10px",
+                background: current.color, color: "#fff",
+                border: "none", borderRadius: 8,
+                fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              {saving ? "⏳ Enregistrement..." : `✓ Enregistrer — ${current.emoji} ${newStatut}`}
+            </button>
+            <button
+              onClick={() => setNewStatut(lead.statut)}
+              disabled={saving}
+              style={{
+                padding: "10px 14px",
+                background: "var(--surface2)", color: "var(--muted)",
+                border: "1px solid var(--border)", borderRadius: 8,
+                fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Annuler
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── TIMELINE ────────────────────────────────────────────────────────────────
@@ -272,7 +347,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       return;
     }
 
-    // Logger les changements
     const champs = [
       { key: "client_nom", label: "Nom" },
       { key: "telephone",  label: "Téléphone" },
@@ -299,7 +373,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       }]);
     }
 
-    // Mettre à jour la commande liée
     if (lead.statut === "Confirmé") {
       await supabase.from("commandes").update({
         client_nom: editForm.client_nom,
@@ -312,7 +385,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       }).eq("lead_id", lead.id);
     }
 
-    // Recharger l'historique
     const { data: newEvents } = await supabase
       .from("lead_events").select("*")
       .eq("lead_id", lead.id)
@@ -346,7 +418,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       display: "flex", flexDirection: "column",
       overflow: "hidden",
     }}>
-      {/* Header */}
       <div style={{
         padding: "14px 18px",
         background: urgent ? "#FFF5F5" : overdue ? "#FFFDF0" : "var(--surface2)",
@@ -390,10 +461,8 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
         </div>
       </div>
 
-      {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-        {/* MODE ÉDITION */}
         {editMode && (
           <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 14 }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 12 }}>
@@ -415,8 +484,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
                 />
               </div>
             ))}
-
-            {/* Produit */}
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>Produit</div>
               <select value={editForm.produit || ""}
@@ -430,8 +497,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
                 {produits.map(p => <option key={p.nom} value={p.nom}>{p.nom} — {p.prix_vente} MAD</option>)}
               </select>
             </div>
-
-            {/* Quantité + Prix */}
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 3 }}>Quantité</div>
@@ -448,7 +513,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
                 />
               </div>
             </div>
-
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button onClick={saveEdit} disabled={savingEdit} style={{ flex: 1, padding: "8px", background: "var(--blue)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 {savingEdit ? "⏳ Sauvegarde..." : "💾 Enregistrer"}
@@ -460,10 +524,8 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
           </div>
         )}
 
-        {/* ZONE TRAITEMENT */}
         <ZoneTraitement lead={lead} onUpdate={onUpdate} ancienStatut={lead.statut} />
 
-        {/* Commande */}
         {lead.produit && (
           <section>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Commande</div>
@@ -478,17 +540,15 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
           </section>
         )}
 
-        {/* Timeline */}
         <section>
           <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Historique</div>
           <LeadTimeline events={displayEvents} />
         </section>
 
-        {/* Note */}
         <section>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)" }}>Note opérateur</div>
-            {saving         && <span style={{ fontSize: 10, color: "var(--muted2)", fontStyle: "italic" }}>⏳ Sauvegarde...</span>}
+            {saving              && <span style={{ fontSize: 10, color: "var(--muted2)", fontStyle: "italic" }}>⏳ Sauvegarde...</span>}
             {!saving && commentaire && <span style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>✓ Sauvegardé</span>}
           </div>
           <textarea value={commentaire} onChange={e => handleCommentChange(e.target.value)}
@@ -509,9 +569,8 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
     </aside>
   );
 }
-}
 
-// ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
+// ─── PAGE PRINCIPALE ─────────────────────────────────────────────────────────
 
 export default function Leads({ role, nom }) {
   const [leads,             setLeads]             = useState([]);
@@ -553,11 +612,11 @@ export default function Leads({ role, nom }) {
     setEvents(data || []);
   }
 
-async function updateStatut(id, statut, ancienStatut) {
-  setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
+  async function updateStatut(id, statut, ancienStatut) {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
     setSelected(prev => prev?.id === id ? { ...prev, statut } : prev);
 
-  await supabase.from("leads").update({ statut }).eq("id", id);
+    await supabase.from("leads").update({ statut }).eq("id", id);
     await supabase.from("lead_events").insert([{
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
@@ -587,6 +646,7 @@ async function updateStatut(id, statut, ancienStatut) {
     if (selected?.id === id) fetchEvents(id);
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
   }
+
   const today = new Date().toDateString();
   const kpis = {
     total:     leads.length,
@@ -613,7 +673,6 @@ async function updateStatut(id, statut, ancienStatut) {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
 
-      {/* KPIs */}
       <div style={{ display: "flex", gap: 8, padding: "12px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
         {[
           { label: "Total",          val: kpis.total,     alert: false,             color: "var(--text)" },
@@ -635,12 +694,10 @@ async function updateStatut(id, statut, ancienStatut) {
         ))}
       </div>
 
-      {/* Conseillères */}
       {role === "admin" && (
         <ConseillereStats leads={leads} filtreConseillere={filtreConseillere} setFiltreConseillere={setFiltreConseillere} />
       )}
 
-      {/* Toolbar */}
       <div style={{ display: "flex", gap: 10, padding: "10px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "var(--muted2)", pointerEvents: "none" }}>🔍</span>
@@ -673,7 +730,6 @@ async function updateStatut(id, statut, ancienStatut) {
         </div>
       </div>
 
-      {/* Liste + Panel */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
         <div style={{ flex: 1, overflowY: "auto", padding: "10px 14px", scrollbarWidth: "thin", scrollbarColor: "var(--border2) transparent" }}>
           {loading ? (
@@ -697,7 +753,7 @@ async function updateStatut(id, statut, ancienStatut) {
             lead={selected}
             events={events}
             onClose={() => setSelected(null)}
-onUpdate={(statut, ancienStatut) => updateStatut(selected.id, statut, ancienStatut)}
+            onUpdate={(statut, ancienStatut) => updateStatut(selected.id, statut, ancienStatut)}
             onEdit={(id, form) => {
               setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
               setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
