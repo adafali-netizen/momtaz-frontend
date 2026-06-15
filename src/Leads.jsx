@@ -162,7 +162,7 @@ function LeadCard({ lead, selected, onClick }) {
 
 // ─── ZONE TRAITEMENT — menu déroulant avec bouton Enregistrer ────────────────
 
-function ZoneTraitement({ lead, onUpdate }) {
+function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   const [newStatut, setNewStatut] = useState(lead.statut);
   const [saving,    setSaving]    = useState(false);
 
@@ -207,7 +207,7 @@ function ZoneTraitement({ lead, onUpdate }) {
       }]);
     }
 
-    await onUpdate(newStatut);
+await onUpdate(newStatut, ancienStatut);
     setSaving(false);
   }
 
@@ -542,7 +542,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
         )}
 
         {/* ZONE TRAITEMENT */}
-        <ZoneTraitement lead={lead} onUpdate={onUpdate} />
+        <ZoneTraitement lead={lead} onUpdate={onUpdate} ancienStatut={lead.statut} />
 
         {/* Commande */}
         {lead.produit && (
@@ -659,8 +659,7 @@ if (statut === "Confirmé") {
       }
     } else {
       // Si le lead quitte le statut Confirmé → annuler la commande
-      const leadActuel = leads.find(l => l.id === id);
-      if (leadActuel?.statut === "Confirmé") {
+if (ancienStatut === "Confirmé") {
         const { data: cmd } = await supabase.from("commandes")
           .select("id, statut").eq("lead_id", id).maybeSingle();
         if (cmd && cmd.statut === "À expédier") {
@@ -784,7 +783,7 @@ if (statut === "Confirmé") {
             lead={selected}
             events={events}
             onClose={() => setSelected(null)}
-            onUpdate={statut => updateStatut(selected.id, statut)}
+onUpdate={(statut, ancienStatut) => updateStatut(selected.id, statut, ancienStatut)}
             onEdit={(id, form) => {
               setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
               setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
