@@ -24,7 +24,7 @@ const S_CMD = {
 };
 
 const TRANSPORTEURS = ["Sendit", "Digylog", "Ameex","Autre"];
-const WEBHOOK = "https://momtaz-webhook-production.up.railway.app/api/commande/";
+const WEBHOOK = "https://momtaz-webhook-production.up.railway.app/api/lead/";
 
 // Statuts qui déclenchent la saisie des frais livraison
 const STATUTS_LIVRAISON = ["Livrée", "Facturée"];
