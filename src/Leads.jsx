@@ -160,8 +160,6 @@ function LeadCard({ lead, selected, onClick }) {
   );
 }
 
-// ─── ZONE TRAITEMENT ─────────────────────────────────────────────────────────
-
 function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   const [newStatut, setNewStatut] = useState(lead.statut);
   const [saving,    setSaving]    = useState(false);
@@ -183,16 +181,6 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
 
   async function handleSave() {
     setSaving(true);
-
-if (newStatut === "Annulé" && lead.statut === "Confirmé") {
-      await supabase.from("commandes").delete().eq("lead_id", lead.id);
-      await supabase.from("lead_events").insert([{
-        lead_id: lead.id, type: "❌ Commande supprimée",
-        note: "Annulation demandée par le client",
-        created_at: new Date().toISOString(),
-      }]);
-    }
-
     await onUpdate(newStatut, ancienStatut);
     setSaving(false);
   }
@@ -214,7 +202,6 @@ if (newStatut === "Annulé" && lead.statut === "Confirmé") {
           Statut actuel : {tousStatuts.find(s => s.key === lead.statut)?.emoji} {lead.statut}
         </div>
       </div>
-
       <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: 10 }}>
         <div>
           <div style={{ fontSize: 10, color: "var(--muted2)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>
@@ -238,31 +225,22 @@ if (newStatut === "Annulé" && lead.statut === "Confirmé") {
             ))}
           </select>
         </div>
-
         {modified && (
           <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                flex: 1, padding: "10px",
-                background: current.color, color: "#fff",
-                border: "none", borderRadius: 8,
-                fontSize: 13, fontWeight: 700, cursor: "pointer",
-              }}
-            >
+            <button onClick={handleSave} disabled={saving} style={{
+              flex: 1, padding: "10px",
+              background: current.color, color: "#fff",
+              border: "none", borderRadius: 8,
+              fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>
               {saving ? "⏳ Enregistrement..." : `✓ Enregistrer — ${current.emoji} ${newStatut}`}
             </button>
-            <button
-              onClick={() => setNewStatut(lead.statut)}
-              disabled={saving}
-              style={{
-                padding: "10px 14px",
-                background: "var(--surface2)", color: "var(--muted)",
-                border: "1px solid var(--border)", borderRadius: 8,
-                fontSize: 12, cursor: "pointer", fontFamily: "inherit",
-              }}
-            >
+            <button onClick={() => setNewStatut(lead.statut)} disabled={saving} style={{
+              padding: "10px 14px",
+              background: "var(--surface2)", color: "var(--muted)",
+              border: "1px solid var(--border)", borderRadius: 8,
+              fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+            }}>
               Annuler
             </button>
           </div>
@@ -271,8 +249,6 @@ if (newStatut === "Annulé" && lead.statut === "Confirmé") {
     </div>
   );
 }
-
-// ─── TIMELINE ────────────────────────────────────────────────────────────────
 
 function LeadTimeline({ events }) {
   if (!events || events.length === 0) {
@@ -296,8 +272,6 @@ function LeadTimeline({ events }) {
     </div>
   );
 }
-
-// ─── DETAIL PANEL ────────────────────────────────────────────────────────────
 
 function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   const [localEvents, setLocalEvents] = useState(null);
@@ -338,7 +312,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       setSavingEdit(false);
       return;
     }
-
     const champs = [
       { key: "client_nom", label: "Nom" },
       { key: "telephone",  label: "Téléphone" },
@@ -355,34 +328,23 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
         return avant !== apres;
       })
       .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
-
     if (modifs.length > 0) {
       await supabase.from("lead_events").insert([{
-        lead_id:    lead.id,
-        type:       "✏️ Modification",
-        note:       modifs.join(" | "),
-        created_at: new Date().toISOString(),
+        lead_id: lead.id, type: "✏️ Modification",
+        note: modifs.join(" | "), created_at: new Date().toISOString(),
       }]);
     }
-
     if (lead.statut === "Confirmé") {
       await supabase.from("commandes").update({
-        client_nom: editForm.client_nom,
-        telephone:  editForm.telephone,
-        ville:      editForm.ville,
-        adresse:    editForm.adresse,
-        produit:    editForm.produit,
-        quantite:   editForm.quantite,
-        prix:       editForm.prix,
+        client_nom: editForm.client_nom, telephone: editForm.telephone,
+        ville: editForm.ville, adresse: editForm.adresse,
+        produit: editForm.produit, quantite: editForm.quantite, prix: editForm.prix,
       }).eq("lead_id", lead.id);
     }
-
     const { data: newEvents } = await supabase
-      .from("lead_events").select("*")
-      .eq("lead_id", lead.id)
+      .from("lead_events").select("*").eq("lead_id", lead.id)
       .order("created_at", { ascending: false }).limit(8);
     setLocalEvents(newEvents || []);
-
     if (onEdit) onEdit(lead.id, editForm);
     setSavingEdit(false);
     setEditMode(false);
@@ -404,17 +366,14 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
 
   return (
     <aside style={{
-      width: 360, flexShrink: 0,
-      background: "var(--surface)",
+      width: 360, flexShrink: 0, background: "var(--surface)",
       borderLeft: "1px solid var(--border)",
-      display: "flex", flexDirection: "column",
-      overflow: "hidden",
+      display: "flex", flexDirection: "column", overflow: "hidden",
     }}>
       <div style={{
         padding: "14px 18px",
         background: urgent ? "#FFF5F5" : overdue ? "#FFFDF0" : "var(--surface2)",
-        borderBottom: "1px solid var(--border)",
-        flexShrink: 0,
+        borderBottom: "1px solid var(--border)", flexShrink: 0,
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -432,9 +391,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted2)", fontSize: 20, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
           </div>
         </div>
-        <div style={{ marginBottom: 10 }}>
-          <StatusBadge statut={lead.statut} size="md" />
-        </div>
+        <div style={{ marginBottom: 10 }}><StatusBadge statut={lead.statut} size="md" /></div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <a href={`tel:${lead.telephone}`} style={{
             display: "inline-flex", alignItems: "center", gap: 8,
@@ -454,7 +411,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
-
         {editMode && (
           <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 14 }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 12 }}>
@@ -562,8 +518,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   );
 }
 
-// ─── PAGE PRINCIPALE ─────────────────────────────────────────────────────────
-
 export default function Leads({ role, nom }) {
   const [leads,             setLeads]             = useState([]);
   const [events,            setEvents]            = useState([]);
@@ -614,6 +568,7 @@ export default function Leads({ role, nom }) {
     }]);
 
     if (statut === "Confirmé") {
+      // Supprimer toute commande existante puis recréer
       await supabase.from("commandes").delete().eq("lead_id", id);
       const { data: lead } = await supabase.from("leads").select("*").eq("id", id).single();
       if (lead) {
@@ -638,3 +593,120 @@ export default function Leads({ role, nom }) {
     if (selected?.id === id) fetchEvents(id);
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
   }
+
+  const today = new Date().toDateString();
+  const kpis = {
+    total:     leads.length,
+    aTraiter:  leads.filter(l => ["À appeler", "Demande de rappel", "Injoignable"].includes(l.statut)).length,
+    confirmes: leads.filter(l => l.statut === "Confirmé" && new Date(l.updated_at || l.created_at).toDateString() === today).length,
+    urgents:   leads.filter(isUrgent).length,
+    retards:   leads.filter(isOverdue).length,
+  };
+
+  const count = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
+
+  const filtered = leads
+    .filter(l => filtreStatut === "tous" || l.statut === filtreStatut)
+    .filter(l => filtreConseillere === "tous" || l.conseillere === filtreConseillere)
+    .filter(l => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (l.client_nom||"").toLowerCase().includes(q)
+          || (l.telephone||"").includes(q)
+          || (l.ville||"").toLowerCase().includes(q)
+          || (l.produit||"").toLowerCase().includes(q);
+    });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
+      <div style={{ display: "flex", gap: 8, padding: "12px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
+        {[
+          { label: "Total",          val: kpis.total,     alert: false,             color: "var(--text)" },
+          { label: "À traiter",      val: kpis.aTraiter,  alert: kpis.aTraiter > 0, color: "#2563EB" },
+          { label: "Confirmés auj.", val: kpis.confirmes, alert: false,             color: "#16A34A" },
+          { label: "Urgents",        val: kpis.urgents,   alert: kpis.urgents > 0,  color: "#DC2626" },
+          ...(role === "admin" ? [{ label: "Rappels retard", val: kpis.retards, alert: kpis.retards > 0, color: "#D97706" }] : []),
+        ].map((k, i) => (
+          <div key={i} style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "8px 18px",
+            background: k.alert ? `${k.color}0D` : "var(--surface2)",
+            border: `1px solid ${k.alert ? k.color + "33" : "var(--border)"}`,
+            borderRadius: "var(--radius)", minWidth: 85,
+          }}>
+            <span style={{ fontSize: 22, fontWeight: 800, color: k.alert ? k.color : "var(--text)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{k.val}</span>
+            <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap" }}>{k.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {role === "admin" && (
+        <ConseillereStats leads={leads} filtreConseillere={filtreConseillere} setFiltreConseillere={setFiltreConseillere} />
+      )}
+
+      <div style={{ display: "flex", gap: 10, padding: "10px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "var(--muted2)", pointerEvents: "none" }}>🔍</span>
+          <input
+            style={{ width: "100%", padding: "7px 12px 7px 32px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", fontSize: 13, color: "var(--text)", outline: "none", boxSizing: "border-box", transition: "border-color .12s" }}
+            placeholder="Nom, téléphone, ville..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            onFocus={e => e.target.style.borderColor = "var(--blue)"}
+            onBlur={e => e.target.style.borderColor = "var(--border)"}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {FILTRES_STATUT.map(f => {
+            const active = filtreStatut === f;
+            const s = S[f];
+            return (
+              <button key={f} onClick={() => setFiltreStatut(f)} style={{
+                display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 20,
+                border: `1px solid ${active && s ? s.color + "44" : "var(--border)"}`,
+                background: active && s ? s.bg : active ? "var(--blue-lt)" : "var(--surface)",
+                color: active && s ? s.color : active ? "var(--blue)" : "var(--muted)",
+                fontSize: 11, fontWeight: active ? 700 : 500, cursor: "pointer",
+                transition: "all .12s", whiteSpace: "nowrap",
+              }}>
+                {active && s?.emoji ? `${s.emoji} ` : ""}{f}
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "0 4px", borderRadius: 8, background: "rgba(0,0,0,.06)", color: "inherit", fontFamily: "JetBrains Mono, monospace" }}>{count(f)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "10px 14px", scrollbarWidth: "thin", scrollbarColor: "var(--border2) transparent" }}>
+          {loading ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 48, gap: 10, color: "var(--muted2)", fontSize: 13 }}>
+              <div style={{ width: 22, height: 22, border: "2px solid var(--border2)", borderTopColor: "var(--blue)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
+              Chargement...
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", gap: 12, textAlign: "center" }}>
+              <div style={{ fontSize: 40, opacity: .4 }}>📭</div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Aucun lead</div>
+              <div style={{ fontSize: 13, color: "var(--muted)" }}>Essaie un autre filtre</div>
+            </div>
+          ) : filtered.map(lead => (
+            <LeadCard key={lead.id} lead={lead} selected={selected?.id === lead.id} onClick={() => setSelected(lead)} />
+          ))}
+        </div>
+
+        {selected && (
+          <LeadDetailPanel
+            lead={selected}
+            events={events}
+            onClose={() => setSelected(null)}
+            onUpdate={(statut, ancienStatut) => updateStatut(selected.id, statut, ancienStatut)}
+            onEdit={(id, form) => {
+              setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
+              setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
