@@ -408,6 +408,31 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
             🕐 {fmtDateComplete(lead.created_at)} · il y a {timeAgo(lead.created_at)}
           </div>
         </div>
+
+        {/* Résumé commande */}
+        {lead.produit && (
+          <div style={{
+            marginTop: 10,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 8, padding: "10px 12px",
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div>
+              <p style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", margin: "0 0 4px" }}>Commande</p>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", margin: "0 0 5px" }}>{lead.produit}</p>
+              <div style={{ display: "flex", gap: 6 }}>
+                {lead.quantite && <span style={{ fontSize: 11, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 7px" }}>Qté {lead.quantite}</span>}
+                {lead.prix > 0 && <span style={{ fontSize: 11, color: "var(--blue)", background: "var(--blue-lt)", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 7px", fontWeight: 700 }}>{lead.prix} MAD</span>}
+              </div>
+            </div>
+            {lead.statut === "Confirmé" && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 4, background: "#EFF6FF", color: "#2563EB", border: "1px solid #BFDBFE", whiteSpace: "nowrap" }}>
+                📦 À expédier
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
@@ -474,19 +499,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
 
         <ZoneTraitement lead={lead} onUpdate={onUpdate} ancienStatut={lead.statut} />
 
-        {lead.produit && (
-          <section>
-            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Commande</div>
-            <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 12px" }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text)", marginBottom: 6 }}>{lead.produit}</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {lead.quantite && <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: "var(--muted)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>Qté {lead.quantite}</span>}
-                {lead.prix > 0 && <span style={{ fontSize: 11, fontFamily: "JetBrains Mono, monospace", color: "var(--blue)", background: "var(--blue-lt)", border: "1px solid #BFDBFE", borderRadius: 4, padding: "2px 8px", fontWeight: 700 }}>{lead.prix} MAD</span>}
-                {lead.source   && <span style={{ fontSize: 11, color: "var(--muted2)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px" }}>via {lead.source}</span>}
-              </div>
-            </div>
-          </section>
-        )}
+
 
         <section>
           <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--muted2)", marginBottom: 7 }}>Historique</div>
