@@ -608,16 +608,48 @@ export default function Leads({ role, nom }) {
   }
 
   const today = new Date().toDateString();
-  const kpis = {
-    total:     leads.length,
-    aTraiter:  leads.filter(l => ["À appeler", "Demande de rappel", "Injoignable"].includes(l.statut)).length,
-    confirmes: leads.filter(l => l.statut === "Confirmé" && new Date(l.updated_at || l.created_at).toDateString() === today).length,
-    urgents:   leads.filter(isUrgent).length,
-    retards:   leads.filter(isOverdue).length,
-  };
+
+  function delaiOuvre(createdAt, firstEventAt) {
+    if (!firstEventAt) return null;
+    let debut = new Date(createdAt);
+    const fin = new Date(firstEventAt);
+    const h = debut.getHours() + debut.getMinutes() / 60;
+    if (h >= 19) { debut.setDate(debut.getDate() + 1); debut.setHours(10, 0, 0, 0); }
+    else if (h < 10) { debut.setHours(10, 0, 0, 0); }
+    if (fin <= debut) return 0;
+    let mins = 0;
+    const cur = new Date(debut);
+    while (cur < fin) {
+      const hh = cur.getHours() + cur.getMinutes() / 60;
+      if (hh >= 10 && hh < 19) mins++;
+      cur.setMinutes(cur.getMinutes() + 1);
+    }
+    return mins;
+  }
+
+  function formatDelai(m) {
+    if (m === null) return "—";
+    if (m < 60) return `${m}min`;
+    const h = Math.floor(m / 60), mn = m % 60;
+    return mn > 0 ? `${h}h${String(mn).padStart(2,"0")}` : `${h}h`;
+  }
+
+  const statutsKpi = [
+    { key: "À appeler",         label: "À appeler",   color: "#2563EB" },
+    { key: "Confirmé",          label: "Confirmé",    color: "#16A34A" },
+    { key: "Injoignable",       label: "Injoignable", color: "#D97706" },
+    { key: "Demande de rappel", label: "Rappel",      color: "#7C3AED" },
+    { key: "Pas intéressé",     label: "Pas int.",    color: "#64748B" },
+    { key: "Numéro faux",       label: "N° faux",     color: "#DC2626" },
+    { key: "Annulé",            label: "Annulé",      color: "#DC2626" },
+  ];
+
+  const total = leads.length;
+  const countByStatut = Object.fromEntries(
+    statutsKpi.map(s => [s.key, leads.filter(l => l.statut === s.key).length])
+  );
 
   const count = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
-
   const filtered = leads
     .filter(l => filtreStatut === "tous" || l.statut === filtreStatut)
     .filter(l => filtreConseillere === "tous" || l.conseillere === filtreConseillere)
@@ -632,25 +664,51 @@ export default function Leads({ role, nom }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
-      <div style={{ display: "flex", gap: 8, padding: "12px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
-        {[
-          { label: "Total",          val: kpis.total,     alert: false,             color: "var(--text)" },
-          { label: "À traiter",      val: kpis.aTraiter,  alert: kpis.aTraiter > 0, color: "#2563EB" },
-          { label: "Confirmés auj.", val: kpis.confirmes, alert: false,             color: "#16A34A" },
-          { label: "Urgents",        val: kpis.urgents,   alert: kpis.urgents > 0,  color: "#DC2626" },
-          ...(role === "admin" ? [{ label: "Rappels retard", val: kpis.retards, alert: kpis.retards > 0, color: "#D97706" }] : []),
-        ].map((k, i) => (
-          <div key={i} style={{
-            display: "flex", flexDirection: "column", alignItems: "center",
-            padding: "8px 18px",
-            background: k.alert ? `${k.color}0D` : "var(--surface2)",
-            border: `1px solid ${k.alert ? k.color + "33" : "var(--border)"}`,
-            borderRadius: "var(--radius)", minWidth: 85,
-          }}>
-            <span style={{ fontSize: 22, fontWeight: 800, color: k.alert ? k.color : "var(--text)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{k.val}</span>
-            <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap" }}>{k.label}</span>
-          </div>
-        ))}
+      <div style={{ display: "flex", gap: 8, padding: "12px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap", alignItems: "stretch" }}>
+
+        {/* Total */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 16px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", minWidth: 70 }}>
+          <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{total}</span>
+          <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2 }}>Total</span>
+        </div>
+
+        <div style={{ width: 1, background: "var(--border)", margin: "4px 0" }} />
+
+        {/* Statuts */}
+        {statutsKpi.map(s => {
+          const n = countByStatut[s.key] || 0;
+          const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+          return (
+            <div key={s.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 12px", background: n > 0 ? `${s.color}0D` : "var(--surface2)", border: `1px solid ${n > 0 ? s.color + "33" : "var(--border)"}`, borderRadius: "var(--radius)", minWidth: 72, flex: 1 }}>
+              <span style={{ fontSize: 20, fontWeight: 800, color: n > 0 ? s.color : "var(--muted2)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{n}</span>
+              <span style={{ fontSize: 10, color: n > 0 ? s.color : "var(--muted2)", fontWeight: 700, marginTop: 1 }}>{pct}%</span>
+              <span style={{ fontSize: 10, color: "var(--muted2)", marginTop: 2, whiteSpace: "nowrap" }}>{s.label}</span>
+            </div>
+          );
+        })}
+
+        <div style={{ width: 1, background: "var(--border)", margin: "4px 0" }} />
+
+        {/* Délai moyen ouvré */}
+        {(() => {
+          const delais = leads
+            .map(lead => {
+              const ev = (selected?.id === lead.id && events) ? events : [];
+              const first = [...ev]
+                .filter(e => e.type?.startsWith("Statut"))
+                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+              return first ? delaiOuvre(lead.created_at, first.created_at) : null;
+            })
+            .filter(d => d !== null);
+          const moy = delais.length ? Math.round(delais.reduce((a, b) => a + b, 0) / delais.length) : null;
+          const couleur = moy === null ? "var(--muted2)" : moy > 120 ? "#DC2626" : moy > 60 ? "#D97706" : "#16A34A";
+          return (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 16px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", minWidth: 80 }}>
+              <span style={{ fontSize: 20, fontWeight: 800, color: couleur, fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{formatDelai(moy)}</span>
+              <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap" }}>Délai moy.</span>
+            </div>
+          );
+        })()}
       </div>
 
       {role === "admin" && (
