@@ -612,14 +612,10 @@ export default function Leads({ role, nom }) {
     await supabase.from("lead_events").insert([{
       lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
     }]);
-if (statut === "Confirmé") {
-      console.log("=== CRÉATION COMMANDE ===", id);
+
+    if (statut === "Confirmé") {
       await supabase.from("commandes").delete().eq("lead_id", id);
-      const { data: leadData, error: leadError } = await supabase.from("leads").select("*").eq("id", id).single();
-      console.log("Lead data:", leadData, "Error:", leadError);
-      await supabase.from("commandes").delete().eq("lead_id", id);
-      const { data: leadData } = await supabase.from("leads").select("*").eq("id", id).single();
-      const lead = leadData;
+      const { data: lead } = await supabase.from("leads").select("*").eq("id", id).single();
       if (lead) {
         await supabase.from("commandes").insert([{
           lead_id:     id,
@@ -636,128 +632,9 @@ if (statut === "Confirmé") {
         }]);
       }
     } else if (ancienStatut === "Confirmé" && statut !== "Confirmé") {
-      // Supprimer la commande quand le lead quitte Confirmé
       await supabase.from("commandes").delete().eq("lead_id", id);
     }
 
     if (selected?.id === id) fetchEvents(id);
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
   }
-
-  const today = new Date().toDateString();
-  const kpis = {
-    total:     leads.length,
-    aTraiter:  leads.filter(l => ["À appeler", "Demande de rappel", "Injoignable"].includes(l.statut)).length,
-    confirmes: leads.filter(l => l.statut === "Confirmé" && new Date(l.updated_at || l.created_at).toDateString() === today).length,
-    urgents:   leads.filter(isUrgent).length,
-    retards:   leads.filter(isOverdue).length,
-  };
-
-  const count = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
-
-  const filtered = leads
-    .filter(l => filtreStatut === "tous" || l.statut === filtreStatut)
-    .filter(l => filtreConseillere === "tous" || l.conseillere === filtreConseillere)
-    .filter(l => {
-      if (!search.trim()) return true;
-      const q = search.toLowerCase();
-      return (l.client_nom||"").toLowerCase().includes(q)
-          || (l.telephone||"").includes(q)
-          || (l.ville||"").toLowerCase().includes(q)
-          || (l.produit||"").toLowerCase().includes(q);
-    });
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
-
-      <div style={{ display: "flex", gap: 8, padding: "12px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap" }}>
-        {[
-          { label: "Total",          val: kpis.total,     alert: false,             color: "var(--text)" },
-          { label: "À traiter",      val: kpis.aTraiter,  alert: kpis.aTraiter > 0, color: "#2563EB" },
-          { label: "Confirmés auj.", val: kpis.confirmes, alert: false,             color: "#16A34A" },
-          { label: "Urgents",        val: kpis.urgents,   alert: kpis.urgents > 0,  color: "#DC2626" },
-          ...(role === "admin" ? [{ label: "Rappels retard", val: kpis.retards, alert: kpis.retards > 0, color: "#D97706" }] : []),
-        ].map((k, i) => (
-          <div key={i} style={{
-            display: "flex", flexDirection: "column", alignItems: "center",
-            padding: "8px 18px",
-            background: k.alert ? `${k.color}0D` : "var(--surface2)",
-            border: `1px solid ${k.alert ? k.color + "33" : "var(--border)"}`,
-            borderRadius: "var(--radius)", minWidth: 85,
-          }}>
-            <span style={{ fontSize: 22, fontWeight: 800, color: k.alert ? k.color : "var(--text)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{k.val}</span>
-            <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap" }}>{k.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {role === "admin" && (
-        <ConseillereStats leads={leads} filtreConseillere={filtreConseillere} setFiltreConseillere={setFiltreConseillere} />
-      )}
-
-      <div style={{ display: "flex", gap: 10, padding: "10px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "var(--muted2)", pointerEvents: "none" }}>🔍</span>
-          <input
-            style={{ width: "100%", padding: "7px 12px 7px 32px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", fontSize: 13, color: "var(--text)", outline: "none", boxSizing: "border-box", transition: "border-color .12s" }}
-            placeholder="Nom, téléphone, ville..."
-            value={search} onChange={e => setSearch(e.target.value)}
-            onFocus={e => e.target.style.borderColor = "var(--blue)"}
-            onBlur={e => e.target.style.borderColor = "var(--border)"}
-          />
-        </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {FILTRES_STATUT.map(f => {
-            const active = filtreStatut === f;
-            const s = S[f];
-            return (
-              <button key={f} onClick={() => setFiltreStatut(f)} style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 20,
-                border: `1px solid ${active && s ? s.color + "44" : "var(--border)"}`,
-                background: active && s ? s.bg : active ? "var(--blue-lt)" : "var(--surface)",
-                color: active && s ? s.color : active ? "var(--blue)" : "var(--muted)",
-                fontSize: 11, fontWeight: active ? 700 : 500, cursor: "pointer",
-                transition: "all .12s", whiteSpace: "nowrap",
-              }}>
-                {active && s?.emoji ? `${s.emoji} ` : ""}{f}
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "0 4px", borderRadius: 8, background: "rgba(0,0,0,.06)", color: "inherit", fontFamily: "JetBrains Mono, monospace" }}>{count(f)}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
-        <div style={{ flex: 1, overflowY: "auto", padding: "10px 14px", scrollbarWidth: "thin", scrollbarColor: "var(--border2) transparent" }}>
-          {loading ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 48, gap: 10, color: "var(--muted2)", fontSize: 13 }}>
-              <div style={{ width: 22, height: 22, border: "2px solid var(--border2)", borderTopColor: "var(--blue)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
-              Chargement...
-            </div>
-          ) : filtered.length === 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", gap: 12, textAlign: "center" }}>
-              <div style={{ fontSize: 40, opacity: .4 }}>📭</div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Aucun lead</div>
-              <div style={{ fontSize: 13, color: "var(--muted)" }}>Essaie un autre filtre</div>
-            </div>
-          ) : filtered.map(lead => (
-            <LeadCard key={lead.id} lead={lead} selected={selected?.id === lead.id} onClick={() => setSelected(lead)} />
-          ))}
-        </div>
-
-        {selected && (
-          <LeadDetailPanel
-            lead={selected}
-            events={events}
-            onClose={() => setSelected(null)}
-            onUpdate={(statut, ancienStatut) => updateStatut(selected.id, statut, ancienStatut)}
-            onEdit={(id, form) => {
-              setLeads(prev => prev.map(l => l.id === id ? { ...l, ...form } : l));
-              setSelected(prev => prev?.id === id ? { ...prev, ...form } : prev);
-            }}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
