@@ -164,6 +164,7 @@ function ModalEdit({ produit, fourns, onClose }) {
     cout_achat: produit.cout_achat || "",
     fournisseur: produit.fournisseur || "",
     variante: produit.variante || "",
+    titre_shopify: produit.titre_shopify || "",
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const [fournMode, setFournMode] = useState(fourns.includes(produit.fournisseur) ? "existant" : "nouveau");
@@ -177,6 +178,7 @@ function ModalEdit({ produit, fourns, onClose }) {
       cout_achat: +form.cout_achat || 0,
       fournisseur: form.fournisseur || null,
       variante: varianteMode === "aucune" ? null : form.variante || null,
+      titre_shopify: form.titre_shopify || null,
     }).eq("id", produit.id);
     onClose();
   };
@@ -222,6 +224,10 @@ function ModalEdit({ produit, fourns, onClose }) {
             <input className="form-input" type="number" value={form.cout_achat} onChange={e => set("cout_achat", e.target.value)} placeholder="80" />
           </div>
           <div className="form-group">
+            <label className="form-label">Titre Shopify</label>
+            <input className="form-input" value={form.titre_shopify} onChange={e => set("titre_shopify", e.target.value)} placeholder="Titre exact de la page produit Shopify..." />
+          </div>
+          <div className="form-group">
             <label className="form-label">Fournisseur</label>
             {fourns.length > 0 && (
               <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -242,28 +248,6 @@ function ModalEdit({ produit, fourns, onClose }) {
     </div>
   );
 }
-
-export default function Produits({ navigate }) {
-  const [produits,     setProduits]     = useState([]);
-  const [commandes,    setCommandes]    = useState([]);
-  const [lastEntrees,  setLastEntrees]  = useState({});
-  const [loading,      setLoading]      = useState(true);
-  const [showAjout,    setShowAjout]    = useState(false);
-  const [editProduit,  setEditProduit]  = useState(null);
-  const [editSeuil,    setEditSeuil]    = useState(null);
-  const [seuilVal,     setSeuilVal]     = useState("");
-  const [stockRapide,  setStockRapide]  = useState(null);
-  const [stockQte,     setStockQte]     = useState("");
-
-  useEffect(() => {
-    fetchAll();
-    const ch = supabase.channel("produits-rt7")
-      .on("postgres_changes", { event: "*", schema: "public", table: "produits" },        fetchAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" },       fetchAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_movements" }, fetchAll)
-      .subscribe();
-    return () => supabase.removeChannel(ch);
-  }, []);
 
   async function fetchAll() {
     const { data: p } = await supabase.from("produits").select("*").order("nom");
