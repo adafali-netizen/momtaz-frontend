@@ -22,8 +22,9 @@ function ModalAjout({ produits, onClose }) {
   const [fournSel,   setFournSel]   = useState(fourns[0] || "");
   const [fournNouv,  setFournNouv]  = useState("");
   const [cout,       setCout]       = useState("");
-  const [stock,      setStock]      = useState("");
-  const [variante,   setVariante]   = useState("");
+const [stock,         setStock]         = useState("");
+  const [variante,      setVariante]      = useState("");
+  const [titreShopify,  setTitreShopify]  = useState("");
   const [varianteMode, setVarianteMode] = useState("preset"); // "preset" | "custom" | "aucune"
 
   const nomFinal      = nomMode   === "existant" ? nomSelect  : nomNouveau;
@@ -47,7 +48,7 @@ function ModalAjout({ produits, onClose }) {
       if (fournFinal) await supabase.from("produits").update({ fournisseur: fournFinal }).eq("id", existant.id);
     } else {
       // Créer nouveau produit (ou nouvelle variante)
-      const { error } = await supabase.from("produits").insert([{
+const { error } = await supabase.from("produits").insert([{
         nom: nomFinal,
         cout_achat: +cout || 0,
         fournisseur: fournFinal || null,
@@ -55,6 +56,7 @@ function ModalAjout({ produits, onClose }) {
         stock_minimum: 5,
         decision: "OPTIMISER",
         variante: varianteFinal,
+        titre_shopify: titreShopify || null,
       }]);
       if (error) { console.error("INSERT_ERROR", error.message); return; }
     }
@@ -132,7 +134,13 @@ function ModalAjout({ produits, onClose }) {
               ? <select className="form-select" value={fournSel} onChange={e => setFournSel(e.target.value)}><option value="">— Aucun —</option>{fourns.map(f => <option key={f}>{f}</option>)}</select>
               : <input className="form-input" value={fournNouv} onChange={e => setFournNouv(e.target.value)} placeholder="Nom du fournisseur..." />}
           </div>
-
+{!existant && (
+            <div className="form-group">
+              <label className="form-label">Titre Shopify</label>
+              <input className="form-input" value={titreShopify} onChange={e => setTitreShopify(e.target.value)} placeholder="Titre exact de la page produit Shopify..." />
+            </div>
+          )}
+          
           {!existant && (
             <div className="form-group">
               <label className="form-label">Prix achat (MAD)</label>
