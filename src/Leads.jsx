@@ -664,48 +664,75 @@ export default function Leads({ role, nom }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
-      <div style={{ display: "flex", gap: 8, padding: "12px 24px", background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, flexWrap: "wrap", alignItems: "stretch" }}>
-
-        {/* Total */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 16px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", minWidth: 70 }}>
-          <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{total}</span>
-          <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2 }}>Total</span>
+   <div style={{
+        display: "flex", alignItems: "stretch", gap: 0,
+        padding: "14px 24px", background: "#FAFAFA",
+        borderBottom: "1px solid #E8E8E8", flexShrink: 0,
+        flexWrap: "wrap", rowGap: "10px",
+      }}>
+        {/* ZONE A — Principaux */}
+        <div style={{ display: "flex", alignItems: "stretch", gap: 8, marginRight: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 20px", background: "#fff", border: "1px solid #E8E8E8", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", minWidth: 80 }}>
+            <span style={{ fontSize: 28, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 5 }}>Total</span>
+          </div>
+          {[
+            { key: "À appeler", label: "À appeler", color: "#2563EB", border: "#BFDBFE" },
+            { key: "Confirmé",  label: "Confirmé",  color: "#16A34A", border: "#BBF7D0" },
+          ].map(s => {
+            const n = countByStatut[s.key] || 0;
+            const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+            return (
+              <div key={s.key} style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "12px 20px", background: "#fff", border: `1px solid ${n > 0 ? s.border : "#E8E8E8"}`, borderTop: n > 0 ? `2px solid ${s.color}` : "1px solid #E8E8E8", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", minWidth: 90 }}>
+                <span style={{ fontSize: 28, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</span>
+                <span style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 5 }}>{s.label}</span>
+                {total > 0 && <span style={{ fontSize: 11, color: "#CBD5E1", marginTop: 2 }}>{pct}%</span>}
+              </div>
+            );
+          })}
         </div>
 
-        <div style={{ width: 1, background: "var(--border)", margin: "4px 0" }} />
+        <div style={{ width: 1, background: "#E8E8E8", margin: "4px 0", marginRight: 20, alignSelf: "stretch" }} />
 
-        {/* Statuts */}
-        {statutsKpi.map(s => {
-          const n = countByStatut[s.key] || 0;
-          const pct = total > 0 ? Math.round((n / total) * 100) : 0;
-          return (
-            <div key={s.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 12px", background: n > 0 ? `${s.color}0D` : "var(--surface2)", border: `1px solid ${n > 0 ? s.color + "33" : "var(--border)"}`, borderRadius: "var(--radius)", minWidth: 72, flex: 1 }}>
-              <span style={{ fontSize: 20, fontWeight: 800, color: n > 0 ? s.color : "var(--muted2)", fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{n}</span>
-              <span style={{ fontSize: 10, color: n > 0 ? s.color : "var(--muted2)", fontWeight: 700, marginTop: 1 }}>{pct}%</span>
-              <span style={{ fontSize: 10, color: "var(--muted2)", marginTop: 2, whiteSpace: "nowrap" }}>{s.label}</span>
-            </div>
-          );
-        })}
+        {/* ZONE B — Secondaires */}
+        <div style={{ display: "flex", alignItems: "stretch", gap: 6, marginRight: 20 }}>
+          {[
+            { key: "Injoignable",       label: "Injoignable", color: "#D97706" },
+            { key: "Demande de rappel", label: "Rappel",      color: "#7C3AED" },
+            { key: "Pas intéressé",     label: "Pas int.",    color: "#64748B" },
+            { key: "Numéro faux",       label: "N° faux",     color: "#DC2626" },
+            { key: "Annulé",            label: "Annulé",      color: "#DC2626" },
+          ].map(s => {
+            const n = countByStatut[s.key] || 0;
+            const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+            return (
+              <div key={s.key} style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "10px 14px", background: "#fff", border: "1px solid #E8E8E8", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", minWidth: 68 }}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</span>
+                <span style={{ fontSize: 10, color: "#B0BAC9", marginTop: 2 }}>{pct}%</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 3, whiteSpace: "nowrap" }}>{s.label}</span>
+              </div>
+            );
+          })}
+        </div>
 
-        <div style={{ width: 1, background: "var(--border)", margin: "4px 0" }} />
+        <div style={{ width: 1, background: "#E8E8E8", margin: "4px 0", marginRight: 20, alignSelf: "stretch" }} />
 
-        {/* Délai moyen ouvré */}
+        {/* ZONE C — Délai moyen */}
         {(() => {
           const delais = leads
             .map(lead => {
               const ev = (selected?.id === lead.id && events) ? events : [];
-              const first = [...ev]
-                .filter(e => e.type?.startsWith("Statut"))
-                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+              const first = [...ev].filter(e => e.type?.startsWith("Statut")).sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
               return first ? delaiOuvre(lead.created_at, first.created_at) : null;
             })
             .filter(d => d !== null);
           const moy = delais.length ? Math.round(delais.reduce((a, b) => a + b, 0) / delais.length) : null;
-          const couleur = moy === null ? "var(--muted2)" : moy > 120 ? "#DC2626" : moy > 60 ? "#D97706" : "#16A34A";
+          const couleur = moy === null ? "#CBD5E1" : moy > 120 ? "#DC2626" : moy > 60 ? "#D97706" : "#16A34A";
           return (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 16px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: "var(--radius)", minWidth: 80 }}>
-              <span style={{ fontSize: 20, fontWeight: 800, color: couleur, fontFamily: "JetBrains Mono, monospace", lineHeight: 1.2 }}>{formatDelai(moy)}</span>
-              <span style={{ fontSize: 10, color: "var(--muted2)", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap" }}>Délai moy.</span>
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 20px", background: moy !== null ? "#F8FAFC" : "#fff", border: "1px solid #E8E8E8", borderRadius: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", minWidth: 88 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: couleur, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{formatDelai(moy)}</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 5, whiteSpace: "nowrap" }}>Délai moy.</span>
+              <span style={{ fontSize: 10, color: "#B0BAC9", marginTop: 2 }}>10h–19h</span>
             </div>
           );
         })()}
