@@ -15,23 +15,22 @@ const COULEURS_PRESET = ["Rouge", "Bleu", "Noir", "Blanc", "Vert", "Jaune", "Ros
 function ModalAjout({ produits, onClose }) {
   const noms   = [...new Set(produits.map(p => p.nom))].sort();
   const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
-  const [nomMode,    setNomMode]    = useState(noms.length > 0 ? "existant" : "nouveau");
-  const [nomSelect,  setNomSelect]  = useState(noms[0] || "");
-  const [nomNouveau, setNomNouveau] = useState("");
-  const [fournMode,  setFournMode]  = useState(fourns.length > 0 ? "existant" : "nouveau");
-  const [fournSel,   setFournSel]   = useState(fourns[0] || "");
-  const [fournNouv,  setFournNouv]  = useState("");
-  const [cout,       setCout]       = useState("");
-const [stock,         setStock]         = useState("");
+  const [nomMode,       setNomMode]       = useState(noms.length > 0 ? "existant" : "nouveau");
+  const [nomSelect,     setNomSelect]     = useState(noms[0] || "");
+  const [nomNouveau,    setNomNouveau]    = useState("");
+  const [fournMode,     setFournMode]     = useState(fourns.length > 0 ? "existant" : "nouveau");
+  const [fournSel,      setFournSel]      = useState(fourns[0] || "");
+  const [fournNouv,     setFournNouv]     = useState("");
+  const [cout,          setCout]          = useState("");
+  const [stock,         setStock]         = useState("");
   const [variante,      setVariante]      = useState("");
   const [titreShopify,  setTitreShopify]  = useState("");
-  const [varianteMode, setVarianteMode] = useState("preset"); // "preset" | "custom" | "aucune"
+  const [varianteMode,  setVarianteMode]  = useState("preset");
 
   const nomFinal      = nomMode   === "existant" ? nomSelect  : nomNouveau;
   const fournFinal    = fournMode === "existant" ? fournSel   : fournNouv;
   const varianteFinal = varianteMode === "aucune" ? null : variante || null;
 
-  // Existant = même nom ET même variante (null === null inclus)
   const existant = nomMode === "existant"
     ? produits.find(p => p.nom === nomFinal && (p.variante || null) === varianteFinal)
     : null;
@@ -39,7 +38,6 @@ const [stock,         setStock]         = useState("");
   const submit = async () => {
     if (!nomFinal) return;
     if (existant) {
-      // Ajouter stock à un produit existant
       const ajout = +stock || 0;
       if (ajout > 0) {
         await supabase.from("produits").update({ stock_disponible: (existant.stock_disponible || 0) + ajout }).eq("id", existant.id);
@@ -47,8 +45,7 @@ const [stock,         setStock]         = useState("");
       }
       if (fournFinal) await supabase.from("produits").update({ fournisseur: fournFinal }).eq("id", existant.id);
     } else {
-      // Créer nouveau produit (ou nouvelle variante)
-const { error } = await supabase.from("produits").insert([{
+      const { error } = await supabase.from("produits").insert([{
         nom: nomFinal,
         cout_achat: +cout || 0,
         fournisseur: fournFinal || null,
@@ -71,7 +68,6 @@ const { error } = await supabase.from("produits").insert([{
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          {/* Produit */}
           <div className="form-group">
             <label className="form-label">Produit *</label>
             {noms.length > 0 && (
@@ -85,7 +81,6 @@ const { error } = await supabase.from("produits").insert([{
               : <input className="form-input" value={nomNouveau} onChange={e => setNomNouveau(e.target.value)} placeholder="Nom du produit..." />}
           </div>
 
-          {/* Variante / Couleur */}
           <div className="form-group">
             <label className="form-label">Variante / Couleur</label>
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -96,20 +91,13 @@ const { error } = await supabase.from("produits").insert([{
             {varianteMode === "preset" && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {COULEURS_PRESET.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setVariante(c)}
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 20,
-                      border: variante === c ? "2px solid var(--blue)" : "1px solid var(--border)",
-                      background: variante === c ? "var(--blue-lt)" : "var(--bg)",
-                      color: variante === c ? "var(--blue)" : "var(--text)",
-                      cursor: "pointer",
-                      fontSize: 13,
-                      fontWeight: variante === c ? 600 : 400,
-                    }}
-                  >{c}</button>
+                  <button key={c} onClick={() => setVariante(c)} style={{
+                    padding: "4px 12px", borderRadius: 20,
+                    border: variante === c ? "2px solid var(--blue)" : "1px solid var(--border)",
+                    background: variante === c ? "var(--blue-lt)" : "var(--bg)",
+                    color: variante === c ? "var(--blue)" : "var(--text)",
+                    cursor: "pointer", fontSize: 13, fontWeight: variante === c ? 600 : 400,
+                  }}>{c}</button>
                 ))}
               </div>
             )}
@@ -121,7 +109,6 @@ const { error } = await supabase.from("produits").insert([{
             )}
           </div>
 
-          {/* Fournisseur */}
           <div className="form-group">
             <label className="form-label">Fournisseur</label>
             {fourns.length > 0 && (
@@ -134,23 +121,26 @@ const { error } = await supabase.from("produits").insert([{
               ? <select className="form-select" value={fournSel} onChange={e => setFournSel(e.target.value)}><option value="">— Aucun —</option>{fourns.map(f => <option key={f}>{f}</option>)}</select>
               : <input className="form-input" value={fournNouv} onChange={e => setFournNouv(e.target.value)} placeholder="Nom du fournisseur..." />}
           </div>
-{!existant && (
+
+          {!existant && (
             <div className="form-group">
               <label className="form-label">Titre Shopify</label>
               <input className="form-input" value={titreShopify} onChange={e => setTitreShopify(e.target.value)} placeholder="Titre exact de la page produit Shopify..." />
             </div>
           )}
-          
+
           {!existant && (
             <div className="form-group">
               <label className="form-label">Prix achat (MAD)</label>
               <input className="form-input" type="number" value={cout} onChange={e => setCout(e.target.value)} placeholder="80" />
             </div>
           )}
+
           <div className="form-group">
             <label className="form-label">{existant ? "Quantité à ajouter" : "Stock initial"}</label>
             <input className="form-input" type="number" value={stock} onChange={e => setStock(e.target.value)} placeholder="50" />
           </div>
+
           {existant && (
             <div style={{ padding: "8px 12px", background: "var(--blue-lt)", borderRadius: 8, fontSize: 12, color: "var(--blue)" }}>
               ℹ️ Produit existant — stock actuel : {existant.stock_disponible} u
@@ -168,24 +158,24 @@ const { error } = await supabase.from("produits").insert([{
 
 function ModalEdit({ produit, fourns, onClose }) {
   const [form, setForm] = useState({
-    nom: produit.nom || "",
-    cout_achat: produit.cout_achat || "",
-    fournisseur: produit.fournisseur || "",
-    variante: produit.variante || "",
+    nom:           produit.nom           || "",
+    cout_achat:    produit.cout_achat    || "",
+    fournisseur:   produit.fournisseur   || "",
+    variante:      produit.variante      || "",
     titre_shopify: produit.titre_shopify || "",
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const [fournMode, setFournMode] = useState(fourns.includes(produit.fournisseur) ? "existant" : "nouveau");
+  const [fournMode,    setFournMode]    = useState(fourns.includes(produit.fournisseur) ? "existant" : "nouveau");
   const [varianteMode, setVarianteMode] = useState(
     !produit.variante ? "aucune" : COULEURS_PRESET.includes(produit.variante) ? "preset" : "custom"
   );
 
   const submit = async () => {
     await supabase.from("produits").update({
-      nom: form.nom,
-      cout_achat: +form.cout_achat || 0,
-      fournisseur: form.fournisseur || null,
-      variante: varianteMode === "aucune" ? null : form.variante || null,
+      nom:           form.nom,
+      cout_achat:    +form.cout_achat || 0,
+      fournisseur:   form.fournisseur || null,
+      variante:      varianteMode === "aucune" ? null : form.variante || null,
       titre_shopify: form.titre_shopify || null,
     }).eq("id", produit.id);
     onClose();
@@ -203,6 +193,7 @@ function ModalEdit({ produit, fourns, onClose }) {
             <label className="form-label">Nom du produit</label>
             <input className="form-input" value={form.nom} onChange={e => set("nom", e.target.value)} />
           </div>
+
           <div className="form-group">
             <label className="form-label">Variante / Couleur</label>
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -227,14 +218,17 @@ function ModalEdit({ produit, fourns, onClose }) {
               <input className="form-input" value={form.variante} onChange={e => set("variante", e.target.value)} placeholder="ex: XL, 500ml..." />
             )}
           </div>
+
           <div className="form-group">
             <label className="form-label">Prix achat (MAD)</label>
             <input className="form-input" type="number" value={form.cout_achat} onChange={e => set("cout_achat", e.target.value)} placeholder="80" />
           </div>
+
           <div className="form-group">
             <label className="form-label">Titre Shopify</label>
             <input className="form-input" value={form.titre_shopify} onChange={e => set("titre_shopify", e.target.value)} placeholder="Titre exact de la page produit Shopify..." />
           </div>
+
           <div className="form-group">
             <label className="form-label">Fournisseur</label>
             {fourns.length > 0 && (
@@ -256,6 +250,28 @@ function ModalEdit({ produit, fourns, onClose }) {
     </div>
   );
 }
+
+export default function Produits({ navigate }) {
+  const [produits,     setProduits]     = useState([]);
+  const [commandes,    setCommandes]    = useState([]);
+  const [lastEntrees,  setLastEntrees]  = useState({});
+  const [loading,      setLoading]      = useState(true);
+  const [showAjout,    setShowAjout]    = useState(false);
+  const [editProduit,  setEditProduit]  = useState(null);
+  const [editSeuil,    setEditSeuil]    = useState(null);
+  const [seuilVal,     setSeuilVal]     = useState("");
+  const [stockRapide,  setStockRapide]  = useState(null);
+  const [stockQte,     setStockQte]     = useState("");
+
+  useEffect(() => {
+    fetchAll();
+    const ch = supabase.channel("produits-rt7")
+      .on("postgres_changes", { event: "*", schema: "public", table: "produits" },        fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" },       fetchAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_movements" }, fetchAll)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
 
   async function fetchAll() {
     const { data: p } = await supabase.from("produits").select("*").order("nom");
@@ -359,7 +375,6 @@ function ModalEdit({ produit, fourns, onClose }) {
     return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
   }
 
-  // Grouper par nom pour affichage
   const groupes = {};
   produitsTriés.forEach(p => {
     if (!groupes[p.nom]) groupes[p.nom] = [];
@@ -368,7 +383,6 @@ function ModalEdit({ produit, fourns, onClose }) {
 
   return (
     <>
-      {/* ── KPI Row ── */}
       <div className="kpi-row" style={{ padding: "16px 24px 12px" }}>
         <div className="kpi-card">
           <div className="kpi-value">{stockTotal}</div>
@@ -388,7 +402,6 @@ function ModalEdit({ produit, fourns, onClose }) {
         </div>
       </div>
 
-      {/* ── Toolbar ── */}
       <div className="toolbar" style={{ justifyContent: "flex-end" }}>
         <button className="btn btn-primary btn-sm" onClick={() => setShowAjout(true)}>+ Produit</button>
       </div>
@@ -423,29 +436,20 @@ function ModalEdit({ produit, fourns, onClose }) {
               </tr>
             </thead>
             <tbody>
-              {produitsTriés.map((p, idx) => {
+              {produitsTriés.map((p) => {
                 const stats  = getStats(p);
                 const statut = getStatut(p, stats);
-                // Afficher le nom seulement sur la première variante du groupe
-                const nomGroup = groupes[p.nom];
-                const isFirst  = nomGroup[0].id === p.id;
+                const nomGroup     = groupes[p.nom];
+                const isFirst      = nomGroup[0].id === p.id;
                 const hasVariantes = nomGroup.length > 1 || nomGroup[0].variante;
 
                 return (
                   <tr key={p.id} style={hasVariantes && !isFirst ? { background: "var(--bg-alt, #fafafa)" } : {}}>
                     <td style={{ fontWeight: 600 }}>{p.nom}</td>
                     <td>
-                      {p.variante ? (
-                        <span style={{
-                          display: "inline-block",
-                          padding: "2px 10px",
-                          borderRadius: 20,
-                          background: "var(--blue-lt)",
-                          color: "var(--blue)",
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}>{p.variante}</span>
-                      ) : <span style={{ color: "var(--muted2)" }}>—</span>}
+                      {p.variante
+                        ? <span style={{ display: "inline-block", padding: "2px 10px", borderRadius: 20, background: "var(--blue-lt)", color: "var(--blue)", fontSize: 12, fontWeight: 600 }}>{p.variante}</span>
+                        : <span style={{ color: "var(--muted2)" }}>—</span>}
                     </td>
                     <td className="col-mono">
                       {p.cout_achat ? `${p.cout_achat} MAD` : <span style={{ color: "var(--muted2)" }}>—</span>}
@@ -523,7 +527,6 @@ function ModalEdit({ produit, fourns, onClose }) {
       {showAjout   && <ModalAjout produits={produits} onClose={() => setShowAjout(false)} />}
       {editProduit && <ModalEdit  produit={editProduit} fourns={fourns} onClose={() => setEditProduit(null)} />}
 
-      {/* ── Modal Stock Rapide ── */}
       {stockRapide && (
         <div className="modal-overlay" onClick={() => setStockRapide(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
