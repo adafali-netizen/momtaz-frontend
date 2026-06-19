@@ -15,13 +15,13 @@ const STATUTS = [
 const S = Object.fromEntries(STATUTS.map(s => [s.key, s]));
 const FILTRES_STATUT = ["tous", "À appeler", "Confirmé", "Injoignable", "Demande de rappel", "Annulé"];
 
-const KPI_STATUTS_ORDERED = [
-  { key: "À appeler",         label: "À appeler",   color: "#2563EB", tier: "standard" },
-  { key: "Injoignable",       label: "Injoignable", color: "#D97706", tier: "standard" },
-  { key: "Annulé",            label: "Annulé",      color: "#DC2626", tier: "standard" },
-  { key: "Demande de rappel", label: "Rappel",      color: "#7C3AED", tier: "discret"  },
-  { key: "Pas intéressé",     label: "Pas int.",    color: "#64748B", tier: "discret"  },
-  { key: "Numéro faux",       label: "N° faux",     color: "#94A3B8", tier: "discret"  },
+const KPI_STATUTS_META = [
+  { key: "À appeler",         label: "À appeler",   color: "#2563EB" },
+  { key: "Injoignable",       label: "Injoignable", color: "#D97706" },
+  { key: "Annulé",            label: "Annulé",      color: "#DC2626" },
+  { key: "Demande de rappel", label: "Rappel",      color: "#7C3AED" },
+  { key: "Pas intéressé",     label: "Pas int.",    color: "#64748B" },
+  { key: "Numéro faux",       label: "N° faux",     color: "#94A3B8" },
 ];
 
 function timeAgo(iso) {
@@ -477,10 +477,10 @@ export default function Leads({ role, nom }) {
 
           {/* ── STATUTS ordonnés ── */}
           <div style={{ display: "flex", gap: 10, alignItems: "stretch", flex: 1, flexWrap: "wrap" }}>
-            {KPI_STATUTS_ORDERED.map(s => {
-              const n = cnt(s.key);
-              const p = pct(s.key);
-              const isStd = s.tier === "standard";
+{kpiStatutsTries.map(s => {
+  const n = s.n;
+  const p = s.p;
+  const isStd = n > 0;
               return (
                 <div key={s.key} style={{
                   padding: isStd ? "20px 20px" : "14px 16px",
