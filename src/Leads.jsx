@@ -13,6 +13,17 @@ const STATUTS = [
   { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
 ];
 const S = Object.fromEntries(STATUTS.map(s => [s.key, s]));
+
+// Statuts ordonnés par impact sur la confirmation
+const KPI_STATUTS = [
+  { key: "À appeler",         label: "À appeler",   color: "#2563EB", borderColor: "#BFDBFE" },
+  { key: "Injoignable",       label: "Injoignable", color: "#D97706", borderColor: "#FDE68A" },
+  { key: "Annulé",            label: "Annulé",      color: "#DC2626", borderColor: "#FECACA" },
+  { key: "Demande de rappel", label: "Rappel",      color: "#7C3AED", borderColor: "#DDD6FE" },
+  { key: "Pas intéressé",     label: "Pas int.",    color: "#64748B", borderColor: "#E2E8F0" },
+  { key: "Numéro faux",       label: "N° faux",     color: "#94A3B8", borderColor: "#E2E8F0" },
+];
+
 const FILTRES_STATUT = ["tous", "À appeler", "Confirmé", "Injoignable", "Demande de rappel", "Annulé"];
 
 function timeAgo(iso) {
@@ -43,7 +54,7 @@ function isOverdue(lead) {
   return new Date(lead.rappel_at) < new Date();
 }
 
-// ── Zone Traitement (sans barre noire) ──────────────────────────────────────
+// ── Zone Traitement ───────────────────────────────────────────────────────────
 function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   const [newStatut, setNewStatut] = useState(lead.statut);
   const [saving,    setSaving]    = useState(false);
@@ -72,7 +83,7 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
       <div style={{ padding: "8px 14px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
         <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8" }}>Changer le statut</div>
       </div>
-      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, background: "#fff" }}>
+      <div style={{ padding: "12px 14px", background: "#fff", display: "flex", flexDirection: "column", gap: 10 }}>
         <select value={newStatut} onChange={e => setNewStatut(e.target.value)} disabled={saving} style={{
           width: "100%", padding: "10px 12px",
           background: current.bg, border: `1.5px solid ${current.color}55`,
@@ -100,7 +111,7 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   );
 }
 
-// ── Lead Card ────────────────────────────────────────────────────────────────
+// ── Lead Card ─────────────────────────────────────────────────────────────────
 function LeadCard({ lead, selected, onClick }) {
   const urgent  = isUrgent(lead);
   const overdue = isOverdue(lead);
@@ -115,6 +126,7 @@ function LeadCard({ lead, selected, onClick }) {
       borderLeft: `3px solid ${accentColor}`,
       borderRadius: 8, padding: "10px 12px", marginBottom: 4,
       cursor: "pointer", transition: "all .12s", opacity: fermé ? 0.55 : 1,
+      boxShadow: selected ? "0 0 0 3px #2563EB10" : "none",
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
@@ -143,7 +155,7 @@ function LeadCard({ lead, selected, onClick }) {
   );
 }
 
-// ── Panneau de droite ────────────────────────────────────────────────────────
+// ── Panneau droite ────────────────────────────────────────────────────────────
 function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   const [localEvents, setLocalEvents] = useState(null);
   const displayEvents = localEvents ?? events;
@@ -202,10 +214,10 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
 
   function eventColor(ev) {
     const t = (ev.type || "").toLowerCase();
-    if (t.includes("confirmé"))    return "#16A34A";
-    if (t.includes("annul"))       return "#DC2626";
-    if (t.includes("injoignable")) return "#D97706";
-    if (t.includes("rappel"))      return "#7C3AED";
+    if (t.includes("confirmé"))     return "#16A34A";
+    if (t.includes("annul"))        return "#DC2626";
+    if (t.includes("injoignable"))  return "#D97706";
+    if (t.includes("rappel"))       return "#7C3AED";
     if (t.includes("modification")) return "#2563EB";
     return "#94A3B8";
   }
@@ -222,7 +234,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
               {urgent  && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "#DC2626", padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>URGENT</span>}
               {overdue && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "#D97706", padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>RETARD</span>}
             </div>
-            <div style={{ fontSize: 10, color: "#64748B" }}>{fmtDateComplete(lead.created_at)} {lead.conseillere ? `· 👤 ${lead.conseillere.trim().split(" ")[0]}` : ""}</div>
+            <div style={{ fontSize: 10, color: "#64748B" }}>{fmtDateComplete(lead.created_at)}{lead.conseillere ? ` · 👤 ${lead.conseillere.trim().split(" ")[0]}` : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
             <button onClick={openEdit} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", fontSize: 12, cursor: "pointer", padding: "4px 10px" }}>✏️</button>
@@ -230,9 +242,11 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
           </div>
         </div>
 
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: statutMeta.color, background: statutMeta.bg, border: `1px solid ${statutMeta.color}33`, marginBottom: 10 }}>
-          {statutMeta.emoji} {lead.statut}
-        </span>
+        <div style={{ marginBottom: 10 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: statutMeta.color, background: statutMeta.bg, border: `1px solid ${statutMeta.color}33` }}>
+            {statutMeta.emoji} {lead.statut}
+          </span>
+        </div>
 
         <div style={{ marginBottom: 10 }}>
           <a href={`tel:${lead.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, color: "#2563EB", fontWeight: 800, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
@@ -342,72 +356,19 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   );
 }
 
-// ── Performance Conseillères (admin) ─────────────────────────────────────────
-function PerformanceConseilleres({ leads, allFirstEvents, delaiOuvre, formatDelai }) {
-  const today = new Date().toDateString();
-  const agents = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
-  if (agents.length === 0) return null;
-
-  return (
-    <div style={{ padding: "12px 24px", background: "#fff", borderBottom: "1px solid #E2E8F0", flexShrink: 0 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Performance conseillères</div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {agents.map(agent => {
-          const al = leads.filter(l => l.conseillere === agent);
-          const confirmes = al.filter(l => l.statut === "Confirmé").length;
-          const aAppeler  = al.filter(l => l.statut === "À appeler").length;
-          const urgents   = al.filter(isUrgent).length;
-          const tauxConf  = al.length > 0 ? Math.round((confirmes / al.length) * 100) : 0;
-          const confColor = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : "#DC2626";
-
-          const delaisAgent = al.map(lead => allFirstEvents[lead.id] ? delaiOuvre(lead.created_at, allFirstEvents[lead.id]) : null).filter(d => d !== null);
-          const delaiMoy = delaisAgent.length ? Math.round(delaisAgent.reduce((a, b) => a + b, 0) / delaisAgent.length) : null;
-
-          return (
-            <div key={agent} style={{ padding: "12px 16px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, minWidth: 160 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>{agent.trim().split(" ")[0]}</div>
-              <div style={{ display: "flex", gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace" }}>{al.length}</div>
-                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Leads</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: confColor, fontFamily: "JetBrains Mono, monospace" }}>{tauxConf}%</div>
-                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Conf.</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: delaiMoy !== null ? (delaiMoy > 120 ? "#DC2626" : delaiMoy > 60 ? "#D97706" : "#16A34A") : "#CBD5E1", fontFamily: "JetBrains Mono, monospace" }}>{formatDelai(delaiMoy)}</div>
-                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Délai</div>
-                </div>
-                {urgents > 0 && (
-                  <div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#DC2626", fontFamily: "JetBrains Mono, monospace" }}>{urgents}</div>
-                    <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Urgents</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ── Composant principal ───────────────────────────────────────────────────────
 export default function Leads({ role, nom }) {
-  const [leads,             setLeads]             = useState([]);
-  const [events,            setEvents]            = useState([]);
-  const [allFirstEvents,    setAllFirstEvents]    = useState({});
-  const [loading,           setLoading]           = useState(true);
-  const [filtreStatut,      setFiltreStatut]      = useState("tous");
-  const [filtreConseillere, setFiltreConseillere] = useState("tous");
-  const [search,            setSearch]            = useState("");
-  const [selected,          setSelected]          = useState(null);
+  const [leads,          setLeads]          = useState([]);
+  const [events,         setEvents]         = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [filtreStatut,   setFiltreStatut]   = useState("tous");
+  const [filtreConseil,  setFiltreConseil]  = useState("tous");
+  const [search,         setSearch]         = useState("");
+  const [selected,       setSelected]       = useState(null);
 
   useEffect(() => {
     fetchLeads();
-    const ch = supabase.channel("leads-rt5")
+    const ch = supabase.channel("leads-rt6")
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, fetchLeads)
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -422,22 +383,8 @@ export default function Leads({ role, nom }) {
     if (!error && data) {
       setLeads(data);
       setSelected(prev => prev ? (data.find(l => l.id === prev.id) || prev) : null);
-      fetchAllFirstEvents(data.map(l => l.id));
     }
     setLoading(false);
-  }
-
-  async function fetchAllFirstEvents(leadIds) {
-    if (!leadIds.length) return;
-    const { data } = await supabase
-      .from("lead_events")
-      .select("lead_id, created_at, type")
-      .in("lead_id", leadIds)
-      .like("type", "Statut%")
-      .order("created_at", { ascending: true });
-    const firstByLead = {};
-    (data || []).forEach(ev => { if (!firstByLead[ev.lead_id]) firstByLead[ev.lead_id] = ev.created_at; });
-    setAllFirstEvents(firstByLead);
   }
 
   async function fetchEvents(leadId) {
@@ -458,173 +405,142 @@ export default function Leads({ role, nom }) {
       await supabase.from("commandes").delete().eq("lead_id", id);
     }
     if (selected?.id === id) fetchEvents(id);
-    fetchAllFirstEvents(leads.map(l => l.id));
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
   }
 
-  function delaiOuvre(createdAt, firstEventAt) {
-    if (!firstEventAt) return null;
-    let debut = new Date(createdAt);
-    const fin = new Date(firstEventAt);
-    const h = debut.getHours() + debut.getMinutes() / 60;
-    if (h >= 19) { debut.setDate(debut.getDate() + 1); debut.setHours(10, 0, 0, 0); }
-    else if (h < 10) { debut.setHours(10, 0, 0, 0); }
-    if (fin <= debut) return 0;
-    let mins = 0; const cur = new Date(debut);
-    while (cur < fin) { const hh = cur.getHours() + cur.getMinutes() / 60; if (hh >= 10 && hh < 19) mins++; cur.setMinutes(cur.getMinutes() + 1); }
-    return mins;
-  }
-
-  function formatDelai(m) {
-    if (m === null) return "—";
-    if (m < 60) return `${m}min`;
-    const h = Math.floor(m / 60), mn = m % 60;
-    return mn > 0 ? `${h}h${String(mn).padStart(2,"0")}` : `${h}h`;
-  }
-
   const total = leads.length;
-  const countByStatut = {
-    "À appeler":         leads.filter(l => l.statut === "À appeler").length,
-    "Confirmé":          leads.filter(l => l.statut === "Confirmé").length,
-    "Injoignable":       leads.filter(l => l.statut === "Injoignable").length,
-    "Demande de rappel": leads.filter(l => l.statut === "Demande de rappel").length,
-    "Pas intéressé":     leads.filter(l => l.statut === "Pas intéressé").length,
-    "Numéro faux":       leads.filter(l => l.statut === "Numéro faux").length,
-    "Annulé":            leads.filter(l => l.statut === "Annulé").length,
-  };
+  const cnt   = key => leads.filter(l => l.statut === key).length;
+  const pct   = key => total > 0 ? Math.round((cnt(key) / total) * 100) : 0;
+  const tauxConf = pct("Confirmé");
+  const confColor = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1";
+  const confBorder = tauxConf >= 30 ? "#BBF7D0" : tauxConf >= 20 ? "#FDE68A" : total > 0 ? "#FECACA" : "#E2E8F0";
 
-  const pct = key => total > 0 ? Math.round((countByStatut[key] / total) * 100) : 0;
+  const agents = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
 
-  const count = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
+  const countF = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
   const filtered = leads
     .filter(l => filtreStatut === "tous" || l.statut === filtreStatut)
-    .filter(l => filtreConseillere === "tous" || l.conseillere === filtreConseillere)
+    .filter(l => filtreConseil === "tous" || l.conseillere === filtreConseil)
     .filter(l => {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return (l.client_nom||"").toLowerCase().includes(q) || (l.telephone||"").includes(q) || (l.ville||"").toLowerCase().includes(q) || (l.produit||"").toLowerCase().includes(q);
     });
 
-  // Filtres conseillères
-  const today = new Date().toDateString();
-  const agents = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
-
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
 
       {/* ══ BANDEAU KPI ══ */}
       <div style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", padding: "16px 24px", flexShrink: 0 }}>
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "stretch", flexWrap: "wrap" }}>
 
-          {/* BLOC 1 — SITUATION */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Situation actuelle</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ padding: "14px 18px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}>
-                <div style={{ fontSize: 32, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</div>
-                <div style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 6 }}>Total</div>
+          {/* Taux de confirmation — carte principale */}
+          <div style={{ padding: "14px 22px", background: "#fff", border: `1.5px solid ${confBorder}`, borderRadius: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", minWidth: 110, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div style={{ fontSize: 36, fontWeight: 800, color: confColor, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
+              {tauxConf}<span style={{ fontSize: 16, fontWeight: 600 }}>%</span>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.07em", marginTop: 6 }}>Taux conf.</div>
+            <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>{cnt("Confirmé")} confirmés</div>
+          </div>
+
+          {/* Séparateur */}
+          <div style={{ width: 1, background: "#E2E8F0", margin: "4px 4px" }} />
+
+          {/* Total */}
+          <div style={{ padding: "14px 18px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 80, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 6 }}>Total leads</div>
+          </div>
+
+          {/* Séparateur */}
+          <div style={{ width: 1, background: "#E2E8F0", margin: "4px 4px" }} />
+
+          {/* Statuts ordonnés par impact */}
+          {KPI_STATUTS.map(s => {
+            const n = cnt(s.key);
+            const p = pct(s.key);
+            return (
+              <div key={s.key} style={{ padding: "12px 14px", background: "#fff", border: "1px solid #E2E8F0", borderLeft: `3px solid ${n > 0 ? s.color : "#E2E8F0"}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 76, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</div>
+                <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>{p}%</div>
+                <div style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 3, whiteSpace: "nowrap" }}>{s.label}</div>
               </div>
-              {[
-                { key: "À appeler",   label: "À appeler",   color: "#2563EB" },
-                { key: "Confirmé",    label: "Confirmé",    color: "#16A34A" },
-                { key: "Injoignable", label: "Injoignable", color: "#D97706" },
-                { key: "Annulé",      label: "Annulé",      color: "#DC2626" },
-              ].map(s => {
-                const n = countByStatut[s.key] || 0;
-                return (
-                  <div key={s.key} style={{ padding: "14px 16px", background: "#fff", border: "1px solid #E2E8F0", borderLeft: `3px solid ${n > 0 ? s.color : "#E2E8F0"}`, borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 80 }}>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</div>
-                    <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>{pct(s.key)}%</div>
-                    <div style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>{s.label}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div style={{ width: 1, background: "#E2E8F0", alignSelf: "stretch" }} />
-
-          {/* BLOC 2 — ANALYSE */}
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Analyse qualité</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {[
-                { key: "Confirmé",    label: "Taux conf.",  color: "#16A34A", seuil: [30, 20] },
-                { key: "Injoignable", label: "Injoignable", color: "#D97706", seuil: null },
-                { key: "Annulé",      label: "Annulation",  color: "#DC2626", seuil: null },
-              ].map(s => {
-                const p = pct(s.key);
-                const n = countByStatut[s.key] || 0;
-                let c = s.color;
-                if (s.seuil) c = p >= s.seuil[0] ? "#16A34A" : p >= s.seuil[1] ? "#D97706" : "#DC2626";
-                return (
-                  <div key={s.key} style={{ padding: "14px 16px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 82, textAlign: "center" }}>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: n > 0 ? c : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
-                      {p}<span style={{ fontSize: 13, fontWeight: 600 }}>%</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>{n} leads</div>
-                    <div style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>{s.label}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
+            );
+          })}
         </div>
       </div>
 
-      {/* ══ PERFORMANCE CONSEILLÈRES (admin) ══ */}
-      {role === "admin" && (
-        <PerformanceConseilleres
-          leads={leads}
-          allFirstEvents={allFirstEvents}
-          delaiOuvre={delaiOuvre}
-          formatDelai={formatDelai}
-        />
-      )}
+      {/* ══ BARRE DE CONTRÔLE ══ */}
+      <div style={{
+        background: "#fff",
+        borderBottom: "2px solid #E2E8F0",
+        boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+        padding: "14px 24px",
+        flexShrink: 0,
+      }}>
 
-      {/* ══ FILTRES ══ */}
-      <div style={{ display: "flex", gap: 8, padding: "10px 24px", background: "#fff", borderBottom: "1px solid #E2E8F0", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
-        {/* Filtre conseillère (admin) */}
-        {role === "admin" && agents.length > 0 && (
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginRight: 8 }}>
-            <button onClick={() => setFiltreConseillere("tous")} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: filtreConseillere === "tous" ? 700 : 500, background: filtreConseillere === "tous" ? "#0F172A" : "#fff", color: filtreConseillere === "tous" ? "#fff" : "#64748B", border: `1px solid ${filtreConseillere === "tous" ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
-              Toutes
-            </button>
-            {agents.map(a => (
-              <button key={a} onClick={() => setFiltreConseillere(a)} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: filtreConseillere === a ? 700 : 500, background: filtreConseillere === a ? "#0F172A" : "#fff", color: filtreConseillere === a ? "#fff" : "#64748B", border: `1px solid ${filtreConseillere === a ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
-                {a.trim().split(" ")[0]}
-              </button>
-            ))}
-            <div style={{ width: 1, background: "#E2E8F0", margin: "2px 4px" }} />
+        {/* Ligne 1 : recherche + filtre conseillère (admin) */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+          <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
+            <input
+              style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .15s", fontFamily: "inherit" }}
+              placeholder="Rechercher un lead..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              onFocus={e => e.target.style.borderColor = "#2563EB"}
+              onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+            />
           </div>
-        )}
 
-        {/* Recherche */}
-        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 260 }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
-          <input style={{ width: "100%", padding: "7px 12px 7px 32px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box" }}
-            placeholder="Nom, téléphone, ville..."
-            value={search} onChange={e => setSearch(e.target.value)}
-            onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
+          {/* Filtre conseillères (admin) */}
+          {role === "admin" && agents.length > 0 && (
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>Conseillère</span>
+              <button onClick={() => setFiltreConseil("tous")} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: filtreConseil === "tous" ? 700 : 500, background: filtreConseil === "tous" ? "#0F172A" : "#F8FAFC", color: filtreConseil === "tous" ? "#fff" : "#64748B", border: `1px solid ${filtreConseil === "tous" ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
+                Toutes
+              </button>
+              {agents.map(a => (
+                <button key={a} onClick={() => setFiltreConseil(a)} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: filtreConseil === a ? 700 : 500, background: filtreConseil === a ? "#0F172A" : "#F8FAFC", color: filtreConseil === a ? "#fff" : "#64748B", border: `1px solid ${filtreConseil === a ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
+                  {a.trim().split(" ")[0]}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Compteur résultats */}
+          <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto", whiteSpace: "nowrap" }}>
+            {filtered.length} lead{filtered.length > 1 ? "s" : ""}
+          </span>
         </div>
 
-        {/* Filtres statut */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {/* Ligne 2 : filtres statuts */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {FILTRES_STATUT.map(f => {
             const active = filtreStatut === f;
             const s = S[f];
+            const n = countF(f);
             return (
               <button key={f} onClick={() => setFiltreStatut(f)} style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 20,
-                border: `1px solid ${active && s ? s.color + "44" : "#E2E8F0"}`,
-                background: active && s ? s.bg : active ? "#EFF6FF" : "#fff",
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "7px 14px",
+                borderRadius: 8,
+                border: `1.5px solid ${active && s ? s.color : active ? "#2563EB" : "#E2E8F0"}`,
+                background: active && s ? s.bg : active ? "#EFF6FF" : "#F8FAFC",
                 color: active && s ? s.color : active ? "#2563EB" : "#64748B",
-                fontSize: 11, fontWeight: active ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap",
+                fontSize: 12, fontWeight: active ? 700 : 500,
+                cursor: "pointer", transition: "all .12s", whiteSpace: "nowrap",
+                boxShadow: active ? `0 0 0 3px ${s ? s.color + "15" : "#2563EB15"}` : "none",
               }}>
-                {active && s?.emoji ? `${s.emoji} ` : ""}{f}
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "0 4px", borderRadius: 8, background: "rgba(0,0,0,.06)", fontFamily: "JetBrains Mono, monospace" }}>{count(f)}</span>
+                {s?.emoji && <span style={{ fontSize: 13 }}>{s.emoji}</span>}
+                <span>{f}</span>
+                <span style={{
+                  fontSize: 11, fontWeight: 700,
+                  padding: "1px 7px", borderRadius: 20,
+                  background: active && s ? s.color : active ? "#2563EB" : "#E2E8F0",
+                  color: active ? "#fff" : "#64748B",
+                  fontFamily: "JetBrains Mono, monospace",
+                  minWidth: 22, textAlign: "center",
+                }}>{n}</span>
               </button>
             );
           })}
