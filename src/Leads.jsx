@@ -480,33 +480,38 @@ export default function Leads({ role, nom }) {
 
           {/* ── STATUTS ordonnés ── */}
           <div style={{ display: "flex", gap: 10, alignItems: "stretch", flex: 1, flexWrap: "wrap" }}>
-{kpiStatutsTries.map(s => {
-  const n = s.n;
-  const p = s.p;
-  const isStd = n > 0;
-              return (
-                <div key={s.key} style={{
-                  padding: isStd ? "20px 20px" : "14px 16px",
-                  minWidth: isStd ? 90 : 72,
-                  height: 130,
-                  background: "#fff",
-                  border: "1px solid #E2E8F0",
-                  borderLeft: `${isStd ? 4 : 3}px solid ${n > 0 ? s.color : "#E2E8F0"}`,
-                  borderRadius: 14,
-                  boxShadow: n > 0 && isStd ? "0 2px 8px rgba(0,0,0,0.06)" : "0 1px 3px rgba(0,0,0,0.03)",
-                  display: "flex", flexDirection: "column", justifyContent: "space-between",
-                  boxSizing: "border-box",
-                }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: n > 0 ? s.color + "99" : "#CBD5E1", whiteSpace: "nowrap" }}>
-                    {s.label}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: isStd ? 30 : 22, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</div>
-                  </div>
-                  <div style={{ fontSize: 11, color: n > 0 ? s.color + "99" : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>{p}%</div>
-                </div>
-              );
-            })}
+{kpiStatutsTries.filter(s => s.n > 0).map(s => {
+  const isActive = filtreStatut === s.key;
+  return (
+    <div key={s.key}
+      onClick={() => setFiltreStatut(isActive ? "tous" : s.key)}
+      style={{
+        padding: "20px 18px",
+        minWidth: 88,
+        height: 130,
+        background: isActive ? s.color + "12" : "#fff",
+        border: `1px solid ${isActive ? s.color : "#E2E8F0"}`,
+        borderLeft: `4px solid ${s.color}`,
+        borderRadius: 14,
+        boxShadow: isActive ? `0 0 0 3px ${s.color}20` : "0 2px 8px rgba(0,0,0,0.06)",
+        display: "flex", flexDirection: "column", justifyContent: "space-between",
+        boxSizing: "border-box",
+        cursor: "pointer",
+        transition: "all .15s",
+      }}
+    >
+      <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: s.color + "99", whiteSpace: "nowrap" }}>
+        {s.label}
+      </div>
+      <div style={{ fontSize: 30, fontWeight: 800, color: s.color, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
+        {s.n}
+      </div>
+      <div style={{ fontSize: 11, color: s.color + "99", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>
+        {s.p}%
+      </div>
+    </div>
+  );
+})}
           </div>
 
         </div>
