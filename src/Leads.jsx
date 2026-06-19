@@ -13,7 +13,6 @@ const STATUTS = [
   { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
 ];
 const S = Object.fromEntries(STATUTS.map(s => [s.key, s]));
-const FILTRES_STATUT = ["tous", "À appeler", "Confirmé", "Injoignable", "Demande de rappel", "Annulé"];
 
 const KPI_STATUTS_META = [
   { key: "À appeler",         label: "À appeler",   color: "#2563EB" },
@@ -142,9 +141,9 @@ function LeadCard({ lead, selected, onClick }) {
         <span style={{ fontSize: 10, color: urgent ? "#DC2626" : "#94A3B8", fontFamily: "JetBrains Mono, monospace" }}>{fmtHeure(lead.created_at)} ({timeAgo(lead.created_at)})</span>
       </div>
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-        {lead.ville    && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px" }}>📍 {lead.ville}</span>}
-        {lead.produit  && <span style={{ fontSize: 10, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{lead.produit}</span>}
-        {lead.prix > 0 && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
+        {lead.ville      && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px" }}>📍 {lead.ville}</span>}
+        {lead.produit    && <span style={{ fontSize: 10, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{lead.produit}</span>}
+        {lead.prix > 0   && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
         {lead.conseillere && <span style={{ fontSize: 10, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", marginLeft: "auto" }}>👤 {lead.conseillere.trim().split(" ")[0]}</span>}
       </div>
     </div>
@@ -350,7 +349,7 @@ export default function Leads({ role, nom }) {
 
   useEffect(() => {
     fetchLeads();
-    const ch = supabase.channel("leads-rt8")
+    const ch = supabase.channel("leads-rt9")
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, fetchLeads)
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -395,7 +394,16 @@ export default function Leads({ role, nom }) {
   const pct      = key => total > 0 ? Math.round((cnt(key) / total) * 100) : 0;
   const tauxConf = pct("Confirmé");
   const agents   = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
-  const countF   = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
+
+  const kpiStatutsTries = [...KPI_STATUTS_META]
+    .map(s => ({ ...s, n: cnt(s.key), p: pct(s.key) }))
+    .sort((a, b) => b.p - a.p || b.n - a.n);
+
+  const heroColor  = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1";
+  const heroBg     = tauxConf >= 30 ? "#F0FDF4" : tauxConf >= 20 ? "#FFFBEB" : total > 0 ? "#FEF2F2" : "#fff";
+  const heroBorder = tauxConf >= 30 ? "#BBF7D0" : tauxConf >= 20 ? "#FDE68A" : total > 0 ? "#FECACA" : "#E2E8F0";
+  const heroIcon   = tauxConf >= 30 ? "✓" : tauxConf >= 20 ? "~" : total > 0 ? "!" : "—";
+  const heroIconBg = tauxConf >= 30 ? "#DCFCE7" : tauxConf >= 20 ? "#FEF3C7" : total > 0 ? "#FEE2E2" : "#F1F5F9";
 
   const filtered = leads
     .filter(l => filtreStatut === "tous" || l.statut === filtreStatut)
@@ -406,180 +414,85 @@ export default function Leads({ role, nom }) {
       return (l.client_nom||"").toLowerCase().includes(q) || (l.telephone||"").includes(q) || (l.ville||"").toLowerCase().includes(q) || (l.produit||"").toLowerCase().includes(q);
     });
 
-  // Couleurs dynamiques taux conf
-  const kpiStatutsTries = [...KPI_STATUTS_META]
-  .map(s => ({ ...s, n: cnt(s.key), p: pct(s.key) }))
-  .sort((a, b) => b.p - a.p || b.n - a.n);
-  const heroColor  = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1";
-  const heroBg     = tauxConf >= 30 ? "#F0FDF4" : tauxConf >= 20 ? "#FFFBEB" : total > 0 ? "#FEF2F2" : "#fff";
-  const heroBorder = tauxConf >= 30 ? "#BBF7D0" : tauxConf >= 20 ? "#FDE68A" : total > 0 ? "#FECACA" : "#E2E8F0";
-  const heroIcon   = tauxConf >= 30 ? "✓" : tauxConf >= 20 ? "~" : total > 0 ? "!" : "—";
-  const heroIconBg = tauxConf >= 30 ? "#DCFCE7" : tauxConf >= 20 ? "#FEF3C7" : total > 0 ? "#FEE2E2" : "#F1F5F9";
-
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
 
-      {/* ══ BANDEAU KPI PREMIUM ══ */}
+      {/* ══ BANDEAU KPI ══ */}
       <div style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", padding: "20px 24px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
 
-          {/* ── HÉRO : Taux de confirmation ── */}
-          <div style={{
-            padding: "28px 32px",
-            minWidth: 200,
-            height: 130,
-            background: heroBg,
-            border: `1px solid ${heroBorder}`,
-            borderTop: `4px solid ${heroColor}`,
-            borderRadius: 16,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            display: "flex", flexDirection: "column", justifyContent: "space-between",
-            boxSizing: "border-box",
-          }}>
-            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>
-              Taux de confirmation
-            </div>
+          {/* HÉRO */}
+          <div style={{ padding: "28px 32px", minWidth: 200, height: 130, background: heroBg, border: `1px solid ${heroBorder}`, borderTop: `4px solid ${heroColor}`, borderRadius: 16, boxShadow: "0 8px 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>Taux de confirmation</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
               <span style={{ fontSize: 64, fontWeight: 800, color: heroColor, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{tauxConf}</span>
               <span style={{ fontSize: 24, fontWeight: 700, color: heroColor, paddingBottom: 9 }}>%</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: "50%", background: heroIconBg, fontSize: 10, color: heroColor, fontWeight: 700 }}>
-                {heroIcon}
-              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: "50%", background: heroIconBg, fontSize: 10, color: heroColor, fontWeight: 700 }}>{heroIcon}</span>
               <span style={{ fontSize: 11, color: "#64748B" }}>{cnt("Confirmé")} confirmés / {total}</span>
             </div>
           </div>
 
-          {/* Séparateur */}
           <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* ── SECONDAIRE : Total leads ── */}
-          <div style={{
-            padding: "24px 28px",
-            minWidth: 140,
-            height: 130,
-            background: "#fff",
-            border: "1px solid #E2E8F0",
-            borderRadius: 16,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-            display: "flex", flexDirection: "column", justifyContent: "space-between",
-            boxSizing: "border-box",
-          }}>
-            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>
-              Total leads
-            </div>
-            <div style={{ fontSize: 42, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
-              {total}
-            </div>
-            <div style={{ fontSize: 11, color: "#94A3B8" }}>Leads reçus</div>
+          {/* TOTAL — reset filtre au clic */}
+          <div
+            onClick={() => setFiltreStatut("tous")}
+            style={{ padding: "24px 28px", minWidth: 140, height: 130, background: filtreStatut === "tous" ? "#F0F7FF" : "#fff", border: `1px solid ${filtreStatut === "tous" ? "#BFDBFE" : "#E2E8F0"}`, borderRadius: 16, boxShadow: filtreStatut === "tous" ? "0 0 0 3px #2563EB15" : "0 4px 12px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box", cursor: "pointer", transition: "all .15s" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>Total leads</div>
+            <div style={{ fontSize: 42, fontWeight: 800, color: filtreStatut === "tous" ? "#2563EB" : "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</div>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>{filtreStatut === "tous" ? "✓ Tous affichés" : "Cliquer pour tout voir"}</div>
           </div>
 
-          {/* Séparateur */}
           <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* ── STATUTS ordonnés ── */}
+          {/* STATUTS — masqués si 0, filtre au clic */}
           <div style={{ display: "flex", gap: 10, alignItems: "stretch", flex: 1, flexWrap: "wrap" }}>
-{kpiStatutsTries.filter(s => s.n > 0).map(s => {
-  const isActive = filtreStatut === s.key;
-  return (
-    <div key={s.key}
-      onClick={() => setFiltreStatut(isActive ? "tous" : s.key)}
-      style={{
-        padding: "20px 18px",
-        minWidth: 88,
-        height: 130,
-        background: isActive ? s.color + "12" : "#fff",
-        border: `1px solid ${isActive ? s.color : "#E2E8F0"}`,
-        borderLeft: `4px solid ${s.color}`,
-        borderRadius: 14,
-        boxShadow: isActive ? `0 0 0 3px ${s.color}20` : "0 2px 8px rgba(0,0,0,0.06)",
-        display: "flex", flexDirection: "column", justifyContent: "space-between",
-        boxSizing: "border-box",
-        cursor: "pointer",
-        transition: "all .15s",
-      }}
-    >
-      <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: s.color + "99", whiteSpace: "nowrap" }}>
-        {s.label}
-      </div>
-      <div style={{ fontSize: 30, fontWeight: 800, color: s.color, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
-        {s.n}
-      </div>
-      <div style={{ fontSize: 11, color: s.color + "99", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>
-        {s.p}%
-      </div>
-    </div>
-  );
-})}
+            {kpiStatutsTries.filter(s => s.n > 0).map(s => {
+              const isActive = filtreStatut === s.key;
+              return (
+                <div key={s.key} onClick={() => setFiltreStatut(isActive ? "tous" : s.key)} style={{ padding: "20px 18px", minWidth: 88, height: 130, background: isActive ? s.color + "12" : "#fff", border: `1px solid ${isActive ? s.color : "#E2E8F0"}`, borderLeft: `4px solid ${s.color}`, borderRadius: 14, boxShadow: isActive ? `0 0 0 3px ${s.color}20` : "0 2px 8px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box", cursor: "pointer", transition: "all .15s" }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: s.color + "99", whiteSpace: "nowrap" }}>{s.label}</div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: s.color, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{s.n}</div>
+                  <div style={{ fontSize: 11, color: s.color + "99", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>{s.p}%</div>
+                </div>
+              );
+            })}
           </div>
-
         </div>
       </div>
 
-      {/* ══ BARRE DE CONTRÔLE ══ */}
-      <div style={{
-        background: "#fff",
-        borderBottom: "2px solid #E2E8F0",
-        boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
-        padding: "14px 24px",
-        flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-          <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
-            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
-            <input
-              style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .15s", fontFamily: "inherit" }}
-              placeholder="Rechercher un lead..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              onFocus={e => e.target.style.borderColor = "#2563EB"}
-              onBlur={e => e.target.style.borderColor = "#E2E8F0"}
-            />
-          </div>
-          {role === "admin" && agents.length > 0 && (
-            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <span style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>Conseillère</span>
-              <button onClick={() => setFiltreConseil("tous")} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: filtreConseil === "tous" ? 700 : 500, background: filtreConseil === "tous" ? "#0F172A" : "#F8FAFC", color: filtreConseil === "tous" ? "#fff" : "#64748B", border: `1px solid ${filtreConseil === "tous" ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>Toutes</button>
-              {agents.map(a => (
-                <button key={a} onClick={() => setFiltreConseil(a)} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: filtreConseil === a ? 700 : 500, background: filtreConseil === a ? "#0F172A" : "#F8FAFC", color: filtreConseil === a ? "#fff" : "#64748B", border: `1px solid ${filtreConseil === a ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
-                  {a.trim().split(" ")[0]}
-                </button>
-              ))}
-            </div>
+      {/* ══ BARRE RECHERCHE ══ */}
+      <div style={{ background: "#fff", borderBottom: "2px solid #E2E8F0", boxShadow: "0 2px 6px rgba(0,0,0,0.04)", padding: "12px 24px", flexShrink: 0, display: "flex", gap: 12, alignItems: "center" }}>
+        <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
+          <input
+            style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .15s", fontFamily: "inherit" }}
+            placeholder="Rechercher par nom, téléphone, ville, produit..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            onFocus={e => e.target.style.borderColor = "#2563EB"}
+            onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
           )}
-          <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto", whiteSpace: "nowrap" }}>
-            {filtered.length} lead{filtered.length > 1 ? "s" : ""}
-          </span>
         </div>
-
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {FILTRES_STATUT.map(f => {
-            const active = filtreStatut === f;
-            const s = S[f];
-            const n = countF(f);
-            return (
-              <button key={f} onClick={() => setFiltreStatut(f)} style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px", borderRadius: 8,
-                border: `1.5px solid ${active && s ? s.color : active ? "#2563EB" : "#E2E8F0"}`,
-                background: active && s ? s.bg : active ? "#EFF6FF" : "#F8FAFC",
-                color: active && s ? s.color : active ? "#2563EB" : "#64748B",
-                fontSize: 12, fontWeight: active ? 700 : 500,
-                cursor: "pointer", transition: "all .12s", whiteSpace: "nowrap",
-                boxShadow: active ? `0 0 0 3px ${s ? s.color + "15" : "#2563EB15"}` : "none",
-              }}>
-                {s?.emoji && <span style={{ fontSize: 13 }}>{s.emoji}</span>}
-                <span>{f}</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 20,
-                  background: active && s ? s.color : active ? "#2563EB" : "#E2E8F0",
-                  color: active ? "#fff" : "#64748B",
-                  fontFamily: "JetBrains Mono, monospace", minWidth: 22, textAlign: "center",
-                }}>{n}</span>
+        {role === "admin" && agents.length > 0 && (
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>Conseillère</span>
+            <button onClick={() => setFiltreConseil("tous")} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: filtreConseil === "tous" ? 700 : 500, background: filtreConseil === "tous" ? "#0F172A" : "#F8FAFC", color: filtreConseil === "tous" ? "#fff" : "#64748B", border: `1px solid ${filtreConseil === "tous" ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>Toutes</button>
+            {agents.map(a => (
+              <button key={a} onClick={() => setFiltreConseil(a)} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: filtreConseil === a ? 700 : 500, background: filtreConseil === a ? "#0F172A" : "#F8FAFC", color: filtreConseil === a ? "#fff" : "#64748B", border: `1px solid ${filtreConseil === a ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
+                {a.trim().split(" ")[0]}
               </button>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
+        <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto", whiteSpace: "nowrap" }}>
+          {filtered.length} lead{filtered.length > 1 ? "s" : ""}
+          {filtreStatut !== "tous" && <span style={{ marginLeft: 6, fontSize: 11, color: "#2563EB", fontWeight: 600 }}>· filtre actif</span>}
+        </span>
       </div>
 
       {/* ══ LISTE + PANNEAU ══ */}
@@ -594,7 +507,7 @@ export default function Leads({ role, nom }) {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", gap: 12, textAlign: "center" }}>
               <div style={{ fontSize: 40, opacity: .4 }}>📭</div>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Aucun lead</div>
-              <div style={{ fontSize: 13, color: "#94A3B8" }}>Essaie un autre filtre</div>
+              <div style={{ fontSize: 13, color: "#94A3B8" }}>Essaie un autre filtre ou une autre recherche</div>
             </div>
           ) : filtered.map(lead => (
             <LeadCard key={lead.id} lead={lead} selected={selected?.id === lead.id} onClick={() => setSelected(lead)} />
