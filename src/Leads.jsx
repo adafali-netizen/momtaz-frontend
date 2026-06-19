@@ -219,7 +219,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
 
   return (
     <aside style={{ width: 380, flexShrink: 0, background: "#fff", borderLeft: "1px solid #E2E8F0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-
       <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #E2E8F0", background: urgent ? "#FFFBEB" : overdue ? "#FFF7ED" : "#FAFAFA", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -235,25 +234,21 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
             <button onClick={onClose} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", fontSize: 16, cursor: "pointer", padding: "2px 8px", lineHeight: 1 }}>×</button>
           </div>
         </div>
-
         <div style={{ marginBottom: 10 }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: statutMeta.color, background: statutMeta.bg, border: `1px solid ${statutMeta.color}33` }}>
             {statutMeta.emoji} {lead.statut}
           </span>
         </div>
-
         <div style={{ marginBottom: 10 }}>
           <a href={`tel:${lead.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, color: "#2563EB", fontWeight: 800, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
             📞 {lead.telephone}
           </a>
         </div>
-
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {lead.ville    && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px" }}>📍 {lead.ville}{lead.adresse ? ` · ${lead.adresse}` : ""}</span>}
           {lead.produit  && <span style={{ fontSize: 11, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "3px 8px", fontWeight: 600 }}>{lead.produit}</span>}
           {lead.prix > 0 && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
         </div>
-
         {lead.statut === "Confirmé" && lead.produit && (
           <div style={{ marginTop: 10, padding: "8px 12px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>📦 {lead.produit} · Qté {lead.quantite || 1} · {lead.prix} MAD</span>
@@ -263,7 +258,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Action</div>
           <ZoneTraitement lead={lead} onUpdate={onUpdate} ancienStatut={lead.statut} />
@@ -340,7 +334,6 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
             style={{ width: "100%", minHeight: 88, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, color: "#0F172A", padding: "10px 12px", fontSize: 12, resize: "vertical", outline: "none", lineHeight: 1.6, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }}
             onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
         </div>
-
       </div>
     </aside>
   );
@@ -357,7 +350,7 @@ export default function Leads({ role, nom }) {
 
   useEffect(() => {
     fetchLeads();
-    const ch = supabase.channel("leads-rt7")
+    const ch = supabase.channel("leads-rt8")
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, fetchLeads)
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -413,82 +406,101 @@ export default function Leads({ role, nom }) {
       return (l.client_nom||"").toLowerCase().includes(q) || (l.telephone||"").includes(q) || (l.ville||"").toLowerCase().includes(q) || (l.produit||"").toLowerCase().includes(q);
     });
 
+  // Couleurs dynamiques taux conf
+  const heroColor  = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1";
+  const heroBg     = tauxConf >= 30 ? "#F0FDF4" : tauxConf >= 20 ? "#FFFBEB" : total > 0 ? "#FEF2F2" : "#fff";
+  const heroBorder = tauxConf >= 30 ? "#BBF7D0" : tauxConf >= 20 ? "#FDE68A" : total > 0 ? "#FECACA" : "#E2E8F0";
+  const heroIcon   = tauxConf >= 30 ? "✓" : tauxConf >= 20 ? "~" : total > 0 ? "!" : "—";
+  const heroIconBg = tauxConf >= 30 ? "#DCFCE7" : tauxConf >= 20 ? "#FEF3C7" : total > 0 ? "#FEE2E2" : "#F1F5F9";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
 
       {/* ══ BANDEAU KPI PREMIUM ══ */}
       <div style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", padding: "20px 24px", flexShrink: 0 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "stretch", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
 
-          {/* KPI HÉRO — Taux de confirmation */}
+          {/* ── HÉRO : Taux de confirmation ── */}
           <div style={{
-            padding: "22px 28px",
-            background: tauxConf >= 30 ? "#F0FDF4" : tauxConf >= 20 ? "#FFFBEB" : total > 0 ? "#FEF2F2" : "#fff",
-            border: `1px solid ${tauxConf >= 30 ? "#BBF7D0" : tauxConf >= 20 ? "#FDE68A" : total > 0 ? "#FECACA" : "#E2E8F0"}`,
-            borderTop: `4px solid ${tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#E2E8F0"}`,
-            borderRadius: 14,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.07)",
-            minWidth: 160,
-            display: "flex", flexDirection: "column", justifyContent: "center",
+            padding: "28px 32px",
+            minWidth: 200,
+            height: 130,
+            background: heroBg,
+            border: `1px solid ${heroBorder}`,
+            borderTop: `4px solid ${heroColor}`,
+            borderRadius: 16,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+            display: "flex", flexDirection: "column", justifyContent: "space-between",
+            boxSizing: "border-box",
           }}>
-            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "#94A3B8", marginBottom: 8 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>
               Taux de confirmation
             </div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, marginBottom: 6 }}>
-              <span style={{ fontSize: 52, fontWeight: 800, color: tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
-                {tauxConf}
-              </span>
-              <span style={{ fontSize: 22, fontWeight: 700, color: tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1", paddingBottom: 7 }}>%</span>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
+              <span style={{ fontSize: 64, fontWeight: 800, color: heroColor, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{tauxConf}</span>
+              <span style={{ fontSize: 24, fontWeight: 700, color: heroColor, paddingBottom: 9 }}>%</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: "50%", background: tauxConf >= 30 ? "#DCFCE7" : tauxConf >= 20 ? "#FEF3C7" : total > 0 ? "#FEE2E2" : "#F1F5F9", fontSize: 10 }}>
-                {tauxConf >= 30 ? "✓" : tauxConf >= 20 ? "~" : total > 0 ? "!" : "—"}
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: "50%", background: heroIconBg, fontSize: 10, color: heroColor, fontWeight: 700 }}>
+                {heroIcon}
               </span>
-              <span style={{ fontSize: 11, color: "#64748B" }}>{cnt("Confirmé")} / {total} leads</span>
+              <span style={{ fontSize: 11, color: "#64748B" }}>{cnt("Confirmé")} confirmés / {total}</span>
             </div>
           </div>
 
           {/* Séparateur */}
-          <div style={{ width: 1, background: "#E2E8F0", margin: "6px 0" }} />
+          <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* KPI FORT — Total */}
+          {/* ── SECONDAIRE : Total leads ── */}
           <div style={{
-            padding: "20px 24px",
+            padding: "24px 28px",
+            minWidth: 140,
+            height: 130,
             background: "#fff",
             border: "1px solid #E2E8F0",
-            borderRadius: 14,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-            minWidth: 110,
-            display: "flex", flexDirection: "column", justifyContent: "center",
+            borderRadius: 16,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+            display: "flex", flexDirection: "column", justifyContent: "space-between",
+            boxSizing: "border-box",
           }}>
-            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "#94A3B8", marginBottom: 8 }}>Total leads</div>
-            <div style={{ fontSize: 36, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1, marginBottom: 6 }}>{total}</div>
-            <div style={{ fontSize: 11, color: "#94A3B8" }}>Reçus au total</div>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>
+              Total leads
+            </div>
+            <div style={{ fontSize: 42, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
+              {total}
+            </div>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>Leads reçus</div>
           </div>
 
           {/* Séparateur */}
-          <div style={{ width: 1, background: "#E2E8F0", margin: "6px 0" }} />
+          <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* KPI STATUTS ordonnés par impact */}
-          <div style={{ display: "flex", gap: 8, alignItems: "stretch", flex: 1, flexWrap: "wrap" }}>
+          {/* ── STATUTS ordonnés ── */}
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch", flex: 1, flexWrap: "wrap" }}>
             {KPI_STATUTS_ORDERED.map(s => {
               const n = cnt(s.key);
               const p = pct(s.key);
-              const isStandard = s.tier === "standard";
+              const isStd = s.tier === "standard";
               return (
                 <div key={s.key} style={{
-                  padding: isStandard ? "16px 18px" : "12px 14px",
+                  padding: isStd ? "20px 20px" : "14px 16px",
+                  minWidth: isStd ? 90 : 72,
+                  height: 130,
                   background: "#fff",
                   border: "1px solid #E2E8F0",
-                  borderLeft: `${isStandard ? 4 : 3}px solid ${n > 0 ? s.color : "#E2E8F0"}`,
-                  borderRadius: 12,
-                  boxShadow: n > 0 && isStandard ? "0 2px 8px rgba(0,0,0,0.05)" : "0 1px 2px rgba(0,0,0,0.03)",
-                  minWidth: isStandard ? 82 : 68,
-                  display: "flex", flexDirection: "column", justifyContent: "center",
+                  borderLeft: `${isStd ? 4 : 3}px solid ${n > 0 ? s.color : "#E2E8F0"}`,
+                  borderRadius: 14,
+                  boxShadow: n > 0 && isStd ? "0 2px 8px rgba(0,0,0,0.06)" : "0 1px 3px rgba(0,0,0,0.03)",
+                  display: "flex", flexDirection: "column", justifyContent: "space-between",
+                  boxSizing: "border-box",
                 }}>
-                  <div style={{ fontSize: isStandard ? 26 : 20, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</div>
-                  <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 3 }}>{p}%</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 4, whiteSpace: "nowrap" }}>{s.label}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: n > 0 ? s.color + "99" : "#CBD5E1", whiteSpace: "nowrap" }}>
+                    {s.label}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: isStd ? 30 : 22, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: n > 0 ? s.color + "99" : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>{p}%</div>
                 </div>
               );
             })}
@@ -516,7 +528,6 @@ export default function Leads({ role, nom }) {
               onBlur={e => e.target.style.borderColor = "#E2E8F0"}
             />
           </div>
-
           {role === "admin" && agents.length > 0 && (
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 4 }}>Conseillère</span>
@@ -528,7 +539,6 @@ export default function Leads({ role, nom }) {
               ))}
             </div>
           )}
-
           <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto", whiteSpace: "nowrap" }}>
             {filtered.length} lead{filtered.length > 1 ? "s" : ""}
           </span>
@@ -598,3 +608,4 @@ export default function Leads({ role, nom }) {
     </div>
   );
 }
+                                                                      
