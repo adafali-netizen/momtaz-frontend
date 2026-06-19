@@ -407,6 +407,9 @@ export default function Leads({ role, nom }) {
     });
 
   // Couleurs dynamiques taux conf
+  const kpiStatutsTries = [...KPI_STATUTS_META]
+  .map(s => ({ ...s, n: cnt(s.key), p: pct(s.key) }))
+  .sort((a, b) => b.p - a.p || b.n - a.n);
   const heroColor  = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1";
   const heroBg     = tauxConf >= 30 ? "#F0FDF4" : tauxConf >= 20 ? "#FFFBEB" : total > 0 ? "#FEF2F2" : "#fff";
   const heroBorder = tauxConf >= 30 ? "#BBF7D0" : tauxConf >= 20 ? "#FDE68A" : total > 0 ? "#FECACA" : "#E2E8F0";
