@@ -292,8 +292,14 @@ export default function Commandes() {
                   {S_CMD[selected.statut]?.emoji} {selected.statut}
                 </span>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ fontSize: 14, color: "#2563EB", fontWeight: 700, fontFamily: "JetBrains Mono, monospace" }}>📞 {selected.telephone}</div>
-                  {selected.ville   && <div style={{ fontSize: 12, color: "#64748B" }}>📍 {selected.ville}</div>}
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                    <a href={`tel:${selected.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#2563EB", fontWeight: 700, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "7px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
+                      📞 {selected.telephone}
+                    </a>
+                    <a href={`https://wa.me/212${selected.telephone?.replace(/^0/, "")}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#16A34A", fontWeight: 700, textDecoration: "none", padding: "7px 12px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0" }}>
+                      💬 WhatsApp
+                    </a>
+                  </div>                  {selected.ville   && <div style={{ fontSize: 12, color: "#64748B" }}>📍 {selected.ville}</div>}
                   {selected.produit && <div style={{ fontSize: 12, color: "#64748B" }}>🛒 {selected.produit} × {selected.quantite || 1}</div>}
                   {selected.prix    && <div style={{ fontSize: 12, color: "#64748B" }}>💰 {selected.prix} MAD</div>}
                 </div>
