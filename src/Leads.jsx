@@ -238,9 +238,12 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
             {statutMeta.emoji} {lead.statut}
           </span>
         </div>
-        <div style={{ marginBottom: 10 }}>
-          <a href={`tel:${lead.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, color: "#2563EB", fontWeight: 800, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
+<div style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a href={`tel:${lead.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#2563EB", fontWeight: 700, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
             📞 {lead.telephone}
+          </a>
+          <a href={`https://wa.me/212${lead.telephone?.replace(/^0/, "")}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#16A34A", fontWeight: 700, textDecoration: "none", padding: "8px 12px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0" }}>
+            💬 WhatsApp
           </a>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
