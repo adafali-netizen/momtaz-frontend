@@ -4,166 +4,49 @@ import { supabase } from "./supabaseClient";
 const WEBHOOK = "https://momtaz-webhook.onrender.com/api/lead/";
 
 const STATUTS = [
-  { key: "À appeler",         emoji: "📋", color: "#2563EB", bg: "#EFF6FF", group: "actif" },
-  { key: "Confirmé",          emoji: "✅", color: "#16A34A", bg: "#F0FDF4", group: "positif" },
-  { key: "Injoignable",       emoji: "📵", color: "#D97706", bg: "#FFFBEB", group: "actif" },
-  { key: "Demande de rappel", emoji: "🔔", color: "#7C3AED", bg: "#F5F3FF", group: "actif" },
-  { key: "Pas intéressé",     emoji: "🚫", color: "#64748B", bg: "#F8FAFC", group: "fermé" },
-  { key: "Numéro faux",       emoji: "⚠️", color: "#DC2626", bg: "#FEF2F2", group: "fermé" },
-  { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2", group: "fermé" },
+  { key: "À appeler",         emoji: "📋", color: "#2563EB", bg: "#EFF6FF" },
+  { key: "Confirmé",          emoji: "✅", color: "#16A34A", bg: "#F0FDF4" },
+  { key: "Injoignable",       emoji: "📵", color: "#D97706", bg: "#FFFBEB" },
+  { key: "Demande de rappel", emoji: "🔔", color: "#7C3AED", bg: "#F5F3FF" },
+  { key: "Pas intéressé",     emoji: "🚫", color: "#64748B", bg: "#F8FAFC" },
+  { key: "Numéro faux",       emoji: "⚠️", color: "#DC2626", bg: "#FEF2F2" },
+  { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
 ];
-
 const S = Object.fromEntries(STATUTS.map(s => [s.key, s]));
 const FILTRES_STATUT = ["tous", "À appeler", "Confirmé", "Injoignable", "Demande de rappel", "Annulé"];
 
 function timeAgo(iso) {
   if (!iso) return "";
   const diff = Date.now() - new Date(iso).getTime();
-  const min  = Math.floor(diff / 60000);
-  const h    = Math.floor(diff / 3600000);
-  const d    = Math.floor(diff / 86400000);
+  const min = Math.floor(diff / 60000);
+  const h   = Math.floor(diff / 3600000);
+  const d   = Math.floor(diff / 86400000);
   if (min < 1)  return "à l'instant";
   if (min < 60) return `${min}min`;
   if (h < 24)   return `${h}h${String(Math.floor((diff % 3600000) / 60000)).padStart(2,"0")}`;
   return `${d}j`;
 }
-
 function fmtHeure(iso) {
   if (!iso) return "";
   return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
-
 function fmtDateComplete(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("fr-FR", {
-    weekday: "short", day: "2-digit", month: "short",
-    hour: "2-digit", minute: "2-digit"
-  });
+  return new Date(iso).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
-
 function isUrgent(lead) {
   if (lead.statut !== "À appeler") return false;
   return Date.now() - new Date(lead.created_at).getTime() > 60 * 60 * 1000;
 }
-
 function isOverdue(lead) {
   if (lead.statut !== "Demande de rappel" || !lead.rappel_at) return false;
   return new Date(lead.rappel_at) < new Date();
 }
 
-function StatusBadge({ statut, size = "sm" }) {
-  const m = S[statut] || { color: "#64748B", bg: "#F8FAFC", emoji: "•" };
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      fontSize: size === "lg" ? 12 : size === "md" ? 11 : 10,
-      fontWeight: 700,
-      padding: size === "lg" ? "5px 12px" : size === "md" ? "3px 10px" : "2px 8px",
-      borderRadius: 20, color: m.color, background: m.bg,
-      border: `1px solid ${m.color}33`, whiteSpace: "nowrap",
-      letterSpacing: ".01em",
-    }}>
-      {m.emoji} {statut}
-    </span>
-  );
-}
-
-function ConseillereStats({ leads, filtreConseillere, setFiltreConseillere }) {
-  const today = new Date().toDateString();
-  const agents = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
-  if (agents.length === 0) return null;
-  return (
-    <div style={{
-      display: "flex", gap: 8, padding: "10px 24px",
-      background: "#F8FAFC", borderBottom: "1px solid #E2E8F0",
-      flexShrink: 0, flexWrap: "wrap", alignItems: "center",
-    }}>
-      <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".08em", marginRight: 4 }}>Conseillères</span>
-      <button onClick={() => setFiltreConseillere("tous")} style={{
-        padding: "5px 12px", borderRadius: 20, fontSize: 11,
-        fontWeight: filtreConseillere === "tous" ? 700 : 500,
-        background: filtreConseillere === "tous" ? "#2563EB" : "#fff",
-        color: filtreConseillere === "tous" ? "#fff" : "#64748B",
-        border: `1px solid ${filtreConseillere === "tous" ? "#2563EB" : "#E2E8F0"}`,
-        cursor: "pointer",
-      }}>Toutes · {leads.length}</button>
-      {agents.map(agent => {
-        const agentLeads = leads.filter(l => l.conseillere === agent);
-        const confirmes  = agentLeads.filter(l => l.statut === "Confirmé" && new Date(l.updated_at || l.created_at).toDateString() === today).length;
-        const urgents    = agentLeads.filter(isUrgent).length;
-        const aTraiter   = agentLeads.filter(l => ["À appeler", "Demande de rappel", "Injoignable"].includes(l.statut)).length;
-        const active     = filtreConseillere === agent;
-        return (
-          <button key={agent} onClick={() => setFiltreConseillere(agent)} style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "5px 12px", borderRadius: 20, cursor: "pointer",
-            background: active ? "#0F172A" : "#fff",
-            border: `1px solid ${active ? "#0F172A" : urgents > 0 ? "#FCA5A5" : "#E2E8F0"}`,
-            transition: "all .12s",
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: active ? "#fff" : "#0F172A" }}>
-              {agent.trim().split(" ")[0]}
-            </span>
-            <span style={{ display: "flex", gap: 4 }}>
-              <span style={{ fontSize: 10, fontFamily: "JetBrains Mono, monospace", fontWeight: 700, color: active ? "rgba(255,255,255,.7)" : "#94A3B8" }}>{agentLeads.length}</span>
-              {confirmes > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: active ? "#86EFAC" : "#16A34A", background: active ? "rgba(255,255,255,.1)" : "#F0FDF4", padding: "0 5px", borderRadius: 8 }}>✅{confirmes}</span>}
-              {urgents > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: active ? "#FCA5A5" : "#DC2626", background: active ? "rgba(255,255,255,.1)" : "#FEF2F2", padding: "0 5px", borderRadius: 8 }}>⚡{urgents}</span>}
-              {aTraiter > 0  && <span style={{ fontSize: 10, fontWeight: 700, color: active ? "rgba(255,255,255,.6)" : "#94A3B8", background: active ? "rgba(255,255,255,.1)" : "#F1F5F9", padding: "0 5px", borderRadius: 8 }}>{aTraiter}</span>}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function LeadCard({ lead, selected, onClick }) {
-  const urgent   = isUrgent(lead);
-  const overdue  = isOverdue(lead);
-  const fermé    = ["Annulé", "Pas intéressé", "Numéro faux"].includes(lead.statut);
-  const confirmé = lead.statut === "Confirmé";
-  const accentColor = overdue ? "#D97706" : urgent ? "#DC2626" : confirmé ? "#16A34A" : selected ? "#2563EB" : "transparent";
-  return (
-    <div onClick={onClick} style={{
-      background: selected ? "#F0F6FF" : fermé ? "#FAFBFC" : "#fff",
-      border: `1px solid ${selected ? "#93C5FD" : urgent ? "#FECACA" : overdue ? "#FDE68A" : "#E2E8F0"}`,
-      borderLeft: `3px solid ${accentColor}`,
-      borderRadius: 8, padding: "10px 12px", marginBottom: 4,
-      cursor: "pointer", transition: "all .12s", opacity: fermé ? 0.55 : 1,
-      boxShadow: selected ? "0 0 0 3px #2563EB15" : urgent ? "0 1px 6px #DC262618" : "none",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
-          {(urgent || overdue) && <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: urgent ? "#DC2626" : "#D97706" }} />}
-          <span style={{ fontWeight: 700, fontSize: 13, color: fermé ? "#94A3B8" : "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {lead.client_nom || "Sans nom"}
-          </span>
-          {urgent  && <span style={{ fontSize: 9, fontWeight: 800, color: "#DC2626", background: "#FEF2F2", padding: "1px 5px", borderRadius: 3, letterSpacing: ".05em", flexShrink: 0 }}>URGENT</span>}
-          {overdue && <span style={{ fontSize: 9, fontWeight: 800, color: "#D97706", background: "#FFFBEB", padding: "1px 5px", borderRadius: 3, letterSpacing: ".05em", flexShrink: 0 }}>RETARD</span>}
-        </div>
-        <StatusBadge statut={lead.statut} />
-      </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#2563EB", fontWeight: 600 }}>{lead.telephone}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: urgent ? "#DC2626" : overdue ? "#D97706" : "#94A3B8", fontFamily: "JetBrains Mono, monospace" }}>{fmtHeure(lead.created_at)}</span>
-          <span style={{ fontSize: 10, color: "#94A3B8" }}>({timeAgo(lead.created_at)})</span>
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-        {lead.ville      && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px" }}>📍 {lead.ville}</span>}
-        {lead.produit    && <span style={{ fontSize: 10, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{lead.produit}</span>}
-        {lead.prix > 0   && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
-        {lead.conseillere && <span style={{ fontSize: 10, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", marginLeft: "auto" }}>👤 {lead.conseillere.trim().split(" ")[0]}</span>}
-      </div>
-    </div>
-  );
-}
-
+// ── Zone Traitement (sans barre noire) ──────────────────────────────────────
 function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   const [newStatut, setNewStatut] = useState(lead.statut);
   const [saving,    setSaving]    = useState(false);
-
   useEffect(() => { setNewStatut(lead.statut); }, [lead.id, lead.statut]);
 
   const tousStatuts = [
@@ -175,7 +58,6 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
     { key: "Numéro faux",       emoji: "⚠️", color: "#DC2626", bg: "#FEF2F2" },
     { key: "Annulé",            emoji: "❌", color: "#DC2626", bg: "#FEF2F2" },
   ];
-
   const current  = tousStatuts.find(s => s.key === newStatut) || tousStatuts[0];
   const modified = newStatut !== lead.statut;
 
@@ -187,13 +69,13 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
 
   return (
     <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ padding: "10px 14px", background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em", color: "rgba(255,255,255,.4)" }}>Changer le statut</div>
+      <div style={{ padding: "8px 14px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8" }}>Changer le statut</div>
       </div>
       <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, background: "#fff" }}>
         <select value={newStatut} onChange={e => setNewStatut(e.target.value)} disabled={saving} style={{
           width: "100%", padding: "10px 12px",
-          background: current.bg, border: `1px solid ${current.color}44`,
+          background: current.bg, border: `1.5px solid ${current.color}55`,
           borderRadius: 8, fontSize: 13, fontWeight: 600,
           color: current.color, cursor: "pointer", outline: "none", fontFamily: "inherit",
         }}>
@@ -205,7 +87,7 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
               flex: 1, padding: "10px", background: current.color, color: "#fff",
               border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
             }}>
-              {saving ? "⏳ Enregistrement..." : `✓ ${current.emoji} ${newStatut}`}
+              {saving ? "⏳..." : `✓ ${current.emoji} ${newStatut}`}
             </button>
             <button onClick={() => setNewStatut(lead.statut)} disabled={saving} style={{
               padding: "10px 14px", background: "#F8FAFC", color: "#64748B",
@@ -218,6 +100,50 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
   );
 }
 
+// ── Lead Card ────────────────────────────────────────────────────────────────
+function LeadCard({ lead, selected, onClick }) {
+  const urgent  = isUrgent(lead);
+  const overdue = isOverdue(lead);
+  const fermé   = ["Annulé", "Pas intéressé", "Numéro faux"].includes(lead.statut);
+  const confirmé = lead.statut === "Confirmé";
+  const m = S[lead.statut] || S["Pas intéressé"];
+  const accentColor = overdue ? "#D97706" : urgent ? "#DC2626" : confirmé ? "#16A34A" : selected ? "#2563EB" : "transparent";
+  return (
+    <div onClick={onClick} style={{
+      background: selected ? "#F0F7FF" : fermé ? "#FAFBFC" : "#fff",
+      border: `1px solid ${selected ? "#BFDBFE" : urgent ? "#FECACA" : overdue ? "#FDE68A" : "#E2E8F0"}`,
+      borderLeft: `3px solid ${accentColor}`,
+      borderRadius: 8, padding: "10px 12px", marginBottom: 4,
+      cursor: "pointer", transition: "all .12s", opacity: fermé ? 0.55 : 1,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+          {(urgent || overdue) && <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: urgent ? "#DC2626" : "#D97706" }} />}
+          <span style={{ fontWeight: 700, fontSize: 13, color: fermé ? "#94A3B8" : "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {lead.client_nom || "Sans nom"}
+          </span>
+          {urgent  && <span style={{ fontSize: 9, fontWeight: 800, color: "#DC2626", background: "#FEF2F2", padding: "1px 5px", borderRadius: 3, flexShrink: 0 }}>URGENT</span>}
+          {overdue && <span style={{ fontSize: 9, fontWeight: 800, color: "#D97706", background: "#FFFBEB", padding: "1px 5px", borderRadius: 3, flexShrink: 0 }}>RETARD</span>}
+        </div>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, color: m.color, background: m.bg, border: `1px solid ${m.color}33`, whiteSpace: "nowrap" }}>
+          {m.emoji} {lead.statut}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#2563EB", fontWeight: 600 }}>{lead.telephone}</span>
+        <span style={{ fontSize: 10, color: urgent ? "#DC2626" : "#94A3B8", fontFamily: "JetBrains Mono, monospace" }}>{fmtHeure(lead.created_at)} ({timeAgo(lead.created_at)})</span>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+        {lead.ville    && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px" }}>📍 {lead.ville}</span>}
+        {lead.produit  && <span style={{ fontSize: 10, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{lead.produit}</span>}
+        {lead.prix > 0 && <span style={{ fontSize: 10, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
+        {lead.conseillere && <span style={{ fontSize: 10, color: "#94A3B8", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 4, padding: "1px 6px", marginLeft: "auto" }}>👤 {lead.conseillere.trim().split(" ")[0]}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Panneau de droite ────────────────────────────────────────────────────────
 function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   const [localEvents, setLocalEvents] = useState(null);
   const displayEvents = localEvents ?? events;
@@ -236,11 +162,7 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   }, []);
 
   function openEdit() {
-    setEditForm({
-      client_nom: lead.client_nom || "", telephone: lead.telephone || "",
-      ville: lead.ville || "", adresse: lead.adresse || "",
-      produit: lead.produit || "", quantite: lead.quantite || 1, prix: lead.prix || "",
-    });
+    setEditForm({ client_nom: lead.client_nom || "", telephone: lead.telephone || "", ville: lead.ville || "", adresse: lead.adresse || "", produit: lead.produit || "", quantite: lead.quantite || 1, prix: lead.prix || "" });
     setEditMode(true);
   }
 
@@ -249,23 +171,13 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
     const { error } = await supabase.from("leads").update(editForm).eq("id", lead.id);
     if (error) { alert("Erreur : " + error.message); setSavingEdit(false); return; }
     const champs = [
-      { key: "client_nom", label: "Nom" }, { key: "telephone", label: "Téléphone" },
+      { key: "client_nom", label: "Nom" }, { key: "telephone", label: "Tél" },
       { key: "ville", label: "Ville" }, { key: "adresse", label: "Adresse" },
-      { key: "produit", label: "Produit" }, { key: "quantite", label: "Quantité" }, { key: "prix", label: "Prix" },
+      { key: "produit", label: "Produit" }, { key: "quantite", label: "Qté" }, { key: "prix", label: "Prix" },
     ];
-    const modifs = champs
-      .filter(c => String(lead[c.key] ?? "") !== String(editForm[c.key] ?? ""))
-      .map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
-    if (modifs.length > 0) {
-      await supabase.from("lead_events").insert([{ lead_id: lead.id, type: "✏️ Modification", note: modifs.join(" | "), created_at: new Date().toISOString() }]);
-    }
-    if (lead.statut === "Confirmé") {
-      await supabase.from("commandes").update({
-        client_nom: editForm.client_nom, telephone: editForm.telephone,
-        ville: editForm.ville, adresse: editForm.adresse,
-        produit: editForm.produit, quantite: editForm.quantite, prix: editForm.prix,
-      }).eq("lead_id", lead.id);
-    }
+    const modifs = champs.filter(c => String(lead[c.key] ?? "") !== String(editForm[c.key] ?? "")).map(c => `${c.label}: ${lead[c.key] || "—"} → ${editForm[c.key]}`);
+    if (modifs.length > 0) await supabase.from("lead_events").insert([{ lead_id: lead.id, type: "✏️ Modification", note: modifs.join(" | "), created_at: new Date().toISOString() }]);
+    if (lead.statut === "Confirmé") await supabase.from("commandes").update({ client_nom: editForm.client_nom, telephone: editForm.telephone, ville: editForm.ville, adresse: editForm.adresse, produit: editForm.produit, quantite: editForm.quantite, prix: editForm.prix }).eq("lead_id", lead.id);
     const { data: newEvents } = await supabase.from("lead_events").select("*").eq("lead_id", lead.id).order("created_at", { ascending: false }).limit(8);
     setLocalEvents(newEvents || []);
     if (onEdit) onEdit(lead.id, editForm);
@@ -284,16 +196,16 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
     }, 1500);
   }
 
-  const urgent  = isUrgent(lead);
-  const overdue = isOverdue(lead);
+  const urgent     = isUrgent(lead);
+  const overdue    = isOverdue(lead);
   const statutMeta = S[lead.statut] || { color: "#64748B", bg: "#F8FAFC", emoji: "•" };
 
   function eventColor(ev) {
     const t = (ev.type || "").toLowerCase();
-    if (t.includes("confirmé")) return "#16A34A";
-    if (t.includes("annul"))    return "#DC2626";
+    if (t.includes("confirmé"))    return "#16A34A";
+    if (t.includes("annul"))       return "#DC2626";
     if (t.includes("injoignable")) return "#D97706";
-    if (t.includes("rappel"))   return "#7C3AED";
+    if (t.includes("rappel"))      return "#7C3AED";
     if (t.includes("modification")) return "#2563EB";
     return "#94A3B8";
   }
@@ -301,21 +213,16 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   return (
     <aside style={{ width: 380, flexShrink: 0, background: "#fff", borderLeft: "1px solid #E2E8F0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* ── 1. IDENTITÉ ── */}
+      {/* 1 — IDENTITÉ */}
       <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #E2E8F0", background: urgent ? "#FFFBEB" : overdue ? "#FFF7ED" : "#FAFAFA", flexShrink: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 17, fontWeight: 800, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {lead.client_nom || "Sans nom"}
-              </span>
-              {urgent  && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "#DC2626", padding: "2px 6px", borderRadius: 4, letterSpacing: ".05em", flexShrink: 0 }}>URGENT</span>}
-              {overdue && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "#D97706", padding: "2px 6px", borderRadius: 4, letterSpacing: ".05em", flexShrink: 0 }}>RETARD</span>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <span style={{ fontSize: 17, fontWeight: 800, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lead.client_nom || "Sans nom"}</span>
+              {urgent  && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "#DC2626", padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>URGENT</span>}
+              {overdue && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: "#D97706", padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>RETARD</span>}
             </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, color: "#64748B" }}>{fmtDateComplete(lead.created_at)}</span>
-              {lead.conseillere && <span style={{ fontSize: 10, color: "#94A3B8" }}>· 👤 {lead.conseillere.trim().split(" ")[0]}</span>}
-            </div>
+            <div style={{ fontSize: 10, color: "#64748B" }}>{fmtDateComplete(lead.created_at)} {lead.conseillere ? `· 👤 ${lead.conseillere.trim().split(" ")[0]}` : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
             <button onClick={openEdit} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", fontSize: 12, cursor: "pointer", padding: "4px 10px" }}>✏️</button>
@@ -323,26 +230,22 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
           </div>
         </div>
 
-        {/* Statut badge */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: statutMeta.color, background: statutMeta.bg, border: `1px solid ${statutMeta.color}33`, marginBottom: 10 }}>
+          {statutMeta.emoji} {lead.statut}
+        </span>
+
         <div style={{ marginBottom: 10 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 20, color: statutMeta.color, background: statutMeta.bg, border: `1px solid ${statutMeta.color}33` }}>
-            {statutMeta.emoji} {lead.statut}
-          </span>
+          <a href={`tel:${lead.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, color: "#2563EB", fontWeight: 800, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
+            📞 {lead.telephone}
+          </a>
         </div>
 
-        {/* Téléphone */}
-        <a href={`tel:${lead.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, color: "#2563EB", fontWeight: 800, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE", marginBottom: 10 }}>
-          📞 {lead.telephone}
-        </a>
-
-        {/* Tags */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {lead.ville   && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px" }}>📍 {lead.ville}{lead.adresse ? ` · ${lead.adresse}` : ""}</span>}
-          {lead.produit && <span style={{ fontSize: 11, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "3px 8px", fontWeight: 600 }}>{lead.produit}</span>}
+          {lead.ville    && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px" }}>📍 {lead.ville}{lead.adresse ? ` · ${lead.adresse}` : ""}</span>}
+          {lead.produit  && <span style={{ fontSize: 11, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "3px 8px", fontWeight: 600 }}>{lead.produit}</span>}
           {lead.prix > 0 && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px", fontFamily: "JetBrains Mono, monospace" }}>{lead.prix} MAD</span>}
         </div>
 
-        {/* Commande confirmée */}
         {lead.statut === "Confirmé" && lead.produit && (
           <div style={{ marginTop: 10, padding: "8px 12px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>📦 {lead.produit} · Qté {lead.quantite || 1} · {lead.prix} MAD</span>
@@ -351,32 +254,24 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
         )}
       </div>
 
-      {/* Scrollable */}
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
 
-        {/* ── 2. ACTION ── */}
+        {/* 2 — ACTION */}
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Action</div>
           <ZoneTraitement lead={lead} onUpdate={onUpdate} ancienStatut={lead.statut} />
         </div>
 
-        {/* ── Edit mode ── */}
+        {/* Edit mode */}
         {editMode && (
           <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0", background: "#F8FAFC" }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Modifier le lead</div>
-            {[
-              { label: "Nom", key: "client_nom", type: "text" },
-              { label: "Téléphone", key: "telephone", type: "text" },
-              { label: "Ville", key: "ville", type: "text" },
-              { label: "Adresse", key: "adresse", type: "text" },
-            ].map(({ label, key, type }) => (
+            {[{ label: "Nom", key: "client_nom" }, { label: "Téléphone", key: "telephone" }, { label: "Ville", key: "ville" }, { label: "Adresse", key: "adresse" }].map(({ label, key }) => (
               <div key={key} style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 3 }}>{label}</div>
-                <input type={type} value={editForm[key] || ""} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                <input value={editForm[key] || ""} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
                   style={{ width: "100%", padding: "7px 10px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 12, color: "#0F172A", outline: "none", boxSizing: "border-box" }}
-                  onFocus={e => e.target.style.borderColor = "#2563EB"}
-                  onBlur={e => e.target.style.borderColor = "#E2E8F0"}
-                />
+                  onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
               </div>
             ))}
             <div style={{ marginBottom: 8 }}>
@@ -408,29 +303,29 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
           </div>
         )}
 
-        {/* ── 3. TIMELINE ── */}
+        {/* 3 — TIMELINE */}
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 12 }}>Historique</div>
-          {(!displayEvents || displayEvents.length === 0) ? (
-            <div style={{ fontSize: 12, color: "#CBD5E1", fontStyle: "italic" }}>Aucun événement</div>
-          ) : (
-            <div style={{ position: "relative" }}>
-              <div style={{ position: "absolute", left: 7, top: 8, bottom: 8, width: 2, background: "#E2E8F0", borderRadius: 1 }} />
-              {displayEvents.slice(0, 8).map((ev, i) => (
-                <div key={i} style={{ display: "flex", gap: 12, position: "relative", paddingBottom: 12 }}>
-                  <div style={{ width: 16, height: 16, borderRadius: "50%", background: eventColor(ev), flexShrink: 0, marginTop: 1, zIndex: 1, boxShadow: "0 0 0 3px #fff" }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{ev.type}</div>
-                    {ev.note && <div style={{ fontSize: 11, color: "#64748B", marginTop: 2, lineHeight: 1.4 }}>{ev.note}</div>}
-                    <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 3, fontFamily: "JetBrains Mono, monospace" }}>{fmtHeure(ev.created_at)} · {timeAgo(ev.created_at)}</div>
+          {(!displayEvents || displayEvents.length === 0)
+            ? <div style={{ fontSize: 12, color: "#CBD5E1", fontStyle: "italic" }}>Aucun événement</div>
+            : (
+              <div style={{ position: "relative" }}>
+                <div style={{ position: "absolute", left: 7, top: 8, bottom: 8, width: 2, background: "#E2E8F0", borderRadius: 1 }} />
+                {displayEvents.slice(0, 8).map((ev, i) => (
+                  <div key={i} style={{ display: "flex", gap: 12, paddingBottom: 12 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: "50%", background: eventColor(ev), flexShrink: 0, marginTop: 1, zIndex: 1, boxShadow: "0 0 0 3px #fff" }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{ev.type}</div>
+                      {ev.note && <div style={{ fontSize: 11, color: "#64748B", marginTop: 2, lineHeight: 1.4 }}>{ev.note}</div>}
+                      <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 3, fontFamily: "JetBrains Mono, monospace" }}>{fmtHeure(ev.created_at)} · {timeAgo(ev.created_at)}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
         </div>
 
-        {/* ── 4. NOTE OPÉRATEUR ── */}
+        {/* 4 — NOTE */}
         <div style={{ padding: "16px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8" }}>Note opérateur</div>
@@ -438,10 +333,8 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
           </div>
           <textarea value={commentaire} onChange={e => handleCommentChange(e.target.value)}
             placeholder="Ajouter une note sur ce lead..."
-            style={{ width: "100%", minHeight: 88, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, color: "#0F172A", padding: "10px 12px", fontSize: 12, resize: "vertical", outline: "none", lineHeight: 1.6, fontFamily: "Inter, sans-serif", boxSizing: "border-box", transition: "border-color .12s" }}
-            onFocus={e => e.target.style.borderColor = "#2563EB"}
-            onBlur={e => e.target.style.borderColor = "#E2E8F0"}
-          />
+            style={{ width: "100%", minHeight: 88, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, color: "#0F172A", padding: "10px 12px", fontSize: 12, resize: "vertical", outline: "none", lineHeight: 1.6, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }}
+            onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
         </div>
 
       </div>
@@ -449,9 +342,63 @@ function LeadDetailPanel({ lead, events, onClose, onUpdate, onEdit }) {
   );
 }
 
+// ── Performance Conseillères (admin) ─────────────────────────────────────────
+function PerformanceConseilleres({ leads, allFirstEvents, delaiOuvre, formatDelai }) {
+  const today = new Date().toDateString();
+  const agents = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
+  if (agents.length === 0) return null;
+
+  return (
+    <div style={{ padding: "12px 24px", background: "#fff", borderBottom: "1px solid #E2E8F0", flexShrink: 0 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Performance conseillères</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {agents.map(agent => {
+          const al = leads.filter(l => l.conseillere === agent);
+          const confirmes = al.filter(l => l.statut === "Confirmé").length;
+          const aAppeler  = al.filter(l => l.statut === "À appeler").length;
+          const urgents   = al.filter(isUrgent).length;
+          const tauxConf  = al.length > 0 ? Math.round((confirmes / al.length) * 100) : 0;
+          const confColor = tauxConf >= 30 ? "#16A34A" : tauxConf >= 20 ? "#D97706" : "#DC2626";
+
+          const delaisAgent = al.map(lead => allFirstEvents[lead.id] ? delaiOuvre(lead.created_at, allFirstEvents[lead.id]) : null).filter(d => d !== null);
+          const delaiMoy = delaisAgent.length ? Math.round(delaisAgent.reduce((a, b) => a + b, 0) / delaisAgent.length) : null;
+
+          return (
+            <div key={agent} style={{ padding: "12px 16px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, minWidth: 160 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>{agent.trim().split(" ")[0]}</div>
+              <div style={{ display: "flex", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace" }}>{al.length}</div>
+                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Leads</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: confColor, fontFamily: "JetBrains Mono, monospace" }}>{tauxConf}%</div>
+                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Conf.</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: delaiMoy !== null ? (delaiMoy > 120 ? "#DC2626" : delaiMoy > 60 ? "#D97706" : "#16A34A") : "#CBD5E1", fontFamily: "JetBrains Mono, monospace" }}>{formatDelai(delaiMoy)}</div>
+                  <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Délai</div>
+                </div>
+                {urgents > 0 && (
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#DC2626", fontFamily: "JetBrains Mono, monospace" }}>{urgents}</div>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>Urgents</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Composant principal ───────────────────────────────────────────────────────
 export default function Leads({ role, nom }) {
   const [leads,             setLeads]             = useState([]);
   const [events,            setEvents]            = useState([]);
+  const [allFirstEvents,    setAllFirstEvents]    = useState({});
   const [loading,           setLoading]           = useState(true);
   const [filtreStatut,      setFiltreStatut]      = useState("tous");
   const [filtreConseillere, setFiltreConseillere] = useState("tous");
@@ -460,15 +407,13 @@ export default function Leads({ role, nom }) {
 
   useEffect(() => {
     fetchLeads();
-    const ch = supabase.channel("leads-rt4")
+    const ch = supabase.channel("leads-rt5")
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, fetchLeads)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
 
-  useEffect(() => {
-    if (selected) fetchEvents(selected.id);
-  }, [selected?.id]);
+  useEffect(() => { if (selected) fetchEvents(selected.id); }, [selected?.id]);
 
   async function fetchLeads() {
     let q = supabase.from("leads").select("*").order("created_at", { ascending: false });
@@ -477,43 +422,43 @@ export default function Leads({ role, nom }) {
     if (!error && data) {
       setLeads(data);
       setSelected(prev => prev ? (data.find(l => l.id === prev.id) || prev) : null);
+      fetchAllFirstEvents(data.map(l => l.id));
     }
     setLoading(false);
   }
 
-  async function fetchEvents(leadId) {
+  async function fetchAllFirstEvents(leadIds) {
+    if (!leadIds.length) return;
     const { data } = await supabase
-      .from("lead_events").select("*")
-      .eq("lead_id", leadId)
-      .order("created_at", { ascending: false }).limit(8);
+      .from("lead_events")
+      .select("lead_id, created_at, type")
+      .in("lead_id", leadIds)
+      .like("type", "Statut%")
+      .order("created_at", { ascending: true });
+    const firstByLead = {};
+    (data || []).forEach(ev => { if (!firstByLead[ev.lead_id]) firstByLead[ev.lead_id] = ev.created_at; });
+    setAllFirstEvents(firstByLead);
+  }
+
+  async function fetchEvents(leadId) {
+    const { data } = await supabase.from("lead_events").select("*").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(8);
     setEvents(data || []);
   }
 
   async function updateStatut(id, statut, ancienStatut) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, statut } : l));
     setSelected(prev => prev?.id === id ? { ...prev, statut } : prev);
-
     await supabase.from("leads").update({ statut }).eq("id", id);
-    await supabase.from("lead_events").insert([{
-      lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString()
-    }]);
-
+    await supabase.from("lead_events").insert([{ lead_id: id, type: `Statut → ${statut}`, created_at: new Date().toISOString() }]);
     if (statut === "Confirmé") {
       await supabase.from("commandes").delete().eq("lead_id", id);
       const { data: lead } = await supabase.from("leads").select("*").eq("id", id).single();
-      if (lead) {
-        await supabase.from("commandes").insert([{
-          lead_id: id, client_nom: lead.client_nom, telephone: lead.telephone,
-          ville: lead.ville, adresse: lead.adresse, produit: lead.produit,
-          quantite: lead.quantite || 1, prix: lead.prix, conseillere: lead.conseillere,
-          statut: "À expédier", created_at: new Date().toISOString(),
-        }]);
-      }
+      if (lead) await supabase.from("commandes").insert([{ lead_id: id, client_nom: lead.client_nom, telephone: lead.telephone, ville: lead.ville, adresse: lead.adresse, produit: lead.produit, quantite: lead.quantite || 1, prix: lead.prix, conseillere: lead.conseillere, statut: "À expédier", created_at: new Date().toISOString() }]);
     } else if (ancienStatut === "Confirmé" && statut !== "Confirmé") {
       await supabase.from("commandes").delete().eq("lead_id", id);
     }
-
     if (selected?.id === id) fetchEvents(id);
+    fetchAllFirstEvents(leads.map(l => l.id));
     try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ statut }) }); } catch {}
   }
 
@@ -525,13 +470,8 @@ export default function Leads({ role, nom }) {
     if (h >= 19) { debut.setDate(debut.getDate() + 1); debut.setHours(10, 0, 0, 0); }
     else if (h < 10) { debut.setHours(10, 0, 0, 0); }
     if (fin <= debut) return 0;
-    let mins = 0;
-    const cur = new Date(debut);
-    while (cur < fin) {
-      const hh = cur.getHours() + cur.getMinutes() / 60;
-      if (hh >= 10 && hh < 19) mins++;
-      cur.setMinutes(cur.getMinutes() + 1);
-    }
+    let mins = 0; const cur = new Date(debut);
+    while (cur < fin) { const hh = cur.getHours() + cur.getMinutes() / 60; if (hh >= 10 && hh < 19) mins++; cur.setMinutes(cur.getMinutes() + 1); }
     return mins;
   }
 
@@ -542,20 +482,18 @@ export default function Leads({ role, nom }) {
     return mn > 0 ? `${h}h${String(mn).padStart(2,"0")}` : `${h}h`;
   }
 
-  const statutsKpi = [
-    { key: "À appeler",         label: "À appeler",   color: "#2563EB" },
-    { key: "Confirmé",          label: "Confirmé",    color: "#16A34A" },
-    { key: "Injoignable",       label: "Injoignable", color: "#D97706" },
-    { key: "Demande de rappel", label: "Rappel",      color: "#7C3AED" },
-    { key: "Pas intéressé",     label: "Pas int.",    color: "#64748B" },
-    { key: "Numéro faux",       label: "N° faux",     color: "#DC2626" },
-    { key: "Annulé",            label: "Annulé",      color: "#DC2626" },
-  ];
-
   const total = leads.length;
-  const countByStatut = Object.fromEntries(
-    statutsKpi.map(s => [s.key, leads.filter(l => l.statut === s.key).length])
-  );
+  const countByStatut = {
+    "À appeler":         leads.filter(l => l.statut === "À appeler").length,
+    "Confirmé":          leads.filter(l => l.statut === "Confirmé").length,
+    "Injoignable":       leads.filter(l => l.statut === "Injoignable").length,
+    "Demande de rappel": leads.filter(l => l.statut === "Demande de rappel").length,
+    "Pas intéressé":     leads.filter(l => l.statut === "Pas intéressé").length,
+    "Numéro faux":       leads.filter(l => l.statut === "Numéro faux").length,
+    "Annulé":            leads.filter(l => l.statut === "Annulé").length,
+  };
+
+  const pct = key => total > 0 ? Math.round((countByStatut[key] / total) * 100) : 0;
 
   const count = f => f === "tous" ? leads.length : leads.filter(l => l.statut === f).length;
   const filtered = leads
@@ -564,20 +502,12 @@ export default function Leads({ role, nom }) {
     .filter(l => {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
-      return (l.client_nom||"").toLowerCase().includes(q)
-          || (l.telephone||"").includes(q)
-          || (l.ville||"").toLowerCase().includes(q)
-          || (l.produit||"").toLowerCase().includes(q);
+      return (l.client_nom||"").toLowerCase().includes(q) || (l.telephone||"").includes(q) || (l.ville||"").toLowerCase().includes(q) || (l.produit||"").toLowerCase().includes(q);
     });
 
-  // Calcul délai moyen
-  const delaisMoy = leads.map(lead => {
-    const ev = (selected?.id === lead.id && events) ? events : [];
-    const first = [...ev].filter(e => e.type?.startsWith("Statut")).sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
-    return first ? delaiOuvre(lead.created_at, first.created_at) : null;
-  }).filter(d => d !== null);
-  const delaiMoyVal = delaisMoy.length ? Math.round(delaisMoy.reduce((a, b) => a + b, 0) / delaisMoy.length) : null;
-  const delaiCouleur = delaiMoyVal === null ? "#CBD5E1" : delaiMoyVal > 120 ? "#DC2626" : delaiMoyVal > 60 ? "#D97706" : "#16A34A";
+  // Filtres conseillères
+  const today = new Date().toDateString();
+  const agents = [...new Set(leads.map(l => l.conseillere).filter(Boolean))].sort();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", minHeight: 0 }}>
@@ -588,14 +518,12 @@ export default function Leads({ role, nom }) {
 
           {/* BLOC 1 — SITUATION */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Situation</div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Situation actuelle</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {/* Total */}
-              <div style={{ padding: "14px 18px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 80 }}>
+              <div style={{ padding: "14px 18px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}>
                 <div style={{ fontSize: 32, fontWeight: 800, color: "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</div>
                 <div style={{ fontSize: 11, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 6 }}>Total</div>
               </div>
-              {/* KPI situation */}
               {[
                 { key: "À appeler",   label: "À appeler",   color: "#2563EB" },
                 { key: "Confirmé",    label: "Confirmé",    color: "#16A34A" },
@@ -603,11 +531,10 @@ export default function Leads({ role, nom }) {
                 { key: "Annulé",      label: "Annulé",      color: "#DC2626" },
               ].map(s => {
                 const n = countByStatut[s.key] || 0;
-                const pct = total > 0 ? Math.round((n / total) * 100) : 0;
                 return (
                   <div key={s.key} style={{ padding: "14px 16px", background: "#fff", border: "1px solid #E2E8F0", borderLeft: `3px solid ${n > 0 ? s.color : "#E2E8F0"}`, borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 80 }}>
                     <div style={{ fontSize: 28, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{n}</div>
-                    <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{pct}%</div>
+                    <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>{pct(s.key)}%</div>
                     <div style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>{s.label}</div>
                   </div>
                 );
@@ -619,53 +546,71 @@ export default function Leads({ role, nom }) {
           <div style={{ width: 1, background: "#E2E8F0", alignSelf: "stretch" }} />
 
           {/* BLOC 2 — ANALYSE */}
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Analyse</div>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Analyse qualité</div>
             <div style={{ display: "flex", gap: 8 }}>
               {[
-                { key: "Confirmé",    label: "Conf.",   color: "#16A34A" },
-                { key: "Injoignable", label: "Injoin.", color: "#D97706" },
-                { key: "Annulé",      label: "Annulé",  color: "#DC2626" },
+                { key: "Confirmé",    label: "Taux conf.",  color: "#16A34A", seuil: [30, 20] },
+                { key: "Injoignable", label: "Injoignable", color: "#D97706", seuil: null },
+                { key: "Annulé",      label: "Annulation",  color: "#DC2626", seuil: null },
               ].map(s => {
+                const p = pct(s.key);
                 const n = countByStatut[s.key] || 0;
-                const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+                let c = s.color;
+                if (s.seuil) c = p >= s.seuil[0] ? "#16A34A" : p >= s.seuil[1] ? "#D97706" : "#DC2626";
                 return (
-                  <div key={s.key} style={{ padding: "14px 16px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 78, textAlign: "center" }}>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: n > 0 ? s.color : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
-                      {pct}<span style={{ fontSize: 14, fontWeight: 600 }}>%</span>
+                  <div key={s.key} style={{ padding: "14px 16px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 82, textAlign: "center" }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: n > 0 ? c : "#CBD5E1", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>
+                      {p}<span style={{ fontSize: 13, fontWeight: 600 }}>%</span>
                     </div>
                     <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>{n} leads</div>
                     <div style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>{s.label}</div>
                   </div>
                 );
               })}
-              {/* Délai moyen */}
-              <div style={{ padding: "14px 16px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", minWidth: 88, textAlign: "center" }}>
-                <div style={{ fontSize: 24, fontWeight: 800, color: delaiCouleur, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{formatDelai(delaiMoyVal)}</div>
-                <div style={{ fontSize: 11, color: "#B0BAC9", marginTop: 2 }}>10h–19h</div>
-                <div style={{ fontSize: 10, fontWeight: 500, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>Délai moy.</div>
-              </div>
             </div>
           </div>
 
         </div>
       </div>
 
+      {/* ══ PERFORMANCE CONSEILLÈRES (admin) ══ */}
       {role === "admin" && (
-        <ConseillereStats leads={leads} filtreConseillere={filtreConseillere} setFiltreConseillere={setFiltreConseillere} />
+        <PerformanceConseilleres
+          leads={leads}
+          allFirstEvents={allFirstEvents}
+          delaiOuvre={delaiOuvre}
+          formatDelai={formatDelai}
+        />
       )}
 
-      <div style={{ display: "flex", gap: 10, padding: "10px 24px", background: "#fff", borderBottom: "1px solid #E2E8F0", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
+      {/* ══ FILTRES ══ */}
+      <div style={{ display: "flex", gap: 8, padding: "10px 24px", background: "#fff", borderBottom: "1px solid #E2E8F0", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Filtre conseillère (admin) */}
+        {role === "admin" && agents.length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginRight: 8 }}>
+            <button onClick={() => setFiltreConseillere("tous")} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: filtreConseillere === "tous" ? 700 : 500, background: filtreConseillere === "tous" ? "#0F172A" : "#fff", color: filtreConseillere === "tous" ? "#fff" : "#64748B", border: `1px solid ${filtreConseillere === "tous" ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
+              Toutes
+            </button>
+            {agents.map(a => (
+              <button key={a} onClick={() => setFiltreConseillere(a)} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: filtreConseillere === a ? 700 : 500, background: filtreConseillere === a ? "#0F172A" : "#fff", color: filtreConseillere === a ? "#fff" : "#64748B", border: `1px solid ${filtreConseillere === a ? "#0F172A" : "#E2E8F0"}`, cursor: "pointer" }}>
+                {a.trim().split(" ")[0]}
+              </button>
+            ))}
+            <div style={{ width: 1, background: "#E2E8F0", margin: "2px 4px" }} />
+          </div>
+        )}
+
+        {/* Recherche */}
+        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 260 }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
-          <input
-            style={{ width: "100%", padding: "7px 12px 7px 32px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .12s" }}
+          <input style={{ width: "100%", padding: "7px 12px 7px 32px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box" }}
             placeholder="Nom, téléphone, ville..."
             value={search} onChange={e => setSearch(e.target.value)}
-            onFocus={e => e.target.style.borderColor = "#2563EB"}
-            onBlur={e => e.target.style.borderColor = "#E2E8F0"}
-          />
+            onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
         </div>
+
+        {/* Filtres statut */}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {FILTRES_STATUT.map(f => {
             const active = filtreStatut === f;
@@ -676,17 +621,17 @@ export default function Leads({ role, nom }) {
                 border: `1px solid ${active && s ? s.color + "44" : "#E2E8F0"}`,
                 background: active && s ? s.bg : active ? "#EFF6FF" : "#fff",
                 color: active && s ? s.color : active ? "#2563EB" : "#64748B",
-                fontSize: 11, fontWeight: active ? 700 : 500, cursor: "pointer",
-                transition: "all .12s", whiteSpace: "nowrap",
+                fontSize: 11, fontWeight: active ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap",
               }}>
                 {active && s?.emoji ? `${s.emoji} ` : ""}{f}
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "0 4px", borderRadius: 8, background: "rgba(0,0,0,.06)", color: "inherit", fontFamily: "JetBrains Mono, monospace" }}>{count(f)}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "0 4px", borderRadius: 8, background: "rgba(0,0,0,.06)", fontFamily: "JetBrains Mono, monospace" }}>{count(f)}</span>
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* ══ LISTE + PANNEAU ══ */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
         <div style={{ flex: 1, overflowY: "auto", padding: "10px 14px", scrollbarWidth: "thin", scrollbarColor: "#E2E8F0 transparent" }}>
           {loading ? (
@@ -707,8 +652,7 @@ export default function Leads({ role, nom }) {
 
         {selected && (
           <LeadDetailPanel
-            lead={selected}
-            events={events}
+            lead={selected} events={events}
             onClose={() => setSelected(null)}
             onUpdate={(statut, ancienStatut) => updateStatut(selected.id, statut, ancienStatut)}
             onEdit={(id, form) => {
