@@ -78,6 +78,47 @@ function Modal({ onClose, onCreate }) {
   );
 }
 
+// ── Zone Statut (dropdown élégant comme Leads) ──────────────────────────────
+function ZoneStatut({ selected, onUpdate, saving }) {
+  const [newStatut, setNewStatut] = useState(selected.statut);
+  useEffect(() => { setNewStatut(selected.statut); }, [selected.id, selected.statut]);
+
+  const current  = S_CMD[newStatut] || S_CMD["À expédier"];
+  const modified = newStatut !== selected.statut;
+
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ padding: "8px 14px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8" }}>Changer le statut</div>
+      </div>
+      <div style={{ padding: "12px 14px", background: "#fff", display: "flex", flexDirection: "column", gap: 10 }}>
+        <select value={newStatut} onChange={e => setNewStatut(e.target.value)} disabled={saving} style={{
+          width: "100%", padding: "10px 12px",
+          background: current.bg, border: `1.5px solid ${current.color}55`,
+          borderRadius: 8, fontSize: 13, fontWeight: 600,
+          color: current.color, cursor: "pointer", outline: "none", fontFamily: "inherit",
+        }}>
+          {STATUTS_CMD.map(s => <option key={s} value={s}>{S_CMD[s].emoji} {s}</option>)}
+        </select>
+        {modified && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => onUpdate(selected.id, newStatut)} disabled={saving} style={{
+              flex: 1, padding: "10px", background: current.color, color: "#fff",
+              border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>
+              {saving ? "⏳..." : `✓ ${current.emoji} ${newStatut}`}
+            </button>
+            <button onClick={() => setNewStatut(selected.statut)} disabled={saving} style={{
+              padding: "10px 14px", background: "#F8FAFC", color: "#64748B",
+              border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, cursor: "pointer",
+            }}>✕</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Commandes() {
   const [commandes, setCommandes] = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -92,7 +133,7 @@ export default function Commandes() {
 
   useEffect(() => {
     fetchCommandes();
-    const ch = supabase.channel("commandes-rt3")
+    const ch = supabase.channel("commandes-rt4")
       .on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, fetchCommandes)
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -137,9 +178,9 @@ export default function Commandes() {
     if (selected?.id === id) setSelected(s => ({ ...s, tracking: val }));
   }
 
-  const total  = commandes.length;
-  const cnt    = s => commandes.filter(c => c.statut === s).length;
-  const pct    = s => total > 0 ? Math.round((cnt(s) / total) * 100) : 0;
+  const total    = commandes.length;
+  const cnt      = s => commandes.filter(c => c.statut === s).length;
+  const pct      = s => total > 0 ? Math.round((cnt(s) / total) * 100) : 0;
   const livrees  = cnt("Livrée") + cnt("Facturée");
   const tauxLivr = total > 0 ? Math.round((livrees / total) * 100) : 0;
   const retours  = cnt("Retour en cours") + cnt("Demande de retour");
@@ -161,6 +202,8 @@ export default function Commandes() {
     const q = search.toLowerCase();
     return (c.client_nom||"").toLowerCase().includes(q) || (c.telephone||"").includes(q) || (c.ville||"").toLowerCase().includes(q) || (c.produit||"").toLowerCase().includes(q) || (c.tracking||"").toLowerCase().includes(q);
   });
+
+  const statutMeta = S_CMD[selected?.statut] || { color: "#64748B", bg: "#F8FAFC", emoji: "•" };
 
   return (
     <>
@@ -189,10 +232,8 @@ export default function Commandes() {
 
           <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* TOTAL — reset filtre */}
-          <div
-            onClick={() => setFiltre("tous")}
-            style={{ padding: "24px 28px", minWidth: 140, height: 130, background: filtre === "tous" ? "#F0F7FF" : "#fff", border: `1px solid ${filtre === "tous" ? "#BFDBFE" : "#E2E8F0"}`, borderRadius: 16, boxShadow: filtre === "tous" ? "0 0 0 3px #2563EB15" : "0 4px 12px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box", cursor: "pointer", transition: "all .15s" }}>
+          {/* TOTAL */}
+          <div onClick={() => setFiltre("tous")} style={{ padding: "24px 28px", minWidth: 140, height: 130, background: filtre === "tous" ? "#F0F7FF" : "#fff", border: `1px solid ${filtre === "tous" ? "#BFDBFE" : "#E2E8F0"}`, borderRadius: 16, boxShadow: filtre === "tous" ? "0 0 0 3px #2563EB15" : "0 4px 12px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box", cursor: "pointer", transition: "all .15s" }}>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>Total</div>
             <div style={{ fontSize: 42, fontWeight: 800, color: filtre === "tous" ? "#2563EB" : "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</div>
             <div style={{ fontSize: 11, color: "#94A3B8" }}>{filtre === "tous" ? "✓ Tous affichés" : "Cliquer pour tout voir"}</div>
@@ -207,8 +248,8 @@ export default function Commandes() {
               return (
                 <div key={s.key} onClick={() => setFiltre(isActive ? "tous" : s.key)} style={{ padding: "20px 18px", minWidth: 88, height: 130, background: isActive ? s.color + "12" : "#fff", border: `1px solid ${isActive ? s.color : "#E2E8F0"}`, borderLeft: `4px solid ${s.color}`, borderRadius: 14, boxShadow: isActive ? `0 0 0 3px ${s.color}20` : "0 2px 8px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box", cursor: "pointer", transition: "all .15s" }}>
                   <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: s.color + "99", whiteSpace: "nowrap" }}>{s.label}</div>
-<div style={{ fontSize: 32, fontWeight: 800, color: s.color, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{s.p}<span style={{ fontSize: 16, fontWeight: 700 }}>%</span></div>
-<div style={{ fontSize: 13, color: s.color + "99", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>{s.n} leads</div>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: s.color, fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{s.p}<span style={{ fontSize: 16, fontWeight: 700 }}>%</span></div>
+                  <div style={{ fontSize: 13, color: s.color + "99", fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>{s.n} cmds</div>
                 </div>
               );
             })}
@@ -220,24 +261,17 @@ export default function Commandes() {
       <div style={{ background: "#fff", borderBottom: "2px solid #E2E8F0", boxShadow: "0 2px 6px rgba(0,0,0,0.04)", padding: "12px 24px", flexShrink: 0, display: "flex", gap: 12, alignItems: "center" }}>
         <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
           <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
-          <input
-            style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .15s", fontFamily: "inherit" }}
+          <input style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .15s", fontFamily: "inherit" }}
             placeholder="Rechercher par client, téléphone, ville, produit, tracking..."
             value={search} onChange={e => setSearch(e.target.value)}
-            onFocus={e => e.target.style.borderColor = "#2563EB"}
-            onBlur={e => e.target.style.borderColor = "#E2E8F0"}
-          />
-          {search && (
-            <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
-          )}
+            onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
+          {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>}
         </div>
         <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto", whiteSpace: "nowrap" }}>
           {filtered.length} commande{filtered.length > 1 ? "s" : ""}
           {filtre !== "tous" && <span style={{ marginLeft: 6, fontSize: 11, color: "#2563EB", fontWeight: 600 }}>· filtre actif</span>}
         </span>
-        <button onClick={() => setShowModal(true)} style={{ padding: "8px 16px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
-          + Commande
-        </button>
+        <button onClick={() => setShowModal(true)} style={{ padding: "8px 16px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>+ Commande</button>
       </div>
 
       {/* ══ CONTENU ══ */}
@@ -281,86 +315,123 @@ export default function Commandes() {
             </table>
           </div>
 
+          {/* ══ PANNEAU DROITE ══ */}
           {selected && (
-            <aside style={{ width: 320, flexShrink: 0, background: "#fff", borderLeft: "1px solid #E2E8F0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <aside style={{ width: 360, flexShrink: 0, background: "#fff", borderLeft: "1px solid #E2E8F0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+              {/* 1 — IDENTITÉ */}
               <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #E2E8F0", background: "#FAFAFA", flexShrink: 0 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: "#0F172A" }}>{selected.client_nom || "Sans nom"}</div>
-                  <button onClick={() => setSelected(null)} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", fontSize: 16, cursor: "pointer", padding: "2px 8px", lineHeight: 1 }}>×</button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{selected.client_nom || "Sans nom"}</div>
+                    <div style={{ fontSize: 10, color: "#64748B" }}>{selected.created_at ? new Date(selected.created_at).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short" }) : ""}{selected.transporteur ? ` · 🚚 ${selected.transporteur}` : ""}</div>
+                  </div>
+                  <button onClick={() => setSelected(null)} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", fontSize: 16, cursor: "pointer", padding: "2px 8px", lineHeight: 1, flexShrink: 0 }}>×</button>
                 </div>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: S_CMD[selected.statut]?.color, background: S_CMD[selected.statut]?.bg, border: `1px solid ${S_CMD[selected.statut]?.color}33`, marginBottom: 10 }}>
-                  {S_CMD[selected.statut]?.emoji} {selected.statut}
-                </span>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-                    <a href={`tel:${selected.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#2563EB", fontWeight: 700, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "7px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
-                      📞 {selected.telephone}
-                    </a>
-                    <a href={`https://wa.me/212${selected.telephone?.replace(/^0/, "")}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#16A34A", fontWeight: 700, textDecoration: "none", padding: "7px 12px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0" }}>
-                      💬 WhatsApp
-                    </a>
-                  </div>                  {selected.ville   && <div style={{ fontSize: 12, color: "#64748B" }}>📍 {selected.ville}</div>}
-                  {selected.produit && <div style={{ fontSize: 12, color: "#64748B" }}>🛒 {selected.produit} × {selected.quantite || 1}</div>}
-                  {selected.prix    && <div style={{ fontSize: 12, color: "#64748B" }}>💰 {selected.prix} MAD</div>}
-                </div>
-              </div>
 
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-                {(STATUTS_LIVRAISON.includes(selected.statut) || selected.frais_livraison > 0) && (
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>Frais livraison (MAD)</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input className="form-input" type="number" placeholder="25" value={fraisLivr} onChange={e => setFraisLivr(e.target.value)} style={{ flex: 1 }} />
-                      <button onClick={async () => {
-                        if (!fraisLivr) return;
-                        await supabase.from("commandes").update({ frais_livraison: +fraisLivr }).eq("id", selected.id);
-                        await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: selected.transporteur || "—", categorie: "Logistique", intitule: "Frais livraison", debit: +fraisLivr, commande_id: selected.id, produit: selected.produit || null, observation: `CMD ${selected.id.slice(0, 8)}` }]);
-                        setSelected(s => ({ ...s, frais_livraison: +fraisLivr }));
-                      }} style={{ padding: "8px 12px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>💾</button>
-                    </div>
+                {/* Badge statut */}
+                <div style={{ marginBottom: 10 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: statutMeta.color, background: statutMeta.bg, border: `1px solid ${statutMeta.color}33` }}>
+                    {statutMeta.emoji} {selected.statut}
+                  </span>
+                </div>
+
+                {/* Boutons appel + WA */}
+                <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                  <a href={`tel:${selected.telephone}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#2563EB", fontWeight: 700, textDecoration: "none", fontFamily: "JetBrains Mono, monospace", padding: "8px 12px", background: "#EFF6FF", borderRadius: 8, border: "1px solid #BFDBFE" }}>
+                    📞 {selected.telephone}
+                  </a>
+                  <a href={`https://wa.me/212${selected.telephone?.replace(/^0/, "")}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#16A34A", fontWeight: 700, textDecoration: "none", padding: "8px 12px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0" }}>
+                    💬 WhatsApp
+                  </a>
+                </div>
+
+                {/* Tags infos */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {selected.ville    && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px" }}>📍 {selected.ville}</span>}
+                  {selected.produit  && <span style={{ fontSize: 11, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "3px 8px", fontWeight: 600 }}>{selected.produit} × {selected.quantite || 1}</span>}
+                  {selected.prix     && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px", fontFamily: "JetBrains Mono, monospace" }}>{selected.prix} MAD</span>}
+                </div>
+
+                {/* Tracking si présent */}
+                {selected.tracking && (
+                  <div style={{ marginTop: 8, padding: "6px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 11, color: "#64748B", fontFamily: "JetBrains Mono, monospace" }}>
+                    🔍 {selected.tracking}
                   </div>
                 )}
+              </div>
+
+              {/* Scrollable */}
+              <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+
+                {/* 2 — ACTION : dropdown statut */}
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Action</div>
+                  <ZoneStatut selected={selected} onUpdate={updateStatut} saving={saving} />
+                </div>
+
+                {/* 3 — TRANSPORTEUR + FRAIS LIVRAISON côte à côte */}
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Expédition</div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {/* Transporteur */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>Transporteur</div>
+                      <select value={selected.transporteur || "Sendit"} onChange={async e => {
+                        const val = e.target.value;
+                        await supabase.from("commandes").update({ transporteur: val }).eq("id", selected.id);
+                        setSelected(s => ({ ...s, transporteur: val }));
+                      }} style={{ width: "100%", padding: "8px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, color: "#0F172A", outline: "none", fontFamily: "inherit" }}>
+                        {TRANSPORTEURS.map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    {/* Frais livraison */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>Frais livr. (MAD)</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input type="number" placeholder="25" value={fraisLivr} onChange={e => setFraisLivr(e.target.value)}
+                          style={{ flex: 1, padding: "8px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, color: "#0F172A", outline: "none", boxSizing: "border-box" }} />
+                        <button onClick={async () => {
+                          if (!fraisLivr) return;
+                          await supabase.from("commandes").update({ frais_livraison: +fraisLivr }).eq("id", selected.id);
+                          await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: selected.transporteur || "—", categorie: "Logistique", intitule: "Frais livraison", debit: +fraisLivr, commande_id: selected.id, produit: selected.produit || null, observation: `CMD ${selected.id.slice(0, 8)}` }]);
+                          setSelected(s => ({ ...s, frais_livraison: +fraisLivr }));
+                        }} style={{ padding: "8px 10px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, flexShrink: 0 }}>💾</button>
+                      </div>
+                      {selected.frais_livraison > 0 && <div style={{ fontSize: 10, color: "#16A34A", marginTop: 3 }}>✓ {selected.frais_livraison} MAD enregistré</div>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4 — FRAIS RETOUR (si applicable) */}
                 {(STATUTS_RETOUR.includes(selected.statut) || selected.frais_retour > 0) && (
-                  <div>
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>Frais retour (MAD)</div>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <input className="form-input" type="number" placeholder="15" value={fraisRet} onChange={e => setFraisRet(e.target.value)} style={{ flex: 1 }} />
+                      <input type="number" placeholder="15" value={fraisRet} onChange={e => setFraisRet(e.target.value)}
+                        style={{ flex: 1, padding: "8px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, outline: "none" }} />
                       <button onClick={async () => {
                         if (!fraisRet) return;
                         await supabase.from("commandes").update({ frais_retour: +fraisRet }).eq("id", selected.id);
                         await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: selected.transporteur || "—", categorie: "Logistique", intitule: "Frais retour", debit: +fraisRet, commande_id: selected.id, produit: selected.produit || null, observation: `CMD ${selected.id.slice(0, 8)}` }]);
                         setSelected(s => ({ ...s, frais_retour: +fraisRet }));
-                      }} style={{ padding: "8px 12px", background: "#D97706", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>💾</button>
+                      }} style={{ padding: "8px 12px", background: "#D97706", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>💾</button>
                     </div>
+                    {selected.frais_retour > 0 && <div style={{ fontSize: 10, color: "#D97706", marginTop: 3 }}>✓ {selected.frais_retour} MAD enregistré</div>}
                   </div>
                 )}
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>Statut expédition</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    {STATUTS_CMD.map(s => {
-                      const m = S_CMD[s]; const active = selected.statut === s;
-                      return (
-                        <button key={s} onClick={() => updateStatut(selected.id, s)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left", border: `1px solid ${active ? m.color + "50" : "#E2E8F0"}`, background: active ? m.bg : "#F8FAFC", color: active ? m.color : "#64748B", fontSize: 12, fontWeight: active ? 700 : 400 }}>
-                          <span>{m.emoji}</span><span>{s}</span>
-                          {active && <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800 }}>✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>Transporteur</div>
-                  <select className="form-select" value={selected.transporteur || "Sendit"} onChange={async e => { const val = e.target.value; await supabase.from("commandes").update({ transporteur: val }).eq("id", selected.id); setSelected(s => ({ ...s, transporteur: val })); }}>
-                    {TRANSPORTEURS.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
+
+                {/* 5 — TRACKING */}
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
                   <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>N° Tracking</div>
-                  <input className="form-input" placeholder="Numéro de suivi..." value={tracking[selected.id] ?? selected.tracking ?? ""} onChange={e => setTracking(t => ({ ...t, [selected.id]: e.target.value }))} />
+                  <input className="form-input" placeholder="Numéro de suivi..."
+                    value={tracking[selected.id] ?? selected.tracking ?? ""}
+                    onChange={e => setTracking(t => ({ ...t, [selected.id]: e.target.value }))} />
                   <button onClick={() => saveTracking(selected.id)} disabled={saving} style={{ marginTop: 8, width: "100%", padding: "8px", background: saving ? "#F8FAFC" : "#0F172A", color: saving ? "#94A3B8" : "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                     {saving ? "⏳ Sauvegarde..." : "💾 Enregistrer"}
                   </button>
                 </div>
+
               </div>
             </aside>
           )}
