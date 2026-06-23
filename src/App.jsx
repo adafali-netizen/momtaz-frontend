@@ -88,6 +88,4 @@ export default function App() {
     </Layout>
   );
 }
-import DashboardAnalytique from "./pages/DashboardAnalytique";
-// dans les routes :
-<Route path="/dashboard-analytique" element={<DashboardAnalytique />} />
+
