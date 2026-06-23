@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { supabase } from "../supabaseClient";
-import {
+import { supabase } from "./supabaseClient";import {
   Chart,
   LineElement,
   PointElement,
