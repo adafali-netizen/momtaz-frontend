@@ -1,818 +1,980 @@
-/**
- * DashboardAnalytique.jsx — Cockpit COD Momtaz
- * Architecture décisionnelle en cascade :
- *   Vue Exécutive → Alertes → Fuite → Diagnostic → Produits
- *
- * Tables Supabase utilisées :
- *   produits   : nom, prix_vente, cout_achat
- *   leads      : produit, statut, conseillere, created_at
- *   commandes  : produit, statut, ville, created_at, frais_livraison
- *   ads_spend  : produit, budget_mad, cpm, ctr, clics, impressions, leads, date, plateforme
- */
-
-import { useState, useEffect, useMemo } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useEffect, useState, useRef } from "react";
+import { supabase } from "../supabaseClient";
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
-} from "recharts";
+  Chart,
+  LineElement,
+  PointElement,
+  LineController,
+  BarElement,
+  BarController,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Filler,
+} from "chart.js";
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY
+Chart.register(
+  LineElement, PointElement, LineController,
+  BarElement, BarController,
+  CategoryScale, LinearScale,
+  Tooltip, Filler
 );
 
-// ─── SEUILS MÉTIER ────────────────────────────────────────────────────────────
-const SEUILS = {
-  marge:   { bon: 30,  vigilance: 10  },   // MAD / livré
-  conf:    { bon: 0.35, vigilance: 0.25 },
-  livr:    { bon: 0.55, vigilance: 0.40 },
-  retours: { bon: 0.15, vigilance: 0.25 },
-  cplRatio:{ bon: 0.80, vigilance: 1.00 }, // cpl_reel / cpl_max
+// ─── Constantes métier ───────────────────────────────────────────────────────
+const FRAIS_EMBALLAGE = 4;
+const FRAIS_CONFIRMATION = 10;
+const SEUIL_CONF = 35;
+const SEUIL_LIVR = 55;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function fmt(n, decimals = 0) {
+  if (n == null || isNaN(n)) return "—";
+  return Number(n).toFixed(decimals);
+}
+function pct(val, total) {
+  if (!total) return 0;
+  return Math.round((val / total) * 100);
+}
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+function dateKey(d) {
+  return new Date(d).toISOString().slice(0, 10);
+}
+function labelDate(d) {
+  return new Date(d).toLocaleDateString("fr", { day: "numeric", month: "short" });
+}
+function last30() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 29);
+  return { start: dateKey(start), end: dateKey(end) };
+}
+function last60() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 59);
+  return { start: dateKey(start), end: dateKey(end) };
+}
+function calcMarge(row) {
+  const prix = parseFloat(row.prix) || 0;
+  const cout = parseFloat(row.cout_achat) || 0;
+  const fraisLivr = parseFloat(row.frais_livraison) || 0;
+  return prix - cout - fraisLivr - FRAIS_EMBALLAGE - FRAIS_CONFIRMATION;
+}
+
+// ─── Styles inline partagés ───────────────────────────────────────────────────
+const S = {
+  page: {
+    fontFamily: "var(--font-sans, system-ui)",
+    padding: "0 0 48px",
+    maxWidth: "100%",
+  },
+  topbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "14px 0 18px",
+    borderBottom: "0.5px solid #e2e8f0",
+    marginBottom: "28px",
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: ".08em",
+    color: "#94a3b8",
+    marginBottom: 12,
+  },
+  divider: { height: "0.5px", background: "#e2e8f0", margin: "28px 0" },
+  card: {
+    background: "#fff",
+    border: "0.5px solid #e2e8f0",
+    borderRadius: 12,
+    padding: "20px 24px",
+  },
+  statCard: {
+    background: "#f8fafc",
+    borderRadius: 8,
+    padding: "14px 16px",
+  },
+  badge: (color) => ({
+    display: "inline-block",
+    padding: "2px 8px",
+    borderRadius: 20,
+    fontSize: 11,
+    fontWeight: 600,
+    ...badgeColors[color],
+  }),
+  chip: (ok) => ({
+    display: "inline-block",
+    padding: "1px 7px",
+    borderRadius: 4,
+    fontSize: 11,
+    fontWeight: 500,
+    background: ok ? "#EAF3DE" : "#FCEBEB",
+    color: ok ? "#3B6D11" : "#A32D2D",
+  }),
 };
 
-const EMBALLAGE   = 4;
-const CONFIRMATION = 10;
-const MIN_LEADS   = 20;
-
-const STATUTS_CONFIRMES  = ["Confirmé", "Confirmée"];
-const STATUTS_LIVRES     = ["Livrée", "Facturée"];
-const STATUTS_EXPEDIES   = ["Expédiée", "Livrée", "Facturée"];
-const STATUTS_RETOURS    = ["Retour reçu", "Retour", "Retourné"];
-const STATUTS_INJOIGNABLE= ["Injoignable"];
-const STATUTS_ANNULE     = ["Annulé", "Refusé", "Annulée"];
-
-// ─── PALETTE ─────────────────────────────────────────────────────────────────
-const P = {
-  bg:         "#F7F8FA",
-  surface:    "#FFFFFF",
-  surfaceAlt: "#F1F4F9",
-  border:     "#E4E8EE",
-  borderMid:  "#CDD3DD",
-
-  text:       "#1A1F2E",
-  textSub:    "#5A6479",
-  textMuted:  "#9BA5B7",
-
-  teal:       "#0D9488",
-  tealBg:     "#F0FDFA",
-  tealBd:     "#99F6E4",
-
-  green:      "#16A34A",
-  greenBg:    "#F0FDF4",
-  greenBd:    "#BBF7D0",
-
-  amber:      "#B45309",
-  amberBg:    "#FFFBEB",
-  amberBd:    "#FDE68A",
-
-  red:        "#DC2626",
-  redBg:      "#FFF1F1",
-  redBd:      "#FECACA",
-
-  blue:       "#2563EB",
-  blueBg:     "#EFF6FF",
-  blueBd:     "#BFDBFE",
-
-  gray:       "#5A6479",
-  grayBg:     "#F1F4F9",
-  grayBd:     "#E4E8EE",
+const badgeColors = {
+  test:  { background: "#EAF3DE", color: "#3B6D11" },
+  scale: { background: "#E1F5EE", color: "#0F6E56" },
+  opti:  { background: "#FAEEDA", color: "#854F0B" },
+  stop:  { background: "#FCEBEB", color: "#A32D2D" },
 };
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
-const toDate  = (iso) => (iso || "").slice(0, 10);
-const inDays  = (iso, n) => iso && new Date(iso) >= new Date(daysAgo(n));
+function decisionBadge(p) {
+  if (p.total_leads < 20) return "test";
+  if (p.taux_conf >= 40 && p.taux_livr >= 60 && p.marge_avg > 0) return "scale";
+  if (p.taux_conf >= 25 && p.taux_livr >= 40 && p.marge_avg > 0) return "opti";
+  return "stop";
+}
+const decisionLabel = { test: "EN TEST", scale: "SCALE", opti: "OPTIMISER", stop: "STOP" };
 
-function statut(val, seuil) {
-  if (val === null || val === undefined) return "neutre";
-  // Pour retours : seuils inversés
-  if (seuil === SEUILS.retours) {
-    if (val <= seuil.bon)       return "bon";
-    if (val <= seuil.vigilance) return "vigilance";
-    return "critique";
-  }
-  if (val >= seuil.bon)       return "bon";
-  if (val >= seuil.vigilance) return "vigilance";
-  return "critique";
+function fuiteLabel(p) {
+  if (p.taux_conf < SEUIL_CONF) return { label: "Confirmation", color: "#854F0B", bg: "#FAEEDA" };
+  if (p.taux_livr < SEUIL_LIVR) return { label: "Livraison", color: "#A32D2D", bg: "#FCEBEB" };
+  if (p.marge_avg < 0) return { label: "Coûts", color: "#534AB7", bg: "#EEEDFE" };
+  return null;
 }
 
-function statutMarge(v) {
-  if (v === null) return "neutre";
-  if (v > SEUILS.marge.bon)       return "bon";
-  if (v > SEUILS.marge.vigilance) return "vigilance";
-  if (v > 0)                      return "vigilance";
-  return "critique";
-}
-
-const STATUT_COLOR = {
-  bon:       { text: P.green, bg: P.greenBg, bd: P.greenBd },
-  vigilance: { text: P.amber, bg: P.amberBg, bd: P.amberBd },
-  critique:  { text: P.red,   bg: P.redBg,   bd: P.redBd   },
-  neutre:    { text: P.gray,  bg: P.grayBg,  bd: P.grayBd  },
-};
-
-function getDays(n) {
-  const arr = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    arr.push(d.toISOString().slice(0, 10));
-  }
-  return arr;
-}
-
-// ─── CALCUL MÉTRIQUES PRODUIT ─────────────────────────────────────────────────
-function computeProduit(p, leads, commandes, adsSpend, days = 30) {
-  const nom       = p.nom;
-  const pv        = parseFloat(p.prix_vente) || 0;
-  const pa        = parseFloat(p.cout_achat)  || 0;
-
-  const ld  = leads.filter(l => l.produit === nom && inDays(l.created_at, days));
-  const cm  = commandes.filter(c => c.produit === nom && inDays(c.created_at, days));
-  const ads = adsSpend.filter(a => a.produit === nom && inDays(a.date, days));
-
-  const totalLeads  = ld.length;
-  const confirmes   = ld.filter(l => STATUTS_CONFIRMES.includes(l.statut));
-  const livres      = cm.filter(c => STATUTS_LIVRES.includes(c.statut));
-  const expedies    = cm.filter(c => STATUTS_EXPEDIES.includes(c.statut));
-  const retours     = cm.filter(c => STATUTS_RETOURS.includes(c.statut));
-  const injoignables= ld.filter(l => STATUTS_INJOIGNABLE.includes(l.statut));
-  const annules     = ld.filter(l => STATUTS_ANNULE.includes(l.statut));
-
-  const nbConf   = confirmes.length;
-  const nbLivres = livres.length;
-  const nbExp    = expedies.length;
-  const nbRet    = retours.length;
-
-  const tauxConf  = totalLeads > 0 ? nbConf / totalLeads : 0;
-  const tauxLivr  = nbExp > 0 ? nbLivres / nbExp : 0;
-  const tauxRet   = nbExp > 0 ? nbRet / nbExp : 0;
-
-  const fraisLivrMoy = nbLivres > 0
-    ? livres.reduce((s, c) => s + (parseFloat(c.frais_livraison) || 0), 0) / nbLivres
-    : 25;
-
-  const adsTotal   = ads.reduce((s, a) => s + (parseFloat(a.budget_mad) || 0), 0);
-  const totalClics = ads.reduce((s, a) => s + (parseInt(a.clics) || 0), 0);
-  const totalImpr  = ads.reduce((s, a) => s + (parseInt(a.impressions) || 0), 0);
-  const cpmMoy     = totalImpr > 0 ? ads.reduce((s,a) => s + (parseFloat(a.cpm)||0)*(parseInt(a.impressions)||0), 0) / totalImpr : 0;
-  const ctrMoy     = totalImpr > 0 ? totalClics / totalImpr : 0;
-
-  const cplReel  = totalLeads > 0 ? adsTotal / totalLeads : 0;
-  const cacLivre = nbLivres > 0 ? adsTotal / nbLivres : 0;
-
-  const margeBrute      = pv - pa - fraisLivrMoy - EMBALLAGE - CONFIRMATION;
-  const cplMax          = margeBrute > 0 ? margeBrute * tauxConf * tauxLivr : 0;
-  const margeNetteUnite = margeBrute - cacLivre;
-
-  const statConf  = statut(tauxConf,  SEUILS.conf);
-  const statLivr  = statut(tauxLivr,  SEUILS.livr);
-  const statRet   = statut(tauxRet,   SEUILS.retours);
-  const statMarge = statutMarge(margeNetteUnite);
-  const statCpl   = cplMax > 0 ? statut(cplReel / cplMax, { bon: SEUILS.cplRatio.bon, vigilance: SEUILS.cplRatio.vigilance }) : "neutre";
-
-  // Identification fuite dominante
-  let fuites = [];
-  if (statCpl   === "critique") fuites.push({ key: "acquisition",   score: 3 });
-  if (statCpl   === "vigilance")fuites.push({ key: "acquisition",   score: 1 });
-  if (statConf  === "critique") fuites.push({ key: "confirmation",  score: 3 });
-  if (statConf  === "vigilance")fuites.push({ key: "confirmation",  score: 1 });
-  if (statLivr  === "critique") fuites.push({ key: "livraison",     score: 3 });
-  if (statLivr  === "vigilance")fuites.push({ key: "livraison",     score: 1 });
-  if (statRet   === "critique") fuites.push({ key: "retours",       score: 2 });
-  fuites.sort((a, b) => b.score - a.score);
-  const fuiteDominante = fuites[0]?.key || null;
-
-  // Décision produit
-  let decision;
-  if (totalLeads < MIN_LEADS)        decision = "EN TEST";
-  else if (margeNetteUnite <= 0)     decision = "STOP";
-  else if (statMarge === "critique") decision = "SURVEILLER";
-  else if (statMarge === "bon" && tauxConf >= SEUILS.conf.bon && tauxLivr >= SEUILS.livr.bon)
-                                     decision = "SCALER";
-  else                               decision = "MAINTENIR";
-
-  // Motifs non-confirmation
-  const motifsNonConf = {
-    injoignable: injoignables.length,
-    annule:      annules.length,
-    aRappeler:   ld.filter(l => l.statut === "À rappeler" || l.statut === "Demande de rappel").length,
-  };
-
-  // Perf par conseillère
-  const conseilleresMap = {};
-  ld.forEach(l => {
-    const c = l.conseillere || "—";
-    if (!conseilleresMap[c]) conseilleresMap[c] = { total: 0, conf: 0 };
-    conseilleresMap[c].total++;
-    if (STATUTS_CONFIRMES.includes(l.statut)) conseilleresMap[c].conf++;
-  });
-  const conseilleresPerf = Object.entries(conseilleresMap).map(([nom, d]) => ({
-    nom,
-    total: d.total,
-    conf:  d.conf,
-    taux:  d.total > 0 ? d.conf / d.total : 0,
-  }));
-
-  // Perf par ville
-  const villesMap = {};
-  cm.forEach(c => {
-    const v = c.ville || "Inconnue";
-    if (!villesMap[v]) villesMap[v] = { exp: 0, livres: 0, ret: 0 };
-    if (STATUTS_EXPEDIES.includes(c.statut)) villesMap[v].exp++;
-    if (STATUTS_LIVRES.includes(c.statut))   villesMap[v].livres++;
-    if (STATUTS_RETOURS.includes(c.statut))  villesMap[v].ret++;
-  });
-  const villesPerf = Object.entries(villesMap)
-    .map(([v, d]) => ({ ville: v, ...d, taux: d.exp > 0 ? d.livres / d.exp : 0 }))
-    .sort((a, b) => b.exp - a.exp)
-    .slice(0, 5);
-
-  return {
-    nom, pv, pa,
-    totalLeads, nbConf, nbLivres, nbExp, nbRet,
-    tauxConf, tauxLivr, tauxRet,
-    fraisLivrMoy, adsTotal, cplReel, cplMax, cacLivre, cpmMoy, ctrMoy,
-    margeBrute, margeNetteUnite,
-    statConf, statLivr, statRet, statMarge, statCpl,
-    fuiteDominante, fuites,
-    decision,
-    motifsNonConf, conseilleresPerf, villesPerf,
-  };
-}
-
-// ─── COMPOSANT PRINCIPAL ──────────────────────────────────────────────────────
+// ─── Composant principal ──────────────────────────────────────────────────────
 export default function DashboardAnalytique() {
-  const [produits,  setProduits]  = useState([]);
-  const [leads,     setLeads]     = useState([]);
-  const [commandes, setCommandes] = useState([]);
-  const [adsSpend,  setAdsSpend]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [selected,  setSelected]  = useState(null);    // produit sélectionné pour drill
-  const [drillZone, setDrillZone] = useState(null);    // acquisition / confirmation / livraison / retours
+  const [period, setPeriod] = useState(30);
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [drill, setDrill] = useState(null); // null | 'ads' | 'ops'
+  const heroRef = useRef(null);
+  const heroChartRef = useRef(null);
+  const adsRef = useRef(null);
+  const adsChartRef = useRef(null);
 
-  useEffect(() => { fetchAll(); }, []);
+  // ─── Fetch data ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchAll(period);
+  }, [period]);
 
-  async function fetchAll() {
-    setLoading(true); setError(null);
-    try {
-      const since = daysAgo(30);
-      const [pr, ld, cm, ad] = await Promise.all([
-        supabase.from("produits").select("nom,prix_vente,cout_achat"),
-        supabase.from("leads").select("produit,statut,conseillere,created_at").gte("created_at", since),
-        supabase.from("commandes").select("produit,statut,ville,created_at,frais_livraison").gte("created_at", since),
-        supabase.from("ads_spend").select("produit,budget_mad,cpm,ctr,clics,impressions,leads,date,plateforme").gte("date", since.slice(0,10)),
-      ]);
-      if (pr.error || ld.error || cm.error || ad.error) throw pr.error || ld.error || cm.error || ad.error;
-      const seen = new Set();
-      const uniq = (pr.data||[]).filter(p => { if(seen.has(p.nom)) return false; seen.add(p.nom); return true; });
-      setProduits(uniq);
-      setLeads(ld.data||[]);
-      setCommandes(cm.data||[]);
-      setAdsSpend(ad.data||[]);
-      if (uniq.length) setSelected(uniq[0].nom);
-    } catch(e) { setError(e?.message||"Erreur de chargement"); }
-    finally    { setLoading(false); }
+  async function fetchAll(days) {
+    setLoading(true);
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    const startStr = dateKey(start);
+    const endStr = dateKey(end);
+
+    // Pour la comparaison marge en baisse, on prend 2x la période
+    const start2x = new Date();
+    start2x.setDate(start2x.getDate() - (days * 2 - 1));
+    const start2xStr = dateKey(start2x);
+
+    const [
+      { data: commandes },
+      { data: leads },
+      { data: adsSpend },
+      { data: releve },
+      { data: produits },
+      { data: conseilleres },
+      { data: transporteurs },
+    ] = await Promise.all([
+      supabase
+        .from("commandes")
+        .select("id, created_at, statut, prix, cout_achat, frais_livraison, frais_retour, produit_id, conseillere_id, transporteur_id")
+        .gte("created_at", start2xStr)
+        .lte("created_at", endStr + "T23:59:59"),
+      supabase
+        .from("leads")
+        .select("id, created_at, statut, conseillere_id, produit_id")
+        .gte("created_at", startStr)
+        .lte("created_at", endStr + "T23:59:59"),
+      supabase
+        .from("ads_spend")
+        .select("date, plateforme, budget_mad, spend_mad, impressions, clics, leads_count")
+        .gte("date", startStr)
+        .lte("date", endStr),
+      supabase
+        .from("releve_bancaire")
+        .select("*")
+        .order("date", { ascending: false })
+        .limit(50),
+      supabase.from("produits").select("id, nom, cout_achat, titre_shopify"),
+      supabase.from("conseilleres").select("id, nom, active"),
+      supabase.from("transporteurs").select("id, nom").limit(20),
+    ]);
+
+    const result = buildAnalytics({
+      commandes: commandes || [],
+      leads: leads || [],
+      adsSpend: adsSpend || [],
+      releve: releve || [],
+      produits: produits || [],
+      conseilleres: conseilleres || [],
+      transporteurs: transporteurs || [],
+      days,
+      startStr,
+      endStr,
+      start2xStr,
+    });
+
+    setData(result);
+    setLoading(false);
   }
 
-  const metrics = useMemo(() =>
-    produits.map(p => computeProduit(p, leads, commandes, adsSpend, 30)),
-    [produits, leads, commandes, adsSpend]
-  );
+  // ─── Analytics engine ────────────────────────────────────────────────────────
+  function buildAnalytics({ commandes, leads, adsSpend, releve, produits, conseilleres, transporteurs, days, startStr, endStr, start2xStr }) {
+    const midDate = new Date();
+    midDate.setDate(midDate.getDate() - Math.floor(days / 2));
+    const midStr = dateKey(midDate);
 
-  const sel = useMemo(() => metrics.find(m => m.nom === selected) || null, [metrics, selected]);
+    const prodMap = {};
+    produits.forEach((p) => { prodMap[p.id] = p; });
+    const consMap = {};
+    conseilleres.forEach((c) => { consMap[c.id] = c; });
+    const transMap = {};
+    transporteurs.forEach((t) => { transMap[t.id] = t; });
 
-  // ── VUE EXÉCUTIVE ────────────────────────────────────────────────────────
-  const margeGlobale = metrics.length > 0
-    ? metrics.reduce((s,m) => s + m.margeNetteUnite * m.nbLivres, 0) /
-      Math.max(1, metrics.reduce((s,m) => s + m.nbLivres, 0))
-    : 0;
-  const cplMoyen     = metrics.filter(m=>m.cplReel>0).reduce((s,m,_,a) => s + m.cplReel/a.length, 0);
-  const confMoyenne  = metrics.filter(m=>m.totalLeads>=5).reduce((s,m,_,a) => s + m.tauxConf/a.length, 0);
-  const livrMoyenne  = metrics.filter(m=>m.nbExp>0).reduce((s,m,_,a) => s + m.tauxLivr/a.length, 0);
-  const nbCritiques  = metrics.filter(m => m.statMarge === "critique" || m.decision === "STOP").length;
-  const statGlobal   = statutMarge(margeGlobale);
+    // Filtrer commandes période courante vs période complète
+    const cmdCurrent = commandes.filter((c) => dateKey(c.created_at) >= startStr);
+    const cmdLivrees = cmdCurrent.filter((c) => c.statut === "Livrée");
+    const cmdAll = commandes; // inclut période 2x pour comparaison
 
-  // ── ALERTES ───────────────────────────────────────────────────────────────
-  const alertes = [];
-  metrics.forEach(m => {
-    if (m.decision === "STOP")
-      alertes.push({ niveau:"critique", texte: `${m.nom} — marge négative (${fmt(m.margeNetteUnite)}/livré). Couper les ads immédiatement.`, produit: m.nom });
-    else if (m.statConf === "critique" && m.totalLeads >= MIN_LEADS)
-      alertes.push({ niveau:"vigilance", texte: `${m.nom} — taux de confirmation ${pct(m.tauxConf)} (< 25%). Vérifier le script et les conseillères.`, produit: m.nom });
-    else if (m.statLivr === "critique" && m.nbExp >= 5)
-      alertes.push({ niveau:"vigilance", texte: `${m.nom} — taux de livraison ${pct(m.tauxLivr)} (< 40%). Vérifier le transporteur ou la zone.`, produit: m.nom });
-    else if (m.statRet === "critique" && m.nbExp >= 5)
-      alertes.push({ niveau:"vigilance", texte: `${m.nom} — retours élevés ${pct(m.tauxRet)} (> 25%). Marge détruite en cascade.`, produit: m.nom });
-  });
-  const alertesAffichees = alertes.slice(0, 4);
-
-  // ── FUITE GLOBALE ─────────────────────────────────────────────────────────
-  const fuiteScores = { acquisition: 0, confirmation: 0, livraison: 0, retours: 0 };
-  metrics.forEach(m => {
-    m.fuites.forEach(f => { fuiteScores[f.key] = (fuiteScores[f.key]||0) + f.score; });
-  });
-  const fuiteDominanteGlobale = Object.entries(fuiteScores).sort((a,b) => b[1]-a[1])[0]?.[0] || null;
-
-  // ── COURBE 30J ────────────────────────────────────────────────────────────
-  const courbe = useMemo(() => {
-    if (!sel) return [];
-    return getDays(30).map(d => {
-      const lJ  = commandes.filter(c => c.produit===sel.nom && STATUTS_LIVRES.includes(c.statut) && toDate(c.created_at)===d).length;
-      const aJ  = adsSpend.filter(a => a.produit===sel.nom && toDate(a.date)===d).reduce((s,a)=>s+(parseFloat(a.budget_mad)||0),0);
-      const marge = (lJ>0||aJ>0) ? Math.round(lJ*sel.margeBrute - aJ) : null;
-      return { d: d.slice(5), marge };
+    // ── Courbe héro : marge unitaire par jour (livrées uniquement) ──
+    const margsByDay = {};
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - (days - 1 - i));
+      margsByDay[dateKey(d)] = { sum: 0, count: 0 };
+    }
+    cmdLivrees.forEach((c) => {
+      const k = dateKey(c.created_at);
+      if (margsByDay[k]) {
+        margsByDay[k].sum += calcMarge(c);
+        margsByDay[k].count += 1;
+      }
     });
-  }, [sel, commandes, adsSpend]);
+    const heroLabels = Object.keys(margsByDay).map(labelDate);
+    const heroValues = Object.values(margsByDay).map((d) =>
+      d.count ? Math.round(d.sum / d.count) : null
+    );
+    const heroAvg = cmdLivrees.length
+      ? Math.round(cmdLivrees.reduce((s, c) => s + calcMarge(c), 0) / cmdLivrees.length)
+      : null;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  if (loading) return <div style={SS.loadWrap}><span style={SS.spinner}/><p style={SS.loadTxt}>Chargement…</p></div>;
-  if (error)   return <div style={SS.errWrap}><p style={{color:P.red,margin:0}}>⚠️ {error}</p><button style={SS.btnSm} onClick={fetchAll}>Réessayer</button></div>;
+    // ── Produits : marge actuelle + marge en baisse ──
+    const prodStats = {};
+    const initProd = (id) => {
+      if (!prodStats[id]) {
+        prodStats[id] = {
+          id,
+          nom: prodMap[id]?.nom || `Produit #${id}`,
+          // période courante
+          curr_livr: [], curr_leads: 0, curr_conf: 0,
+          // période précédente (pour delta)
+          prev_livr: [], prev_leads: 0, prev_conf: 0,
+        };
+      }
+    };
+
+    // Leads période courante
+    leads.forEach((l) => {
+      const pid = l.produit_id;
+      if (!pid) return;
+      initProd(pid);
+      prodStats[pid].curr_leads++;
+      if (["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut))
+        prodStats[pid].curr_conf++;
+    });
+
+    // Commandes
+    cmdAll.forEach((c) => {
+      const pid = c.produit_id;
+      if (!pid) return;
+      initProd(pid);
+      const isCurrent = dateKey(c.created_at) >= startStr;
+      const isPrev = dateKey(c.created_at) >= start2xStr && dateKey(c.created_at) < startStr;
+      if (c.statut === "Livrée") {
+        const m = calcMarge(c);
+        if (isCurrent) prodStats[pid].curr_livr.push(m);
+        if (isPrev) prodStats[pid].prev_livr.push(m);
+      }
+    });
+
+    const prodList = Object.values(prodStats).map((p) => {
+      const curr_marge_avg = p.curr_livr.length
+        ? p.curr_livr.reduce((s, v) => s + v, 0) / p.curr_livr.length
+        : null;
+      const prev_marge_avg = p.prev_livr.length
+        ? p.prev_livr.reduce((s, v) => s + v, 0) / p.prev_livr.length
+        : null;
+      const delta = curr_marge_avg != null && prev_marge_avg != null
+        ? Math.round(curr_marge_avg - prev_marge_avg)
+        : null;
+      const taux_conf = pct(p.curr_conf, p.curr_leads);
+      const taux_livr = pct(p.curr_livr.length, p.curr_leads);
+      const marge_avg = curr_marge_avg != null ? Math.round(curr_marge_avg) : null;
+      return {
+        id: p.id, nom: p.nom,
+        total_leads: p.curr_leads,
+        total_livr: p.curr_livr.length,
+        taux_conf, taux_livr,
+        marge_avg,
+        delta_marge: delta,
+        decision: decisionBadge({ total_leads: p.curr_leads, taux_conf, taux_livr, marge_avg: marge_avg || 0 }),
+        fuite: fuiteLabel({ taux_conf, taux_livr, marge_avg: marge_avg || 0 }),
+      };
+    });
+
+    // Classement 1 : meilleure marge actuelle (avec data)
+    const byMargeCurrent = [...prodList]
+      .filter((p) => p.marge_avg != null)
+      .sort((a, b) => b.marge_avg - a.marge_avg);
+
+    // Classement 2 : marge en baisse (delta négatif, comparaison possible)
+    const byMargeDecline = [...prodList]
+      .filter((p) => p.delta_marge != null && p.delta_marge < 0)
+      .sort((a, b) => a.delta_marge - b.delta_marge);
+
+    // ── Diagnostic Ads ──
+    const totalSpend = adsSpend.reduce((s, a) => s + (parseFloat(a.spend_mad || a.budget_mad) || 0), 0);
+    const totalLeadsAds = adsSpend.reduce((s, a) => s + (parseInt(a.leads_count) || 0), 0);
+    const totalClics = adsSpend.reduce((s, a) => s + (parseInt(a.clics) || 0), 0);
+    const totalImpr = adsSpend.reduce((s, a) => s + (parseInt(a.impressions) || 0), 0);
+    const cplMoyen = totalLeadsAds ? Math.round(totalSpend / totalLeadsAds) : null;
+    const ctr = totalImpr ? ((totalClics / totalImpr) * 100).toFixed(1) : null;
+    const cpc = totalClics ? Math.round(totalSpend / totalClics) : null;
+    // CPL par livré = spend / livrees
+    const cplLivre = cmdLivrees.length ? Math.round(totalSpend / cmdLivrees.length) : null;
+    // Coût Ads imputable à la marge
+    const coutAdsParLivr = cplLivre || 0;
+
+    // Par plateforme
+    const platfMap = {};
+    adsSpend.forEach((a) => {
+      const pl = a.plateforme || "Inconnu";
+      if (!platfMap[pl]) platfMap[pl] = { spend: 0, leads: 0, clics: 0, impr: 0 };
+      platfMap[pl].spend += parseFloat(a.spend_mad || a.budget_mad) || 0;
+      platfMap[pl].leads += parseInt(a.leads_count) || 0;
+      platfMap[pl].clics += parseInt(a.clics) || 0;
+      platfMap[pl].impr += parseInt(a.impressions) || 0;
+    });
+    const plateformes = Object.entries(platfMap).map(([nom, d]) => ({
+      nom,
+      spend: Math.round(d.spend),
+      cpl: d.leads ? Math.round(d.spend / d.leads) : null,
+      ctr: d.impr ? ((d.clics / d.impr) * 100).toFixed(1) : null,
+      cpc: d.clics ? Math.round(d.spend / d.clics) : null,
+    })).sort((a, b) => b.spend - a.spend);
+
+    // ── Diagnostic OPS ──
+    const totalLeadsPeriod = leads.length;
+    const confirmes = leads.filter((l) =>
+      ["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut)
+    ).length;
+    const txConf = pct(confirmes, totalLeadsPeriod);
+    const txLivr = pct(cmdLivrees.length, confirmes || 1);
+    const retours = cmdCurrent.filter((c) => ["Retour reçu", "Retour en cours"].includes(c.statut)).length;
+    const txRetour = pct(retours, cmdCurrent.length);
+
+    // Fuite OPS : points perdus × valeur
+    // Chaque point de conf perdu = on perd potentiellement des livraisons
+    // Chaque point de livr perdu = perte directe de marge
+    const margeTheorique = heroAvg || 0; // si tout se passait bien
+    const pertePctConf = Math.max(0, SEUIL_CONF - txConf);
+    const pertePctLivr = Math.max(0, SEUIL_LIVR - txLivr);
+    // Impact estimé Ads sur marge = coutAdsParLivr
+    // Impact OPS = pertes confirmation + livraison
+    const impactAdsMAD = coutAdsParLivr;
+    const impactConfMAD = pertePctConf * 2; // pondération
+    const impactLivrMAD = pertePctLivr * 3;
+    const impactOpsTotal = impactConfMAD + impactLivrMAD;
+    const totalImpact = impactAdsMAD + impactOpsTotal;
+    const pctAds = totalImpact ? Math.round((impactAdsMAD / totalImpact) * 100) : 50;
+    const pctOps = 100 - pctAds;
+
+    // ── Conseillères ──
+    const consStats = {};
+    leads.forEach((l) => {
+      const cid = l.conseillere_id;
+      if (!cid) return;
+      if (!consStats[cid]) consStats[cid] = { id: cid, leads: 0, conf: 0 };
+      consStats[cid].leads++;
+      if (["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut))
+        consStats[cid].conf++;
+    });
+    const conseilleresStats = Object.values(consStats).map((c) => ({
+      nom: consMap[c.id]?.nom || `#${c.id}`,
+      leads: c.leads,
+      taux_conf: pct(c.conf, c.leads),
+    })).sort((a, b) => b.taux_conf - a.taux_conf);
+
+    // ── Transporteurs ──
+    const transStats = {};
+    cmdCurrent.forEach((c) => {
+      const tid = c.transporteur_id;
+      if (!tid) return;
+      if (!transStats[tid]) transStats[tid] = { id: tid, total: 0, livr: 0, retour: 0 };
+      transStats[tid].total++;
+      if (c.statut === "Livrée") transStats[tid].livr++;
+      if (["Retour reçu", "Retour en cours"].includes(c.statut)) transStats[tid].retour++;
+    });
+    const transporteursStats = Object.values(transStats).map((t) => {
+      const txL = pct(t.livr, t.total);
+      let grade = "STOP";
+      if (txL >= 60) grade = "A1";
+      else if (txL >= 45) grade = "A2";
+      else if (txL >= 40) grade = "B2";
+      return {
+        nom: transMap[t.id]?.nom || `#${t.id}`,
+        total: t.total, livr: t.livr, retour: t.retour,
+        taux_livr: txL,
+        taux_retour: pct(t.retour, t.total),
+        grade,
+      };
+    }).sort((a, b) => b.taux_livr - a.taux_livr);
+
+    // ── Finance ──
+    const revenus = (releve || []).filter((r) => parseFloat(r.montant) > 0);
+    const depenses = (releve || []).filter((r) => parseFloat(r.montant) < 0);
+    const totalRevenu = revenus.reduce((s, r) => s + parseFloat(r.montant), 0);
+    const totalDepense = depenses.reduce((s, r) => s + parseFloat(r.montant), 0);
+    const soldeNet = totalRevenu + totalDepense;
+
+    // Ventilation dépenses par catégorie (si colonne categorie existe)
+    const catMap = {};
+    depenses.forEach((r) => {
+      const cat = r.categorie || r.type || "Autre";
+      if (!catMap[cat]) catMap[cat] = 0;
+      catMap[cat] += Math.abs(parseFloat(r.montant));
+    });
+
+    return {
+      heroLabels, heroValues, heroAvg,
+      prodList, byMargeCurrent, byMargeDecline,
+      totalLeadsPeriod, txConf, txLivr, txRetour,
+      cmdLivrees: cmdLivrees.length,
+      totalSpend, cplMoyen, cplLivre, ctr, cpc,
+      plateformes,
+      pctAds, pctOps, impactAdsMAD, impactOpsTotal,
+      conseilleresStats, transporteursStats,
+      releve: releve || [],
+      totalRevenu: Math.round(totalRevenu),
+      totalDepense: Math.round(totalDepense),
+      soldeNet: Math.round(soldeNet),
+      catMap,
+    };
+  }
+
+  // ─── Charts ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!data || !heroRef.current) return;
+    if (heroChartRef.current) heroChartRef.current.destroy();
+    heroChartRef.current = new Chart(heroRef.current, {
+      type: "line",
+      data: {
+        labels: data.heroLabels,
+        datasets: [{
+          label: "Marge nette / livré (MAD)",
+          data: data.heroValues,
+          borderColor: "#E24B4A",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          fill: true,
+          backgroundColor: "rgba(226,75,74,0.06)",
+          spanGaps: true,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: (ctx) => `${ctx.parsed.y} MAD` }
+        }},
+        scales: {
+          x: { display: true, ticks: { font: { size: 10 }, color: "#94a3b8", maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
+          y: { grid: { color: "rgba(0,0,0,0.04)" }, ticks: { font: { size: 10 }, color: "#94a3b8", callback: (v) => v + " MAD" } },
+        },
+      },
+    });
+  }, [data]);
+
+  useEffect(() => {
+    if (!data || drill !== "ads" || !adsRef.current) return;
+    setTimeout(() => {
+      if (!adsRef.current) return;
+      if (adsChartRef.current) adsChartRef.current.destroy();
+      const labels = data.plateformes.map((p) => p.nom);
+      const spends = data.plateformes.map((p) => p.spend);
+      const colors = ["#1877f2", "#e1306c", "#010101", "#FF4500", "#0077B5"];
+      adsChartRef.current = new Chart(adsRef.current, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Spend (MAD)",
+            data: spends,
+            backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+            y: { grid: { color: "rgba(0,0,0,0.04)" }, ticks: { font: { size: 10 }, callback: (v) => v + " MAD" } },
+          },
+        },
+      });
+    }, 80);
+  }, [drill, data]);
+
+  // ─── Render helpers ───────────────────────────────────────────────────────────
+  const gradeColor = { A1: { bg: "#EAF3DE", color: "#3B6D11" }, A2: { bg: "#E1F5EE", color: "#0F6E56" }, B2: { bg: "#FAEEDA", color: "#854F0B" }, STOP: { bg: "#FCEBEB", color: "#A32D2D" } };
+
+  function ProdTable({ rows, showDelta }) {
+    return (
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={th}>#</th>
+            <th style={th}>Produit</th>
+            <th style={{ ...th, textAlign: "right" }}>Leads</th>
+            <th style={{ ...th, textAlign: "right" }}>Conf.</th>
+            <th style={{ ...th, textAlign: "right" }}>Livr.</th>
+            {showDelta && <th style={{ ...th, textAlign: "right" }}>Δ Marge</th>}
+            <th style={{ ...th, textAlign: "right" }}>Marge moy.</th>
+            <th style={th}>Décision</th>
+            <th style={th}>Fuite</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p, i) => {
+            const f = p.fuite;
+            const dec = p.decision;
+            const confOk = p.taux_conf >= SEUIL_CONF;
+            const livrOk = p.taux_livr >= SEUIL_LIVR;
+            return (
+              <tr key={p.id} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                <td style={td(true)}>{i + 1}</td>
+                <td style={{ ...td(), maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nom}>{p.nom}</td>
+                <td style={td(true)}>{p.total_leads}</td>
+                <td style={{ ...td(true), color: confOk ? "#3B6D11" : p.taux_conf >= 25 ? "#BA7517" : "#A32D2D", fontWeight: 500 }}>{p.taux_conf}%</td>
+                <td style={{ ...td(true), color: livrOk ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>{p.taux_livr}%</td>
+                {showDelta && (
+                  <td style={{ ...td(true), color: p.delta_marge < 0 ? "#A32D2D" : "#3B6D11", fontWeight: 500 }}>
+                    {p.delta_marge != null ? `${p.delta_marge > 0 ? "+" : ""}${p.delta_marge} MAD` : "—"}
+                  </td>
+                )}
+                <td style={{ ...td(true), color: p.marge_avg >= 0 ? "#3B6D11" : "#A32D2D", fontWeight: 600 }}>
+                  {p.marge_avg != null ? `${p.marge_avg} MAD` : "—"}
+                </td>
+                <td style={td()}>
+                  <span style={S.badge(dec)}>{decisionLabel[dec]}</span>
+                </td>
+                <td style={td()}>
+                  {f ? (
+                    <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: f.bg, color: f.color }}>{f.label}</span>
+                  ) : (
+                    <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {rows.length === 0 && (
+            <tr><td colSpan={9} style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée sur la période</td></tr>
+          )}
+        </tbody>
+      </table>
+    );
+  }
+
+  const th = { padding: "8px 10px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", fontWeight: 500, borderBottom: "0.5px solid #e2e8f0", textAlign: "left", whiteSpace: "nowrap" };
+  const td = (center) => ({ padding: "9px 10px", fontSize: 13, color: "#1e293b", textAlign: center ? "right" : "left", verticalAlign: "middle" });
+
+  // ─── UI ───────────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: "#94a3b8", fontSize: 14 }}>
+        Chargement du cockpit analytique…
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { heroLabels, heroValues, heroAvg, byMargeCurrent, byMargeDecline, totalLeadsPeriod, txConf, txLivr, txRetour, cmdLivrees, totalSpend, cplMoyen, cplLivre, ctr, cpc, plateformes, pctAds, pctOps, impactAdsMAD, impactOpsTotal, conseilleresStats, transporteursStats, releve, totalRevenu, totalDepense, soldeNet, catMap } = data;
+
+  const periodLabel = period === 7 ? "7 derniers jours" : period === 30 ? "30 derniers jours" : "90 derniers jours";
+  const hasDecline = byMargeDecline.length > 0;
 
   return (
-    <div style={SS.page}>
-
-      {/* ═══ 1. VUE EXÉCUTIVE ════════════════════════════════════════════════ */}
-      <Card style={{ marginBottom: 14 }}>
-        {/* En-tête */}
-        <div style={SS.exHead}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <StatutDot statut={statGlobal} />
-            <span style={SS.exTitle}>
-              {statGlobal === "bon"
-                ? "Business sain"
-                : statGlobal === "vigilance"
-                ? "Surveillance requise"
-                : `${nbCritiques} produit${nbCritiques>1?"s":""} en situation critique`}
-            </span>
-            {nbCritiques > 0 && (
-              <span style={{ fontSize:11, fontWeight:700, padding:"2px 8px", borderRadius:4, background:P.redBg, color:P.red, border:`1px solid ${P.redBd}` }}>
-                {nbCritiques} critique{nbCritiques>1?"s":""}
-              </span>
-            )}
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={SS.dateLbl}>30 derniers jours</span>
-            <button style={SS.btnRefresh} onClick={fetchAll}>↻ Actualiser</button>
-          </div>
+    <div style={S.page}>
+      {/* ── Topbar ── */}
+      <div style={S.topbar}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Cockpit analytique</span>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>{new Date().toLocaleDateString("fr", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span>
         </div>
-
-        {/* KPIs */}
-        <div style={SS.kpiGrid}>
-          <ExKPI
-            label="Marge nette / livré"
-            value={fmt(margeGlobale)}
-            statut={statGlobal}
-            sub="Signal principal"
-            main
-          />
-          <ExKPI label="CPL moyen"        value={fmt(cplMoyen)}   statut="neutre" sub="Coût par lead" />
-          <ExKPI label="Taux confirmation" value={pct(confMoyenne)} statut={statut(confMoyenne, SEUILS.conf)} sub={`Seuil bon ≥ ${pct(SEUILS.conf.bon)}`} />
-          <ExKPI label="Taux livraison"   value={pct(livrMoyenne)} statut={statut(livrMoyenne, SEUILS.livr)} sub={`Seuil bon ≥ ${pct(SEUILS.livr.bon)}`} />
-          <ExKPI label="Produits actifs"  value={`${metrics.filter(m=>m.totalLeads>=MIN_LEADS).length}`} statut="neutre" sub={`${metrics.length} total`} />
-        </div>
-      </Card>
-
-      {/* ═══ 2. ALERTES PRIORITAIRES ════════════════════════════════════════ */}
-      {alertesAffichees.length > 0 && (
-        <Card style={{ marginBottom: 14 }}>
-          <p style={SS.blocLabel}>Alertes prioritaires</p>
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {alertesAffichees.map((a, i) => (
-              <div key={i} style={{
-                display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
-                background: a.niveau==="critique" ? P.redBg : P.amberBg,
-                border:`1px solid ${a.niveau==="critique" ? P.redBd : P.amberBd}`,
-                borderRadius:8,
-              }}>
-                <span style={{ fontSize:15 }}>{a.niveau==="critique" ? "⛔" : "⚠️"}</span>
-                <p style={{ margin:0, fontSize:13, color:P.text, flex:1, lineHeight:1.4 }}>{a.texte}</p>
-                <button style={SS.btnSm} onClick={() => { setSelected(a.produit); setDrillZone(null); }}>
-                  Voir →
-                </button>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* ═══ 3. OÙ EST LA FUITE ? ═══════════════════════════════════════════ */}
-      <Card style={{ marginBottom: 14 }}>
-        <p style={SS.blocLabel}>Où est la fuite ?</p>
-        <div style={SS.fuiteGrid}>
-          {[
-            {
-              key:"acquisition",
-              label:"Acquisition",
-              icon:"📡",
-              metric: cplMoyen > 0 ? fmt(cplMoyen) : "—",
-              sub:"CPL moyen",
-              statut: metrics.some(m=>m.statCpl==="critique") ? "critique" : metrics.some(m=>m.statCpl==="vigilance") ? "vigilance" : "bon",
-              desc:"CPM, CTR, CPC, arrivée",
-            },
-            {
-              key:"confirmation",
-              label:"Confirmation",
-              icon:"📞",
-              metric: pct(confMoyenne),
-              sub:`Objectif ≥ ${pct(SEUILS.conf.bon)}`,
-              statut: statut(confMoyenne, SEUILS.conf),
-              desc:"Script, conseillères, délais",
-            },
-            {
-              key:"livraison",
-              label:"Livraison",
-              icon:"📦",
-              metric: pct(livrMoyenne),
-              sub:`Objectif ≥ ${pct(SEUILS.livr.bon)}`,
-              statut: statut(livrMoyenne, SEUILS.livr),
-              desc:"Transporteur, ville, suivi",
-            },
-            {
-              key:"retours",
-              label:"Retours",
-              icon:"↩️",
-              metric: metrics.length > 0 ? pct(metrics.reduce((s,m,_,a)=>s+m.tauxRet/a.length,0)) : "—",
-              sub:`Seuil critique > ${pct(SEUILS.retours.vigilance)}`,
-              statut: statut(metrics.reduce((s,m,_,a)=>s+m.tauxRet/a.length,0), SEUILS.retours),
-              desc:"Destruction de marge en cascade",
-            },
-          ].map(f => (
-            <FuiteCard
-              key={f.key}
-              {...f}
-              dominant={f.key === fuiteDominanteGlobale}
-              onClick={() => setDrillZone(drillZone === f.key ? null : f.key)}
-              active={drillZone === f.key}
-            />
-          ))}
-        </div>
-      </Card>
-
-      {/* ═══ 4. DIAGNOSTIC DÉTAILLÉ (au clic sur une fuite) ════════════════ */}
-      {drillZone && sel && (
-        <Card style={{ marginBottom: 14, borderLeft: `3px solid ${P.teal}` }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
-            <p style={{ ...SS.blocLabel, margin:0 }}>
-              Diagnostic — {drillZone.charAt(0).toUpperCase() + drillZone.slice(1)} · {sel.nom}
-            </p>
-            <button style={SS.btnSm} onClick={() => setDrillZone(null)}>Fermer ✕</button>
-          </div>
-
-          {drillZone === "acquisition" && <DiagAcquisition m={sel} />}
-          {drillZone === "confirmation" && <DiagConfirmation m={sel} />}
-          {drillZone === "livraison"    && <DiagLivraison m={sel} />}
-          {drillZone === "retours"      && <DiagRetours m={sel} />}
-        </Card>
-      )}
-
-      {/* ═══ 5. PRODUITS ════════════════════════════════════════════════════ */}
-      <Card style={{ marginBottom: 14 }}>
-        <p style={SS.blocLabel}>Produits — Décisions</p>
-
-        {/* Sélecteur produit */}
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
-          {metrics.map(m => (
-            <button
-              key={m.nom}
-              onClick={() => { setSelected(m.nom); setDrillZone(null); }}
-              style={{
-                padding:"5px 12px", borderRadius:6, fontSize:12, fontWeight:500,
-                cursor:"pointer", fontFamily:"inherit",
-                background: selected===m.nom ? P.teal : P.surface,
-                color:       selected===m.nom ? "#fff"  : P.textSub,
-                border:`1px solid ${selected===m.nom ? P.teal : P.border}`,
-              }}
-            >
-              {m.nom}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {hasDecline && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#FCEBEB", border: "0.5px solid #F7C1C1", borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 500, color: "#A32D2D" }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#E24B4A", display: "inline-block" }} />
+              {byMargeDecline.length} produit{byMargeDecline.length > 1 ? "s" : ""} en déclin
+            </div>
+          )}
+          {[7, 30, 90].map((p) => (
+            <button key={p} onClick={() => setPeriod(p)} style={{ padding: "5px 12px", border: "0.5px solid", borderRadius: 6, fontSize: 12, cursor: "pointer", background: period === p ? "#534AB7" : "#fff", color: period === p ? "#fff" : "#64748b", borderColor: period === p ? "#534AB7" : "#e2e8f0", fontWeight: period === p ? 600 : 400 }}>
+              {p}j
             </button>
           ))}
         </div>
+      </div>
 
-        {/* Tableau */}
-        <div style={{ overflowX:"auto" }}>
-          <table style={SS.table}>
+      {/* ── Section 1 : Héro marge unitaire ── */}
+      <div style={S.sectionLabel}>1 — Signal principal · marge unitaire / livré · {periodLabel}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 20, marginBottom: 28 }}>
+        <div style={S.card}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 6 }}>
+            <span style={{ fontSize: 40, fontWeight: 600, color: heroAvg >= 0 ? "#3B6D11" : "#E24B4A", lineHeight: 1 }}>
+              {heroAvg != null ? `${heroAvg} MAD` : "—"}
+            </span>
+            <span style={{ fontSize: 13, color: "#64748b" }}>marge nette moyenne / livré</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+            Calculé sur {cmdLivrees} commandes livrées · prix − coût achat − livraison − emballage ({FRAIS_EMBALLAGE} MAD) − confirmation ({FRAIS_CONFIRMATION} MAD)
+          </div>
+          <div style={{ position: "relative", height: 140 }}>
+            <canvas ref={heroRef} role="img" aria-label={`Courbe marge unitaire nette sur ${period} jours`} />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {[
+            { label: "Taux confirmation", val: `${txConf}%`, ok: txConf >= SEUIL_CONF, warn: txConf >= 25, seuil: `Seuil > ${SEUIL_CONF}%` },
+            { label: "Taux livraison", val: `${txLivr}%`, ok: txLivr >= SEUIL_LIVR, warn: txLivr >= 40, seuil: `Seuil > ${SEUIL_LIVR}%` },
+            { label: "Leads période", val: totalLeadsPeriod, ok: true, seuil: periodLabel },
+            { label: "Livrées période", val: cmdLivrees, ok: cmdLivrees > 0, seuil: "Commandes livrées" },
+          ].map((s) => (
+            <div key={s.label} style={S.statCard}>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 600, color: s.ok ? "#1e293b" : s.warn ? "#BA7517" : "#A32D2D" }}>{s.val}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{s.seuil}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.divider} />
+
+      {/* ── Section 2a : Meilleure marge actuelle ── */}
+      <div style={S.sectionLabel}>2a — Produits · classement par marge actuelle</div>
+      <div style={{ ...S.card, marginBottom: 20, overflowX: "auto" }}>
+        <ProdTable rows={byMargeCurrent.slice(0, 10)} showDelta={false} />
+      </div>
+
+      {/* ── Section 2b : Produits en baisse ── */}
+      <div style={S.sectionLabel}>2b — Produits · marge en baisse · comparaison {period}j vs {period}j précédents</div>
+      <div style={{ ...S.card, marginBottom: 0, overflowX: "auto" }}>
+        {hasDecline ? (
+          <>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>
+              Delta = marge moyenne période courante − période précédente. Rouge = dégradation réelle sur données livrées.
+            </div>
+            <ProdTable rows={byMargeDecline} showDelta={true} />
+          </>
+        ) : (
+          <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+            Aucun produit en dégradation détecté sur la période — pas assez de données livrées sur les deux périodes pour comparer.
+          </div>
+        )}
+      </div>
+
+      <div style={S.divider} />
+
+      {/* ── Section 3 : Diagnostic Ads vs OPS ── */}
+      <div style={S.sectionLabel}>3 — Diagnostic fuite · Ads vs OPS</div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+        Logique : impact Ads = coût acquisition par livré ({cplLivre != null ? `${cplLivre} MAD/livré` : "aucune donnée"}) · impact OPS = points perdus en confirmation ({Math.max(0, SEUIL_CONF - txConf)} pts sous seuil) et livraison ({Math.max(0, SEUIL_LIVR - txLivr)} pts sous seuil)
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        {/* Ads */}
+        <div
+          onClick={() => setDrill(drill === "ads" ? null : "ads")}
+          style={{ ...S.card, cursor: "pointer", borderColor: drill === "ads" ? "#534AB7" : "#e2e8f0", borderWidth: drill === "ads" ? 1.5 : 0.5 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 18, color: "#534AB7" }}>📣</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>Acquisition — Ads</span>
+            </div>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "#534AB7" }}>{pctAds}%</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+            Part estimée dans la fuite de marge, basée sur le coût d'acquisition réel.
+          </div>
+          {[
+            { label: "Spend total", val: `${Math.round(totalSpend)} MAD`, pct: 100 },
+            { label: "CPL moyen", val: cplMoyen != null ? `${cplMoyen} MAD` : "—", pct: cplMoyen ? Math.min(100, cplMoyen) : 0 },
+            { label: "CPL / livré", val: cplLivre != null ? `${cplLivre} MAD` : "—", pct: cplLivre ? Math.min(100, cplLivre / 2) : 0 },
+            { label: "CTR moyen", val: ctr ? `${ctr}%` : "—", pct: ctr ? parseFloat(ctr) * 20 : 0 },
+          ].map((row) => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: "#64748b", width: 90, flexShrink: 0 }}>{row.label}</span>
+              <div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${row.pct}%`, background: "#534AB7", borderRadius: 3 }} />
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#534AB7", minWidth: 60, textAlign: "right" }}>{row.val}</span>
+            </div>
+          ))}
+          <div style={{ marginTop: 10, fontSize: 11, color: "#534AB7" }}>▸ {drill === "ads" ? "Masquer le détail" : "Voir détail par plateforme"}</div>
+        </div>
+
+        {/* OPS */}
+        <div
+          onClick={() => setDrill(drill === "ops" ? null : "ops")}
+          style={{ ...S.card, cursor: "pointer", borderColor: drill === "ops" ? "#BA7517" : "#e2e8f0", borderWidth: drill === "ops" ? 1.5 : 0.5 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 18, color: "#BA7517" }}>👥</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>OPS — Confirmation & Livraison</span>
+            </div>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "#BA7517" }}>{pctOps}%</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+            Part estimée dans la fuite, basée sur les écarts réels aux seuils de confirmation et livraison.
+          </div>
+          {[
+            { label: "Confirmation", val: `${txConf}%`, pct: txConf, seuil: SEUIL_CONF, color: "#BA7517" },
+            { label: "Livraison", val: `${txLivr}%`, pct: txLivr, seuil: SEUIL_LIVR, color: "#BA7517" },
+            { label: "Retours", val: `${txRetour}%`, pct: txRetour, seuil: 25, color: "#E24B4A" },
+          ].map((row) => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: "#64748b", width: 90, flexShrink: 0 }}>{row.label}</span>
+              <div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${row.pct}%`, background: row.color, borderRadius: 3 }} />
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: row.pct < row.seuil ? "#A32D2D" : "#3B6D11", minWidth: 40, textAlign: "right" }}>{row.val}</span>
+            </div>
+          ))}
+          <div style={{ marginTop: 10, fontSize: 11, color: "#BA7517" }}>▸ {drill === "ops" ? "Masquer le détail" : "Voir conseillères & transporteurs"}</div>
+        </div>
+      </div>
+
+      {/* ── Drill Ads ── */}
+      {drill === "ads" && (
+        <div style={{ ...S.card, marginBottom: 20, borderColor: "#AFA9EC" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>📣 Ads — Détail par plateforme</span>
+            <button onClick={() => setDrill(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>✕ Fermer</button>
+          </div>
+          {/* KPI synthèse */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+            {[
+              { label: "Spend total", val: `${Math.round(totalSpend)} MAD` },
+              { label: "CPL moyen", val: cplMoyen != null ? `${cplMoyen} MAD` : "—" },
+              { label: "CPL / livré", val: cplLivre != null ? `${cplLivre} MAD` : "—" },
+              { label: "CTR global", val: ctr ? `${ctr}%` : "—" },
+            ].map((k) => (
+              <div key={k.label} style={S.statCard}>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{k.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 600, color: "#1e293b" }}>{k.val}</div>
+              </div>
+            ))}
+          </div>
+          {/* Table plateformes */}
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
             <thead>
-              <tr>
-                {["Produit","Décision","Leads","Conf","Livr","Retours","CPL réel","CPL max","Marge/livré","Fuite"].map(h => (
-                  <th key={h} style={SS.th}>{h}</th>
+              <tr style={{ background: "#f8fafc" }}>
+                {["Plateforme", "Spend", "CPL", "CTR", "CPC"].map((h) => (
+                  <th key={h} style={{ ...th, background: "#f8fafc" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {metrics.sort((a,b) => a.margeNetteUnite - b.margeNetteUnite).map(m => (
-                <tr
-                  key={m.nom}
-                  style={{
-                    ...SS.tr,
-                    background: selected===m.nom ? "#F7F9FF" : "transparent",
-                    cursor:"pointer",
-                  }}
-                  onClick={() => { setSelected(m.nom); setDrillZone(null); }}
-                >
-                  <td style={SS.td}><span style={SS.nomP}>{m.nom}</span></td>
-                  <td style={SS.td}><DecisionBadge d={m.decision} /></td>
-                  <td style={SS.tdR}>{m.totalLeads}</td>
-                  <td style={{ ...SS.tdR, ...statutStyle(m.statConf) }}>{pct(m.tauxConf)}</td>
-                  <td style={{ ...SS.tdR, ...statutStyle(m.statLivr) }}>{pct(m.tauxLivr)}</td>
-                  <td style={{ ...SS.tdR, ...statutStyle(m.statRet,true) }}>{pct(m.tauxRet)}</td>
-                  <td style={SS.tdR}>{m.cplReel>0 ? fmt(m.cplReel) : "—"}</td>
-                  <td style={SS.tdR}>{m.cplMax>0  ? fmt(m.cplMax)  : "—"}</td>
-                  <td style={{ ...SS.tdR, fontWeight:700, color: m.margeNetteUnite>0 ? P.green : P.red }}>
-                    {fmt(m.margeNetteUnite)}
-                  </td>
-                  <td style={SS.td}>
-                    {m.fuiteDominante
-                      ? <span style={{ fontSize:11, padding:"2px 8px", borderRadius:4, background:P.amberBg, color:P.amber, border:`1px solid ${P.amberBd}`, fontWeight:600 }}>
-                          {m.fuiteDominante}
-                        </span>
-                      : <span style={{ color:P.textMuted, fontSize:12 }}>—</span>
-                    }
-                  </td>
+              {plateformes.length > 0 ? plateformes.map((pl) => (
+                <tr key={pl.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                  <td style={{ ...td(), fontWeight: 500 }}>{pl.nom}</td>
+                  <td style={td(true)}>{pl.spend} MAD</td>
+                  <td style={td(true)}>{pl.cpl != null ? `${pl.cpl} MAD` : "—"}</td>
+                  <td style={td(true)}>{pl.ctr ? `${pl.ctr}%` : "—"}</td>
+                  <td style={td(true)}>{pl.cpc != null ? `${pl.cpc} MAD` : "—"}</td>
                 </tr>
-              ))}
+              )) : (
+                <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée ads sur la période</td></tr>
+              )}
+            </tbody>
+          </table>
+          <div style={{ position: "relative", height: 140 }}>
+            <canvas ref={adsRef} role="img" aria-label="Spend par plateforme publicitaire" />
+          </div>
+        </div>
+      )}
+
+      {/* ── Drill OPS ── */}
+      {drill === "ops" && (
+        <div style={{ ...S.card, marginBottom: 20, borderColor: "#FAC775" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>👥 OPS — Conseillères & Transporteurs</span>
+            <button onClick={() => setDrill(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>✕ Fermer</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            {/* Conseillères */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Conseillères</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Conseillère", "Leads", "Taux conf.", "Tendance"].map((h) => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {conseilleresStats.length > 0 ? conseilleresStats.map((c) => (
+                    <tr key={c.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                      <td style={{ ...td(), fontWeight: 500 }}>{c.nom}</td>
+                      <td style={td(true)}>{c.leads}</td>
+                      <td style={{ ...td(true), color: c.taux_conf >= SEUIL_CONF ? "#3B6D11" : c.taux_conf >= 25 ? "#BA7517" : "#A32D2D", fontWeight: 600 }}>{c.taux_conf}%</td>
+                      <td style={td()}>
+                        <span style={S.chip(c.taux_conf >= SEUIL_CONF)}>{c.taux_conf >= SEUIL_CONF ? "OK" : "À améliorer"}</span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {/* Transporteurs */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Transporteurs</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Transporteur", "Livr.", "Retours", "Grade"].map((h) => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {transporteursStats.length > 0 ? transporteursStats.map((t) => (
+                    <tr key={t.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                      <td style={{ ...td(), fontWeight: 500 }}>{t.nom}</td>
+                      <td style={{ ...td(true), color: t.taux_livr >= SEUIL_LIVR ? "#3B6D11" : "#A32D2D", fontWeight: 600 }}>{t.taux_livr}%</td>
+                      <td style={{ ...td(true), color: t.taux_retour > 25 ? "#A32D2D" : "#1e293b" }}>{t.taux_retour}%</td>
+                      <td style={td()}>
+                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, ...gradeColor[t.grade] }}>{t.grade}</span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun transporteur assigné sur la période</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8" }}>
+                A1 ≥ 60% · A2 45–60% · B2 40–45% · STOP &lt; 40%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={S.divider} />
+
+      {/* ── Section 6 : Finance ── */}
+      <div style={S.sectionLabel}>6 — Finance · trésorerie & mouvements</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20 }}>
+        {/* Journal */}
+        <div style={S.card}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", marginBottom: 14 }}>Journal des mouvements</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["Date", "Libellé", "Catégorie", "Type", "Montant"].map((h) => (
+                  <th key={h} style={th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {releve.length > 0 ? releve.slice(0, 20).map((r, i) => {
+                const montant = parseFloat(r.montant) || 0;
+                const isIn = montant > 0;
+                return (
+                  <tr key={i} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                    <td style={{ ...td(), color: "#94a3b8", fontSize: 12 }}>{r.date ? new Date(r.date).toLocaleDateString("fr", { day: "numeric", month: "short" }) : "—"}</td>
+                    <td style={{ ...td(), maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }} title={r.libelle || r.description || ""}>{r.libelle || r.description || "—"}</td>
+                    <td style={td()}><span style={{ fontSize: 11, color: "#64748b" }}>{r.categorie || r.type || "—"}</span></td>
+                    <td style={td()}>
+                      <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: isIn ? "#EAF3DE" : "#FCEBEB", color: isIn ? "#3B6D11" : "#A32D2D" }}>
+                        {isIn ? "Recette" : "Dépense"}
+                      </span>
+                    </td>
+                    <td style={{ ...td(true), fontWeight: 600, color: isIn ? "#3B6D11" : "#A32D2D" }}>
+                      {isIn ? "+" : ""}{Math.round(montant)} MAD
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun mouvement enregistré</td></tr>
+              )}
             </tbody>
           </table>
         </div>
-      </Card>
 
-      {/* ═══ COURBE MARGE 30J (produit sélectionné) ═══════════════════════ */}
-      {sel && (
-        <Card>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-            <p style={{ ...SS.blocLabel, margin:0 }}>Marge nette 30j — {sel.nom}</p>
-            <div style={{ display:"flex", gap:8 }}>
-              {[
-                { key:"acquisition",  label:"CPL ?" },
-                { key:"confirmation", label:"Conf ?" },
-                { key:"livraison",    label:"Livr ?" },
-              ].map(z => (
-                <button
-                  key={z.key}
-                  style={{
-                    ...SS.btnSm,
-                    background: drillZone===z.key ? P.teal : P.surface,
-                    color:       drillZone===z.key ? "#fff"  : P.textSub,
-                    borderColor: drillZone===z.key ? P.teal  : P.border,
-                  }}
-                  onClick={() => setDrillZone(drillZone===z.key ? null : z.key)}
-                >
-                  🔍 {z.label}
-                </button>
-              ))}
+        {/* Synthèse cash */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={S.card}>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>Cash net (mouvements enregistrés)</div>
+            <div style={{ fontSize: 34, fontWeight: 700, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", lineHeight: 1, marginBottom: 4 }}>
+              {soldeNet >= 0 ? "+" : ""}{soldeNet} MAD
             </div>
-          </div>
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={courbe} margin={{ top:4, right:8, left:0, bottom:0 }}>
-              <CartesianGrid strokeDasharray="2 4" stroke={P.border} />
-              <XAxis dataKey="d" tick={{ fill:P.textMuted, fontSize:10 }} interval={6} />
-              <YAxis tick={{ fill:P.textMuted, fontSize:10 }} width={52} />
-              <Tooltip contentStyle={{ background:P.surface, border:`1px solid ${P.border}`, borderRadius:6, fontSize:11 }} />
-              <ReferenceLine y={0} stroke={P.red} strokeDasharray="3 3" strokeWidth={1} />
-              <Line type="monotone" dataKey="marge" stroke={P.teal} strokeWidth={2} dot={false} connectNulls={false} name="Marge nette (MAD)" />
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
-
-    </div>
-  );
-}
-
-// ─── BLOCS DIAGNOSTIC ────────────────────────────────────────────────────────
-
-function DiagAcquisition({ m }) {
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))", gap:10 }}>
-      {[
-        { k:"CPL réel",    v: fmt(m.cplReel),   bad: m.statCpl==="critique" },
-        { k:"CPL max",     v: fmt(m.cplMax),     bad: false },
-        { k:"Écart CPL",   v: m.cplMax>0 ? `${Math.round((m.cplReel/m.cplMax-1)*100)}%` : "—", bad: m.cplReel>m.cplMax },
-        { k:"CPM moyen",   v: m.cpmMoy>0 ? `${m.cpmMoy.toFixed(2)} USD` : "—", bad: false },
-        { k:"CTR moyen",   v: m.ctrMoy>0 ? pct(m.ctrMoy) : "—", bad: m.ctrMoy<0.01 && m.ctrMoy>0 },
-        { k:"Ads dépensés",v: fmt(m.adsTotal),  bad: false },
-      ].map(({k,v,bad}) => (
-        <MicroKpi key={k} label={k} value={v} alert={bad} />
-      ))}
-      <div style={{ gridColumn:"1/-1", marginTop:4 }}>
-        <p style={{ fontSize:12, color:P.textSub, margin:0, lineHeight:1.5 }}>
-          {m.statCpl==="critique"
-            ? `⛔ Le CPL dépasse le maximum toléré. À budget constant, chaque lead génère une perte. Réduire le budget ou améliorer le ciblage.`
-            : m.statCpl==="vigilance"
-            ? `⚠️ Le CPL approche du maximum toléré. Surveiller l'évolution quotidienne.`
-            : `✅ CPL sous contrôle. La fuite n'est pas dans l'acquisition.`}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function DiagConfirmation({ m }) {
-  const total = m.motifsNonConf.injoignable + m.motifsNonConf.annule + m.motifsNonConf.aRappeler;
-  return (
-    <div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))", gap:10, marginBottom:14 }}>
-        <MicroKpi label="Taux confirmation"  value={pct(m.tauxConf)} alert={m.statConf!=="bon"} />
-        <MicroKpi label="Leads total"         value={m.totalLeads} />
-        <MicroKpi label="Confirmés"           value={m.nbConf} />
-        <MicroKpi label="Injoignables"        value={m.motifsNonConf.injoignable} alert={m.motifsNonConf.injoignable / Math.max(1,m.totalLeads) > 0.3} />
-        <MicroKpi label="Annulés / Refusés"   value={m.motifsNonConf.annule} alert={m.motifsNonConf.annule / Math.max(1,m.totalLeads) > 0.2} />
-        <MicroKpi label="À rappeler"          value={m.motifsNonConf.aRappeler} />
-      </div>
-
-      {m.conseilleresPerf.length > 0 && (
-        <>
-          <p style={SS.subLabel}>Performance par conseillère</p>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {m.conseilleresPerf.sort((a,b)=>b.taux-a.taux).map(c => (
-              <div key={c.nom} style={{ display:"flex", alignItems:"center", gap:12 }}>
-                <span style={{ fontSize:13, color:P.text, width:120, flexShrink:0 }}>{c.nom}</span>
-                <div style={{ flex:1, height:6, background:P.surfaceAlt, borderRadius:3, overflow:"hidden" }}>
-                  <div style={{ width:`${(c.taux*100).toFixed(0)}%`, height:"100%", background: c.taux>=SEUILS.conf.bon ? P.green : c.taux>=SEUILS.conf.vigilance ? P.amber : P.red, borderRadius:3 }} />
-                </div>
-                <span style={{ fontSize:12, color:P.textSub, width:36, textAlign:"right" }}>{pct(c.taux)}</span>
-                <span style={{ fontSize:11, color:P.textMuted }}>({c.total} leads)</span>
+            <div style={{ height: "0.5px", background: "#e2e8f0", margin: "14px 0" }} />
+            {[
+              { label: "Recettes totales", val: `+${totalRevenu} MAD`, color: "#3B6D11" },
+              { label: "Dépenses totales", val: `${totalDepense} MAD`, color: "#A32D2D" },
+              { label: "Solde net", val: `${soldeNet >= 0 ? "+" : ""}${soldeNet} MAD`, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", bold: true },
+            ].map((row) => (
+              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 10 }}>
+                <span style={{ color: "#64748b" }}>{row.label}</span>
+                <span style={{ fontWeight: row.bold ? 700 : 500, color: row.color }}>{row.val}</span>
               </div>
             ))}
           </div>
-        </>
-      )}
-    </div>
-  );
-}
 
-function DiagLivraison({ m }) {
-  return (
-    <div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))", gap:10, marginBottom:14 }}>
-        <MicroKpi label="Taux livraison"   value={pct(m.tauxLivr)} alert={m.statLivr!=="bon"} />
-        <MicroKpi label="Expédiées"        value={m.nbExp} />
-        <MicroKpi label="Livrées"          value={m.nbLivres} />
-        <MicroKpi label="Retours"          value={m.nbRet} alert={m.statRet!=="bon"} />
-        <MicroKpi label="Frais livr. moy." value={`${Math.round(m.fraisLivrMoy)} MAD`} />
-      </div>
-
-      {m.villesPerf.length > 0 && (
-        <>
-          <p style={SS.subLabel}>Performance par ville (Top 5)</p>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {m.villesPerf.map(v => (
-              <div key={v.ville} style={{ display:"flex", alignItems:"center", gap:12 }}>
-                <span style={{ fontSize:13, color:P.text, width:120, flexShrink:0 }}>{v.ville}</span>
-                <div style={{ flex:1, height:6, background:P.surfaceAlt, borderRadius:3, overflow:"hidden" }}>
-                  <div style={{ width:`${(v.taux*100).toFixed(0)}%`, height:"100%", background: v.taux>=SEUILS.livr.bon ? P.green : v.taux>=SEUILS.livr.vigilance ? P.amber : P.red, borderRadius:3 }} />
-                </div>
-                <span style={{ fontSize:12, color:P.textSub, width:36, textAlign:"right" }}>{pct(v.taux)}</span>
-                <span style={{ fontSize:11, color:P.textMuted }}>({v.exp} exp.)</span>
+          {/* Ventilation dépenses */}
+          {Object.keys(catMap).length > 0 && (
+            <div style={S.card}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Ventilation dépenses</div>
+              {/* Barre proportionnelle */}
+              <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 2, marginBottom: 12 }}>
+                {Object.entries(catMap).map(([cat, val], i) => {
+                  const total = Math.abs(totalDepense) || 1;
+                  const barColors = ["#534AB7", "#E24B4A", "#BA7517", "#3B6D11", "#888"];
+                  return (
+                    <div key={cat} title={`${cat} : ${Math.round(val)} MAD`} style={{ flex: val / total * 100, background: barColors[i % barColors.length], minWidth: 2 }} />
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function DiagRetours({ m }) {
-  const perteCashParRetour = m.pa + m.fraisLivrMoy + EMBALLAGE;
-  const perteTotale = m.nbRet * perteCashParRetour;
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))", gap:10 }}>
-      <MicroKpi label="Taux retours"      value={pct(m.tauxRet)}  alert={m.statRet!=="bon"} />
-      <MicroKpi label="Nb retours"        value={m.nbRet} />
-      <MicroKpi label="Perte / retour"    value={fmt(perteCashParRetour)} alert />
-      <MicroKpi label="Perte totale retours" value={fmt(perteTotale)} alert={m.nbRet>0} />
-      <div style={{ gridColumn:"1/-1", marginTop:4 }}>
-        <p style={{ fontSize:12, color:P.textSub, margin:0, lineHeight:1.5 }}>
-          Chaque retour détruit <strong>{fmt(perteCashParRetour)}</strong> de cash (achat + livraison + emballage non récupérable).
-          Sur {m.nbRet} retours : perte sèche de <strong>{fmt(perteTotale)}</strong>.
-        </p>
+              {Object.entries(catMap).map(([cat, val], i) => {
+                const total = Math.abs(totalDepense) || 1;
+                const barColors = ["#534AB7", "#E24B4A", "#BA7517", "#3B6D11", "#888"];
+                return (
+                  <div key={cat} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6, alignItems: "center" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748b" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: barColors[i % barColors.length], display: "inline-block" }} />
+                      {cat}
+                    </span>
+                    <span style={{ fontWeight: 500, color: "#1e293b" }}>{Math.round(val)} MAD · {Math.round((val / total) * 100)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-// ─── SOUS-COMPOSANTS ─────────────────────────────────────────────────────────
-
-function Card({ children, style = {} }) {
-  return (
-    <div style={{ background:P.surface, border:`1px solid ${P.border}`, borderRadius:10, padding:"18px 20px", boxShadow:"0 1px 3px rgba(0,0,0,0.05)", ...style }}>
-      {children}
-    </div>
-  );
-}
-
-function StatutDot({ statut }) {
-  const c = { bon: P.green, vigilance: P.amber, critique: P.red, neutre: P.textMuted }[statut] || P.textMuted;
-  return (
-    <div style={{ width:10, height:10, borderRadius:"50%", background:c, flexShrink:0,
-      boxShadow: `0 0 0 3px ${c}22` }} />
-  );
-}
-
-function ExKPI({ label, value, statut: st, sub, main }) {
-  const c = STATUT_COLOR[st] || STATUT_COLOR.neutre;
-  return (
-    <div style={{
-      flex: main ? "1.4 1 200px" : "1 1 140px",
-      padding:"14px 16px",
-      background: main ? c.bg : P.surfaceAlt,
-      border:`1px solid ${main ? c.bd : P.border}`,
-      borderRadius:8,
-    }}>
-      <p style={{ fontSize:10, fontWeight:600, color:P.textMuted, textTransform:"uppercase", letterSpacing:"0.09em", margin:"0 0 6px" }}>{label}</p>
-      <p style={{ fontSize: main ? 24 : 20, fontWeight:700, color: main ? c.text : P.text, margin:"0 0 3px", fontVariantNumeric:"tabular-nums", letterSpacing:"-0.01em" }}>{value}</p>
-      <p style={{ fontSize:11, color:P.textMuted, margin:0 }}>{sub}</p>
-    </div>
-  );
-}
-
-function FuiteCard({ key:_, label, icon, metric, sub, statut: st, desc, dominant, onClick, active }) {
-  const c = STATUT_COLOR[st] || STATUT_COLOR.neutre;
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        flex: "1 1 0", padding:"16px", borderRadius:8, cursor:"pointer",
-        background: active ? c.bg : P.surfaceAlt,
-        border:`1px solid ${active ? c.bd : (dominant ? c.bd : P.border)}`,
-        borderTop: dominant ? `3px solid ${c.text}` : `1px solid ${active ? c.bd : P.border}`,
-        transition:"all 0.15s",
-        position:"relative",
-      }}
-    >
-      {dominant && <span style={{ position:"absolute", top:8, right:8, fontSize:9, fontWeight:700, color:c.text, textTransform:"uppercase", letterSpacing:"0.06em" }}>Cause principale</span>}
-      <div style={{ fontSize:18, marginBottom:8 }}>{icon}</div>
-      <p style={{ fontSize:12, fontWeight:700, color:P.text, margin:"0 0 4px" }}>{label}</p>
-      <p style={{ fontSize:22, fontWeight:700, color:c.text, margin:"0 0 4px", fontVariantNumeric:"tabular-nums" }}>{metric}</p>
-      <p style={{ fontSize:11, color:P.textMuted, margin:"0 0 6px" }}>{sub}</p>
-      <p style={{ fontSize:11, color:P.textSub, margin:0 }}>{desc}</p>
-    </div>
-  );
-}
-
-function MicroKpi({ label, value, alert: isAlert }) {
-  return (
-    <div style={{ padding:"10px 12px", background: isAlert ? P.redBg : P.surfaceAlt, border:`1px solid ${isAlert ? P.redBd : P.border}`, borderRadius:8 }}>
-      <p style={{ fontSize:10, color:P.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"0 0 4px" }}>{label}</p>
-      <p style={{ fontSize:16, fontWeight:700, color: isAlert ? P.red : P.text, margin:0, fontVariantNumeric:"tabular-nums" }}>{value}</p>
-    </div>
-  );
-}
-
-function DecisionBadge({ d }) {
-  const MAP = {
-    "STOP":      { bg:P.redBg,    bd:P.redBd,    txt:P.red   },
-    "SURVEILLER":{ bg:P.amberBg,  bd:P.amberBd,  txt:P.amber },
-    "MAINTENIR": { bg:P.blueBg,   bd:P.blueBd,   txt:P.blue  },
-    "SCALER":    { bg:P.greenBg,  bd:P.greenBd,  txt:P.green },
-    "EN TEST":   { bg:P.grayBg,   bd:P.grayBd,   txt:P.gray  },
-  };
-  const c = MAP[d] || MAP["EN TEST"];
-  return (
-    <span style={{ fontSize:11, fontWeight:700, padding:"3px 9px", borderRadius:4, textTransform:"uppercase", letterSpacing:"0.06em", background:c.bg, border:`1px solid ${c.bd}`, color:c.txt }}>
-      {d}
-    </span>
-  );
-}
-
-function statutStyle(st, inverse = false) {
-  const s = inverse
-    ? { bon:"neutre", vigilance:"vigilance", critique:"critique" }[st] || "neutre"
-    : st;
-  return { color: STATUT_COLOR[s]?.text || P.textSub, fontWeight: s!=="neutre" ? 600 : 400 };
-}
-
-// ─── UTILS ───────────────────────────────────────────────────────────────────
-const fmt = v => (v===null||v===undefined||isNaN(v)) ? "—" : Math.round(v).toLocaleString("fr-MA") + " MAD";
-const pct = v => (!v && v!==0) ? "—" : (v*100).toFixed(0) + "%";
-
-// ─── STYLES ──────────────────────────────────────────────────────────────────
-const SS = {
-  page:     { padding:"0 0 48px", fontFamily:"'Inter',-apple-system,system-ui,sans-serif", color:P.text, background:P.bg, minHeight:"100vh", display:"flex", flexDirection:"column", gap:14 },
-  loadWrap: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:300, gap:12 },
-  spinner:  { display:"inline-block", width:20, height:20, border:`2px solid ${P.border}`, borderTop:`2px solid ${P.teal}`, borderRadius:"50%", animation:"spin .7s linear infinite" },
-  loadTxt:  { fontSize:13, color:P.textMuted, margin:0 },
-  errWrap:  { padding:24, display:"flex", flexDirection:"column", gap:12, alignItems:"flex-start" },
-
-  exHead:   { display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, paddingBottom:14, borderBottom:`1px solid ${P.border}` },
-  exTitle:  { fontSize:15, fontWeight:600, color:P.text },
-  dateLbl:  { fontSize:12, color:P.textMuted },
-  kpiGrid:  { display:"flex", flexWrap:"wrap", gap:10 },
-
-  blocLabel:{ fontSize:11, fontWeight:700, color:P.textSub, textTransform:"uppercase", letterSpacing:"0.09em", margin:"0 0 14px" },
-  subLabel: { fontSize:11, fontWeight:600, color:P.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", margin:"0 0 10px" },
-
-  fuiteGrid:{ display:"flex", gap:10, flexWrap:"wrap" },
-
-  table:    { width:"100%", borderCollapse:"collapse", fontSize:13 },
-  th:       { textAlign:"left", color:P.textMuted, fontWeight:600, fontSize:10, textTransform:"uppercase", letterSpacing:"0.09em", padding:"10px 12px", borderBottom:`1px solid ${P.border}`, whiteSpace:"nowrap" },
-  tr:       { borderBottom:`1px solid ${P.border}`, transition:"background 0.1s", cursor:"pointer" },
-  td:       { padding:"11px 12px", color:P.text, verticalAlign:"middle" },
-  tdR:      { padding:"11px 12px", textAlign:"right", fontVariantNumeric:"tabular-nums", verticalAlign:"middle", color:P.textSub },
-  nomP:     { fontWeight:600, color:P.text, fontSize:13 },
-
-  btnSm:    { padding:"5px 12px", borderRadius:6, border:`1px solid ${P.borderMid}`, background:P.surface, color:P.textSub, fontSize:12, cursor:"pointer", fontFamily:"inherit" },
-  btnRefresh:{ padding:"5px 10px", borderRadius:6, border:`1px solid ${P.border}`, background:"transparent", color:P.textMuted, fontSize:12, cursor:"pointer", fontFamily:"inherit" },
-};
