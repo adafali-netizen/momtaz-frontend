@@ -442,6 +442,20 @@ export default function Commandes() {
                     </select>
                   </div>
 
+                  {/* Date du statut */}
+<div>
+  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 6 }}>
+    Date — {newStatut}
+  </div>
+  <input
+    type="date"
+    value={dateStatut}
+    onChange={e => setDateStatut(e.target.value)}
+    disabled={saving}
+    style={inputStyle(false)}
+  />
+</div>
+                  
                   {/* Transporteur */}
                   <div>
                     <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: errors.transporteur ? "#DC2626" : "#94A3B8", marginBottom: 6 }}>
