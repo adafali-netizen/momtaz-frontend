@@ -124,6 +124,7 @@ export default function Commandes() {
     setFraisLivr(c.frais_livraison || "");
     setFraisRet(c.frais_retour || "");
     setErrors({});
+    setDateStatut(new Date().toISOString().split("T")[0]);
   }
 
   async function createCommande(form) {
@@ -151,9 +152,10 @@ export default function Commandes() {
     setSaving(true);
 
     const updates = { statut: newStatut, transporteur, tracking: trackingVal };
-    if (newStatut === "Expédiée") updates.date_expedition = new Date().toISOString();
-    if (STATUTS_LIVRAISON.includes(newStatut)) updates.date_livraison = new Date().toISOString();
-    if (newStatut === "Retour reçu") updates.date_retour = new Date().toISOString();
+const dateISO = dateStatut ? new Date(dateStatut).toISOString() : new Date().toISOString();
+if (newStatut === "Expédiée") updates.date_expedition = dateISO;
+if (STATUTS_LIVRAISON.includes(newStatut)) updates.date_livraison = dateISO;
+if (newStatut === "Retour reçu") updates.date_retour = dateISO;
     if (fraisLivr) updates.frais_livraison = +fraisLivr;
     if (fraisRet)  updates.frais_retour    = +fraisRet;
 
