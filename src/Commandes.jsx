@@ -138,14 +138,15 @@ export default function Commandes() {
   }
 
   // Validation avant enregistrement
-  function validate() {
-    const e = {};
-    const needsExpedition = STATUTS_NEED_EXPEDITION.includes(newStatut);
-    if (needsExpedition && !transporteur) e.transporteur = true;
-    if (needsExpedition && !trackingVal.trim()) e.tracking = true;
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }
+function validate() {
+  const e = {};
+  const needsExpedition = STATUTS_NEED_EXPEDITION.includes(newStatut);
+  if (needsExpedition && !transporteur) e.transporteur = true;
+  if (needsExpedition && !trackingVal.trim()) e.tracking = true;
+  if (STATUTS_LIVRAISON.includes(newStatut) && !fraisLivr) e.fraisLivr = true;
+  setErrors(e);
+  return Object.keys(e).length === 0;
+}
 
   async function handleEnregistrer() {
     if (!validate()) return;
@@ -498,12 +499,16 @@ if (newStatut === "Retour reçu") updates.date_retour = dateISO;
 
                   {/* Frais livraison */}
                   <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 6 }}>Frais de livraison (MAD)</div>
-                    <input
-                      type="number" placeholder="25" value={fraisLivr}
-                      onChange={e => setFraisLivr(e.target.value)} disabled={saving}
-                      style={inputStyle(false)}
-                    />
+<div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: errors.fraisLivr ? "#DC2626" : "#94A3B8", marginBottom: 6 }}>
+  Frais de livraison (MAD) {STATUTS_LIVRAISON.includes(newStatut) && <span style={{ color: "#DC2626" }}>*</span>}
+</div>
+<input
+  type="number" placeholder="25" value={fraisLivr}
+  onChange={e => { setFraisLivr(e.target.value); setErrors(p => ({ ...p, fraisLivr: false })); }}
+  disabled={saving}
+  style={inputStyle(errors.fraisLivr)}
+/>
+{errors.fraisLivr && <div style={{ fontSize: 11, color: "#DC2626", marginTop: 3 }}>⚠ Frais de livraison requis pour ce statut</div>}
                   </div>
 
                   {/* Frais retour */}
