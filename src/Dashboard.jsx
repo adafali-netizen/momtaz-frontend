@@ -434,7 +434,7 @@ export default function Dashboard({ role, nom, setModule }) {
 
         {!d.releve_ok ? (
           <div style={{ padding: "12px 0", color: "#94a3b8", fontSize: 13 }}>
-            Aucun mouvement enregistré sur la période. <span style={{ color: CLR.purple.text, cursor: "pointer", fontWeight: 600 }} onClick={() => setModule("dashboard-analytique")}>Alimenter le relevé bancaire →</span>
+            Aucun mouvement enregistré sur la période. <span style={{ color: CLR.purple.text, cursor: "pointer", fontWeight: 600 }} onClick={() => setModule("releve-bancaire")} >Alimenter le relevé bancaire →</span>
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", gap: 20, alignItems: "start" }}>
