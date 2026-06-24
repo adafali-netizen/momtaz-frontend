@@ -212,7 +212,16 @@ try {
 
     const updated = { ...selected, ...updates };
     setCommandes(prev => prev.map(c => c.id === selected.id ? updated : c));
-    setSelected(updated);
+setSelected(updated);
+
+    // Recharger l'historique
+    const { data: newEvents } = await supabase
+      .from("commande_events")
+      .select("*")
+      .eq("commande_id", selected.id)
+      .order("created_at", { ascending: false });
+    if (newEvents) setEvents(newEvents);
+
     setSaving(false);
   }
 
