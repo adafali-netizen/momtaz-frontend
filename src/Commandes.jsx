@@ -420,8 +420,9 @@ export default function Commandes() {
                   <input className="form-input" placeholder="Numéro de suivi..."
                     value={tracking[selected.id] ?? selected.tracking ?? ""}
                     onChange={e => setTracking(t => ({ ...t, [selected.id]: e.target.value }))} />
-                  <button onClick={() => saveTracking(selected.id)} disabled={saving} style={{ marginTop: 8, width: "100%", padding: "8px", background: saving ? "#F8FAFC" : "#0F172A", color: saving ? "#94A3B8" : "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                    {saving ? "⏳ Sauvegarde..." : "💾 Enregistrer"}
+<button onClick={() => saveTracking(selected.id)} disabled={saving} style={{ marginTop: 8, width: "100%", padding: "10px", background: saving ? "#F8FAFC" : "#534AB7", color: saving ? "#94A3B8" : "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", transition: "background .15s" }}>
+  {saving ? "Enregistrement…" : "Enregistrer"}
+</button>
                   </button>
                 </div>
 
