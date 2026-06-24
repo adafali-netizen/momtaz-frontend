@@ -12,7 +12,7 @@ import DashboardAnalytique from "./DashboardAnalytique";
 import ReleveBancaire from "./Finances";
 import "./App.css";
 
-const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "releve-bancaire", "dashboard-analytique"];
+const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "finances", "releve-bancaire", "dashboard-analytique"];
 
 function getModuleFromHash() {
   const hash = window.location.hash.replace("#", "");
@@ -65,6 +65,7 @@ export default function App() {
     produits:               Produits,
     ads:                    Ads,
     "stock-historique":     StockHistorique,
+    "finances":             ReleveBancaire,
     "releve-bancaire":      ReleveBancaire,
     "dashboard-analytique": DashboardAnalytique,
   };
