@@ -9,9 +9,10 @@ import Produits from "./Produits";
 import Ads from "./Ads";
 import StockHistorique from "./StockHistorique";
 import DashboardAnalytique from "./DashboardAnalytique";
+import ReleveBancaire from "./ReleveBancaire";
 import "./App.css";
 
-const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique"];
+const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "releve-bancaire", "dashboard-analytique"];
 
 function getModuleFromHash() {
   const hash = window.location.hash.replace("#", "");
@@ -33,7 +34,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Sync hash → state (bouton back/forward)
   useEffect(() => {
     const onHashChange = () => setModule(getModuleFromHash());
     window.addEventListener("hashchange", onHashChange);
@@ -59,12 +59,13 @@ export default function App() {
   if (!session)    return <Login />;
 
   const MODULES = {
-    dashboard:          Dashboard,
-    leads:              Leads,
-    commandes:          Commandes,
-    produits:           Produits,
-    ads:                Ads,
-    "stock-historique": StockHistorique,
+    dashboard:              Dashboard,
+    leads:                  Leads,
+    commandes:              Commandes,
+    produits:               Produits,
+    ads:                    Ads,
+    "stock-historique":     StockHistorique,
+    "releve-bancaire":      ReleveBancaire,
     "dashboard-analytique": DashboardAnalytique,
   };
 
@@ -88,4 +89,3 @@ export default function App() {
     </Layout>
   );
 }
-
