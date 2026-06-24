@@ -99,20 +99,6 @@ function ZoneStatut({ selected, onUpdate, saving }) {
         }}>
           {STATUTS_CMD.map(s => <option key={s} value={s}>{S_CMD[s].emoji} {s}</option>)}
         </select>
-        {modified && (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => onUpdate(selected.id, newStatut)} disabled={saving} style={{
-              flex: 1, padding: "10px", background: current.color, color: "#fff",
-              border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
-            }}>
-              {saving ? "⏳..." : `✓ ${current.emoji} ${newStatut}`}
-            </button>
-            <button onClick={() => setNewStatut(selected.statut)} disabled={saving} style={{
-              padding: "10px 14px", background: "#F8FAFC", color: "#64748B",
-              border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, cursor: "pointer",
-            }}>✕</button>
-          </div>
-        )}
       </div>
     </div>
   );
