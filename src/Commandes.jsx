@@ -96,6 +96,7 @@ export default function Commandes() {
   const [trackingVal, setTrackingVal] = useState("");
   const [fraisLivr,   setFraisLivr]  = useState("");
   const [fraisRet,    setFraisRet]   = useState("");
+  const [dateStatut,  setDateStatut] = useState(new Date().toISOString().split("T")[0]);
 
   // Erreurs de validation
   const [errors, setErrors] = useState({});
