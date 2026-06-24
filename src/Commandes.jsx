@@ -43,6 +43,9 @@ const WEBHOOK = "https://momtaz-webhook.onrender.com/api/lead/";
 const STATUTS_LIVRAISON = ["Livrée", "Facturée"];
 const STATUTS_RETOUR    = ["Retour reçu"];
 
+// Statuts qui nécessitent transporteur + tracking
+const STATUTS_NEED_EXPEDITION = ["Expédiée", "En cours de livraison", "Livrée", "Facturée"];
+
 function Modal({ onClose, onCreate }) {
   const [form, setForm] = useState({ client_nom: "", telephone: "", produit: "", ville: "", quantite: 1, prix: "", transporteur: "Sendit" });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -78,43 +81,24 @@ function Modal({ onClose, onCreate }) {
   );
 }
 
-function ZoneStatut({ selected, onUpdate, saving }) {
-  const [newStatut, setNewStatut] = useState(selected.statut);
-  useEffect(() => { setNewStatut(selected.statut); }, [selected.id, selected.statut]);
-
-  const current  = S_CMD[newStatut] || S_CMD["À expédier"];
-  const modified = newStatut !== selected.statut;
-
-  return (
-    <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ padding: "8px 14px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8" }}>Changer le statut</div>
-      </div>
-      <div style={{ padding: "12px 14px", background: "#fff", display: "flex", flexDirection: "column", gap: 10 }}>
-        <select value={newStatut} onChange={e => setNewStatut(e.target.value)} disabled={saving} style={{
-          width: "100%", padding: "10px 12px",
-          background: current.bg, border: `1.5px solid ${current.color}55`,
-          borderRadius: 8, fontSize: 13, fontWeight: 600,
-          color: current.color, cursor: "pointer", outline: "none", fontFamily: "inherit",
-        }}>
-          {STATUTS_CMD.map(s => <option key={s} value={s}>{S_CMD[s].emoji} {s}</option>)}
-        </select>
-      </div>
-    </div>
-  );
-}
-
 export default function Commandes() {
-  const [commandes, setCommandes] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [filtre,    setFiltre]    = useState("tous");
-  const [search,    setSearch]    = useState("");
-  const [selected,  setSelected]  = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [tracking,  setTracking]  = useState({});
-  const [saving,    setSaving]    = useState(false);
-  const [fraisLivr, setFraisLivr] = useState("");
-  const [fraisRet,  setFraisRet]  = useState("");
+  const [commandes,   setCommandes]  = useState([]);
+  const [loading,     setLoading]    = useState(true);
+  const [filtre,      setFiltre]     = useState("tous");
+  const [search,      setSearch]     = useState("");
+  const [selected,    setSelected]   = useState(null);
+  const [showModal,   setShowModal]  = useState(false);
+  const [saving,      setSaving]     = useState(false);
+
+  // Champs panneau droit
+  const [newStatut,   setNewStatut]  = useState("");
+  const [transporteur,setTransporteur] = useState("");
+  const [trackingVal, setTrackingVal] = useState("");
+  const [fraisLivr,   setFraisLivr]  = useState("");
+  const [fraisRet,    setFraisRet]   = useState("");
+
+  // Erreurs de validation
+  const [errors, setErrors] = useState({});
 
   useEffect(() => {
     fetchCommandes();
@@ -130,39 +114,87 @@ export default function Commandes() {
     setLoading(false);
   }
 
-  async function createCommande(form) {
-    await supabase.from("commandes").insert([{ client_nom: form.client_nom, telephone: form.telephone, produit: form.produit, ville: form.ville, quantite: form.quantite, prix: form.prix || null, transporteur: form.transporteur, statut: "À expédier" }]);
+  // Sync panneau droit quand on change de commande
+  function selectCommande(c) {
+    setSelected(c);
+    setNewStatut(c.statut);
+    setTransporteur(c.transporteur || "Sendit");
+    setTrackingVal(c.tracking || "");
+    setFraisLivr(c.frais_livraison || "");
+    setFraisRet(c.frais_retour || "");
+    setErrors({});
   }
 
-  async function updateStatut(id, statut) {
+  async function createCommande(form) {
+    await supabase.from("commandes").insert([{
+      client_nom: form.client_nom, telephone: form.telephone,
+      produit: form.produit, ville: form.ville,
+      quantite: form.quantite, prix: form.prix || null,
+      transporteur: form.transporteur, statut: "À expédier"
+    }]);
+    fetchCommandes();
+  }
+
+  // Validation avant enregistrement
+  function validate() {
+    const e = {};
+    const needsExpedition = STATUTS_NEED_EXPEDITION.includes(newStatut);
+    if (needsExpedition && !transporteur) e.transporteur = true;
+    if (needsExpedition && !trackingVal.trim()) e.tracking = true;
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function handleEnregistrer() {
+    if (!validate()) return;
     setSaving(true);
-    const updates = { statut };
-    if (statut === "Expédiée") updates.date_expedition = new Date().toISOString();
-    if (statut === "Livrée" || statut === "Facturée") updates.date_livraison = new Date().toISOString();
-    if (statut === "Retour reçu") updates.date_retour = new Date().toISOString();
-    if (STATUTS_LIVRAISON.includes(statut) && fraisLivr) {
-      updates.frais_livraison = +fraisLivr;
-      const cmd = commandes.find(c => c.id === id);
-      await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: cmd?.transporteur || "—", categorie: "Logistique", intitule: "Frais livraison", debit: +fraisLivr, commande_id: id, produit: cmd?.produit || null, observation: `CMD ${id.slice(0, 8)}` }]);
+
+    const updates = { statut: newStatut, transporteur, tracking: trackingVal };
+    if (newStatut === "Expédiée") updates.date_expedition = new Date().toISOString();
+    if (STATUTS_LIVRAISON.includes(newStatut)) updates.date_livraison = new Date().toISOString();
+    if (newStatut === "Retour reçu") updates.date_retour = new Date().toISOString();
+    if (fraisLivr) updates.frais_livraison = +fraisLivr;
+    if (fraisRet)  updates.frais_retour    = +fraisRet;
+
+    await supabase.from("commandes").update(updates).eq("id", selected.id);
+
+    // Relevé bancaire frais livraison
+    if (STATUTS_LIVRAISON.includes(newStatut) && fraisLivr) {
+      await supabase.from("releve_bancaire").insert([{
+        date: new Date().toISOString().split("T")[0],
+        mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+        mode_paiement: transporteur || "—", categorie: "Logistique",
+        intitule: "Frais livraison", debit: +fraisLivr,
+        commande_id: selected.id, produit: selected.produit || null,
+        observation: `CMD ${selected.id.slice(0, 8)}`
+      }]);
     }
-    if (STATUTS_RETOUR.includes(statut) && fraisRet) {
-      updates.frais_retour = +fraisRet;
-      const cmd = commandes.find(c => c.id === id);
-      await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: cmd?.transporteur || "—", categorie: "Logistique", intitule: "Frais retour", debit: +fraisRet, commande_id: id, produit: cmd?.produit || null, observation: `CMD ${id.slice(0, 8)}` }]);
+    // Relevé bancaire frais retour
+    if (STATUTS_RETOUR.includes(newStatut) && fraisRet) {
+      await supabase.from("releve_bancaire").insert([{
+        date: new Date().toISOString().split("T")[0],
+        mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+        mode_paiement: transporteur || "—", categorie: "Logistique",
+        intitule: "Frais retour", debit: +fraisRet,
+        commande_id: selected.id, produit: selected.produit || null,
+        observation: `CMD ${selected.id.slice(0, 8)}`
+      }]);
     }
-    await supabase.from("commandes").update(updates).eq("id", id);
-    try { await fetch(WEBHOOK + id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates) }); } catch {}
-    if (selected?.id === id) setSelected(s => ({ ...s, ...updates }));
-    setFraisLivr(""); setFraisRet("");
+
+    try {
+      await fetch(WEBHOOK + selected.id, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+    } catch {}
+
+    const updated = { ...selected, ...updates };
+    setCommandes(prev => prev.map(c => c.id === selected.id ? updated : c));
+    setSelected(updated);
     setSaving(false);
   }
 
-  async function saveTracking(id) {
-    const val = tracking[id] || "";
-    await supabase.from("commandes").update({ tracking: val }).eq("id", id);
-    if (selected?.id === id) setSelected(s => ({ ...s, tracking: val }));
-  }
-
+  // KPI
   const total    = commandes.length;
   const cnt      = s => commandes.filter(c => c.statut === s).length;
   const pct      = s => total > 0 ? Math.round((cnt(s) / total) * 100) : 0;
@@ -185,10 +217,28 @@ export default function Commandes() {
     if (!matchFiltre) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return (c.client_nom||"").toLowerCase().includes(q) || (c.telephone||"").includes(q) || (c.ville||"").toLowerCase().includes(q) || (c.produit||"").toLowerCase().includes(q) || (c.tracking||"").toLowerCase().includes(q);
+    return (
+      (c.client_nom||"").toLowerCase().includes(q) ||
+      (c.telephone||"").includes(q) ||
+      (c.ville||"").toLowerCase().includes(q) ||
+      (c.produit||"").toLowerCase().includes(q) ||
+      (c.tracking||"").toLowerCase().includes(q) ||
+      (c.id||"").toLowerCase().includes(q)
+    );
   });
 
-  const statutMeta = S_CMD[selected?.statut] || { color: "#64748B", bg: "#F8FAFC", emoji: "•" };
+  const statutMeta  = S_CMD[selected?.statut] || { color: "#64748B", bg: "#F8FAFC", emoji: "•" };
+  const newStatutMeta = S_CMD[newStatut] || { color: "#64748B", bg: "#F8FAFC" };
+  const needsExpedition = STATUTS_NEED_EXPEDITION.includes(newStatut);
+  const showFraisRetour = STATUTS_RETOUR.includes(newStatut) || (selected?.frais_retour > 0);
+
+  const inputStyle = (hasError) => ({
+    width: "100%", padding: "8px 10px", fontSize: 12, outline: "none",
+    borderRadius: 8, boxSizing: "border-box", fontFamily: "inherit",
+    background: hasError ? "#FEF2F2" : "#F8FAFC",
+    border: `1px solid ${hasError ? "#FCA5A5" : "#E2E8F0"}`,
+    color: "#0F172A",
+  });
 
   return (
     <>
@@ -201,8 +251,6 @@ export default function Commandes() {
       {/* ══ BANDEAU KPI ══ */}
       <div style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", padding: "20px 24px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
-
-          {/* HÉRO */}
           <div style={{ padding: "28px 32px", minWidth: 200, height: 130, background: heroBg, border: `1px solid ${heroBorder}`, borderTop: `4px solid ${heroColor}`, borderRadius: 16, boxShadow: "0 8px 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box" }}>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>Taux de livraison</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
@@ -217,7 +265,6 @@ export default function Commandes() {
 
           <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* TOTAL */}
           <div onClick={() => setFiltre("tous")} style={{ padding: "24px 28px", minWidth: 140, height: 130, background: filtre === "tous" ? "#F0F7FF" : "#fff", border: `1px solid ${filtre === "tous" ? "#BFDBFE" : "#E2E8F0"}`, borderRadius: 16, boxShadow: filtre === "tous" ? "0 0 0 3px #2563EB15" : "0 4px 12px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", justifyContent: "space-between", boxSizing: "border-box", cursor: "pointer", transition: "all .15s" }}>
             <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#94A3B8" }}>Total</div>
             <div style={{ fontSize: 42, fontWeight: 800, color: filtre === "tous" ? "#2563EB" : "#0F172A", fontFamily: "JetBrains Mono, monospace", lineHeight: 1 }}>{total}</div>
@@ -226,7 +273,6 @@ export default function Commandes() {
 
           <div style={{ width: 1, background: "#E2E8F0", margin: "8px 0", alignSelf: "stretch" }} />
 
-          {/* STATUTS */}
           <div style={{ display: "flex", gap: 10, alignItems: "stretch", flex: 1, flexWrap: "wrap" }}>
             {kpiStatutsTries.filter(s => s.n > 0).map(s => {
               const isActive = filtre === s.key;
@@ -246,10 +292,13 @@ export default function Commandes() {
       <div style={{ background: "#fff", borderBottom: "2px solid #E2E8F0", boxShadow: "0 2px 6px rgba(0,0,0,0.04)", padding: "12px 24px", flexShrink: 0, display: "flex", gap: 12, alignItems: "center" }}>
         <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
           <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#94A3B8", pointerEvents: "none" }}>🔍</span>
-          <input style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", transition: "border-color .15s", fontFamily: "inherit" }}
-            placeholder="Rechercher par client, téléphone, ville, produit, tracking..."
+          <input
+            style={{ width: "100%", padding: "9px 14px 9px 36px", background: "#F8FAFC", border: "1.5px solid #E2E8F0", borderRadius: 10, fontSize: 13, color: "#0F172A", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+            placeholder="Rechercher par client, téléphone, ville, produit, tracking, ID..."
             value={search} onChange={e => setSearch(e.target.value)}
-            onFocus={e => e.target.style.borderColor = "#2563EB"} onBlur={e => e.target.style.borderColor = "#E2E8F0"} />
+            onFocus={e => e.target.style.borderColor = "#2563EB"}
+            onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+          />
           {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>}
         </div>
         <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: "auto", whiteSpace: "nowrap" }}>
@@ -277,21 +326,54 @@ export default function Commandes() {
           <div className="table-wrap">
             <table className="data-table">
               <thead>
-                <tr><th>Client</th><th>Téléphone</th><th>Produit</th><th>Ville</th><th>Transporteur</th><th>Tracking</th><th>Frais livr.</th><th>Statut</th><th>Créé le</th></tr>
+                <tr>
+                  <th>ID</th>
+                  <th>Client</th>
+                  <th>Téléphone</th>
+                  <th>Produit</th>
+                  <th>Ville</th>
+                  <th>Transporteur</th>
+                  <th>Tracking</th>
+                  <th>Frais livr.</th>
+                  <th>Statut</th>
+                  <th>Créé le</th>
+                </tr>
               </thead>
               <tbody>
                 {filtered.map(c => {
                   const m = S_CMD[c.statut] || {};
+                  const manqueExpedition = STATUTS_NEED_EXPEDITION.includes(c.statut) && (!c.transporteur || !c.tracking);
                   return (
-                    <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => { setSelected(c); setFraisLivr(c.frais_livraison || ""); setFraisRet(c.frais_retour || ""); }}>
+                    <tr
+                      key={c.id}
+                      className={selected?.id === c.id ? "selected" : ""}
+                      onClick={() => selectCommande(c)}
+                    >
+                      <td style={{ fontFamily: "monospace", fontSize: 11, color: "#94A3B8" }} title={c.id}>
+                        {c.id ? c.id.slice(0, 8) + "…" : "—"}
+                      </td>
                       <td style={{ fontWeight: 600 }}>{c.client_nom || "—"}</td>
                       <td className="col-mono">{c.telephone}</td>
                       <td>{c.produit || "—"}</td>
                       <td className="col-muted">{c.ville || "—"}</td>
-                      <td className="col-muted">{c.transporteur || "—"}</td>
-                      <td className="col-mono col-muted">{c.tracking || "—"}</td>
+                      <td className="col-muted">
+                        {c.transporteur
+                          ? c.transporteur
+                          : <span style={{ color: manqueExpedition ? "#DC2626" : "#CBD5E1" }}>{manqueExpedition ? "⚠ manquant" : "—"}</span>
+                        }
+                      </td>
+                      <td className="col-mono col-muted">
+                        {c.tracking
+                          ? c.tracking
+                          : <span style={{ color: manqueExpedition ? "#DC2626" : "#CBD5E1" }}>{manqueExpedition ? "⚠ manquant" : "—"}</span>
+                        }
+                      </td>
                       <td className="col-mono">{c.frais_livraison ? `${c.frais_livraison} MAD` : <span style={{ color: "#CBD5E1" }}>—</span>}</td>
-                      <td><span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, color: m.color, background: m.bg, border: `1px solid ${m.color}33`, whiteSpace: "nowrap" }}>{m.emoji} {c.statut}</span></td>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, color: m.color, background: m.bg, border: `1px solid ${m.color}33`, whiteSpace: "nowrap" }}>
+                          {m.emoji} {c.statut}
+                        </span>
+                      </td>
                       <td className="col-muted">{c.created_at ? new Date(c.created_at).toLocaleDateString("fr-FR") : "—"}</td>
                     </tr>
                   );
@@ -304,12 +386,12 @@ export default function Commandes() {
           {selected && (
             <aside style={{ width: 360, flexShrink: 0, background: "#fff", borderLeft: "1px solid #E2E8F0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-              {/* 1 — IDENTITÉ */}
+              {/* IDENTITÉ */}
               <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #E2E8F0", background: "#FAFAFA", flexShrink: 0 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 17, fontWeight: 800, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{selected.client_nom || "Sans nom"}</div>
-                    <div style={{ fontSize: 10, color: "#64748B" }}>{selected.created_at ? new Date(selected.created_at).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short" }) : ""}{selected.transporteur ? ` · 🚚 ${selected.transporteur}` : ""}</div>
+                    <div style={{ fontSize: 10, color: "#94A3B8", fontFamily: "monospace" }}>ID : {selected.id?.slice(0, 16)}…</div>
                   </div>
                   <button onClick={() => setSelected(null)} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", fontSize: 16, cursor: "pointer", padding: "2px 8px", lineHeight: 1, flexShrink: 0 }}>×</button>
                 </div>
@@ -330,88 +412,120 @@ export default function Commandes() {
                 </div>
 
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {selected.ville    && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px" }}>📍 {selected.ville}</span>}
-                  {selected.produit  && <span style={{ fontSize: 11, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "3px 8px", fontWeight: 600 }}>{selected.produit} × {selected.quantite || 1}</span>}
-                  {selected.prix     && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px", fontFamily: "JetBrains Mono, monospace" }}>{selected.prix} MAD</span>}
+                  {selected.ville   && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px" }}>📍 {selected.ville}</span>}
+                  {selected.produit && <span style={{ fontSize: 11, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "3px 8px", fontWeight: 600 }}>{selected.produit} × {selected.quantite || 1}</span>}
+                  {selected.prix    && <span style={{ fontSize: 11, color: "#64748B", background: "#F1F5F9", border: "1px solid #E2E8F0", borderRadius: 6, padding: "3px 8px", fontFamily: "monospace" }}>{selected.prix} MAD</span>}
                 </div>
-
-                {selected.tracking && (
-                  <div style={{ marginTop: 8, padding: "6px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, fontSize: 11, color: "#64748B", fontFamily: "JetBrains Mono, monospace" }}>
-                    🔍 {selected.tracking}
-                  </div>
-                )}
               </div>
 
-              {/* Scrollable */}
+              {/* FORMULAIRE SCROLLABLE */}
               <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-                {/* 2 — STATUT */}
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Action</div>
-                  <ZoneStatut selected={selected} onUpdate={updateStatut} saving={saving} />
-                </div>
-
-                {/* 3 — TRANSPORTEUR + FRAIS LIVRAISON */}
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 10 }}>Expédition</div>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>Transporteur</div>
-                      <select value={selected.transporteur || "Sendit"} onChange={async e => {
-                        const val = e.target.value;
-                        await supabase.from("commandes").update({ transporteur: val }).eq("id", selected.id);
-                        setSelected(s => ({ ...s, transporteur: val }));
-                      }} style={{ width: "100%", padding: "8px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, color: "#0F172A", outline: "none", fontFamily: "inherit" }}>
-                        {TRANSPORTEURS.map(t => <option key={t}>{t}</option>)}
-                      </select>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>Frais livr. (MAD)</div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <input type="number" placeholder="25" value={fraisLivr} onChange={e => setFraisLivr(e.target.value)}
-                          style={{ flex: 1, padding: "8px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, color: "#0F172A", outline: "none", boxSizing: "border-box" }} />
-                        <button onClick={async () => {
-                          if (!fraisLivr) return;
-                          await supabase.from("commandes").update({ frais_livraison: +fraisLivr }).eq("id", selected.id);
-                          await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: selected.transporteur || "—", categorie: "Logistique", intitule: "Frais livraison", debit: +fraisLivr, commande_id: selected.id, produit: selected.produit || null, observation: `CMD ${selected.id.slice(0, 8)}` }]);
-                          setSelected(s => ({ ...s, frais_livraison: +fraisLivr }));
-                        }} style={{ padding: "8px 10px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, flexShrink: 0 }}>💾</button>
-                      </div>
-                      {selected.frais_livraison > 0 && <div style={{ fontSize: 10, color: "#16A34A", marginTop: 3 }}>✓ {selected.frais_livraison} MAD enregistré</div>}
-                    </div>
+                  {/* Statut */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 6 }}>Statut</div>
+                    <select
+                      value={newStatut}
+                      onChange={e => { setNewStatut(e.target.value); setErrors({}); }}
+                      disabled={saving}
+                      style={{
+                        width: "100%", padding: "10px 12px",
+                        background: newStatutMeta.bg,
+                        border: `1.5px solid ${newStatutMeta.color}55`,
+                        borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        color: newStatutMeta.color, cursor: "pointer",
+                        outline: "none", fontFamily: "inherit",
+                      }}
+                    >
+                      {STATUTS_CMD.map(s => <option key={s} value={s}>{S_CMD[s].emoji} {s}</option>)}
+                    </select>
                   </div>
-                </div>
 
-                {/* 4 — FRAIS RETOUR */}
-                {(STATUTS_RETOUR.includes(selected.statut) || selected.frais_retour > 0) && (
-                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>Frais retour (MAD)</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input type="number" placeholder="15" value={fraisRet} onChange={e => setFraisRet(e.target.value)}
-                        style={{ flex: 1, padding: "8px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12, outline: "none" }} />
-                      <button onClick={async () => {
-                        if (!fraisRet) return;
-                        await supabase.from("commandes").update({ frais_retour: +fraisRet }).eq("id", selected.id);
-                        await supabase.from("releve_bancaire").insert([{ date: new Date().toISOString().split("T")[0], mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }), mode_paiement: selected.transporteur || "—", categorie: "Logistique", intitule: "Frais retour", debit: +fraisRet, commande_id: selected.id, produit: selected.produit || null, observation: `CMD ${selected.id.slice(0, 8)}` }]);
-                        setSelected(s => ({ ...s, frais_retour: +fraisRet }));
-                      }} style={{ padding: "8px 12px", background: "#D97706", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>💾</button>
+                  {/* Transporteur */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: errors.transporteur ? "#DC2626" : "#94A3B8", marginBottom: 6 }}>
+                      Société de livraison {needsExpedition && <span style={{ color: "#DC2626" }}>*</span>}
                     </div>
-                    {selected.frais_retour > 0 && <div style={{ fontSize: 10, color: "#D97706", marginTop: 3 }}>✓ {selected.frais_retour} MAD enregistré</div>}
+                    <select
+                      value={transporteur}
+                      onChange={e => { setTransporteur(e.target.value); setErrors(p => ({ ...p, transporteur: false })); }}
+                      disabled={saving}
+                      style={{
+                        ...inputStyle(errors.transporteur),
+                        padding: "9px 10px",
+                        background: errors.transporteur ? "#FEF2F2" : "#F8FAFC",
+                      }}
+                    >
+                      <option value="">— Choisir —</option>
+                      {TRANSPORTEURS.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                    {errors.transporteur && <div style={{ fontSize: 11, color: "#DC2626", marginTop: 3 }}>⚠ Société de livraison requise</div>}
                   </div>
-                )}
 
-                {/* 5 — TRACKING */}
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#94A3B8", marginBottom: 8 }}>N° Tracking</div>
-                  <input className="form-input" placeholder="Numéro de suivi..."
-                    value={tracking[selected.id] ?? selected.tracking ?? ""}
-                    onChange={e => setTracking(t => ({ ...t, [selected.id]: e.target.value }))} />
-<button onClick={() => saveTracking(selected.id)} disabled={saving} style={{ marginTop: 8, width: "100%", padding: "10px", background: saving ? "#F8FAFC" : "#534AB7", color: saving ? "#94A3B8" : "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", transition: "background .15s" }}>
-  {saving ? "Enregistrement…" : "Enregistrer"}
+                  {/* Tracking */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: errors.tracking ? "#DC2626" : "#94A3B8", marginBottom: 6 }}>
+                      N° Tracking {needsExpedition && <span style={{ color: "#DC2626" }}>*</span>}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Ex: SD123456789MA"
+                      value={trackingVal}
+                      onChange={e => { setTrackingVal(e.target.value); setErrors(p => ({ ...p, tracking: false })); }}
+                      disabled={saving}
+                      style={{ ...inputStyle(errors.tracking), fontFamily: "monospace" }}
+                    />
+                    {errors.tracking && <div style={{ fontSize: 11, color: "#DC2626", marginTop: 3 }}>⚠ Numéro de tracking requis</div>}
+                  </div>
 
+                  {/* Frais livraison */}
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 6 }}>Frais de livraison (MAD)</div>
+                    <input
+                      type="number" placeholder="25" value={fraisLivr}
+                      onChange={e => setFraisLivr(e.target.value)} disabled={saving}
+                      style={inputStyle(false)}
+                    />
+                  </div>
+
+                  {/* Frais retour */}
+                  {showFraisRetour && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 6 }}>Frais de retour (MAD)</div>
+                      <input
+                        type="number" placeholder="15" value={fraisRet}
+                        onChange={e => setFraisRet(e.target.value)} disabled={saving}
+                        style={inputStyle(false)}
+                      />
+                    </div>
+                  )}
+
+                  {/* Message erreur global */}
+                  {Object.values(errors).some(Boolean) && (
+                    <div style={{ padding: "9px 12px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 12, color: "#DC2626" }}>
+                      Veuillez remplir les champs obligatoires avant d'enregistrer.
+                    </div>
+                  )}
+
+                  {/* Bouton unique */}
+                  <button
+                    onClick={handleEnregistrer}
+                    disabled={saving}
+                    style={{
+                      width: "100%", padding: "12px",
+                      background: saving ? "#F8FAFC" : "#534AB7",
+                      color: saving ? "#94A3B8" : "#fff",
+                      border: "none", borderRadius: 8,
+                      fontSize: 13, fontWeight: 700,
+                      cursor: saving ? "not-allowed" : "pointer",
+                      transition: "background .15s",
+                    }}
+                  >
+                    {saving ? "Enregistrement…" : "Enregistrer"}
                   </button>
-                </div>
 
+                </div>
               </div>
             </aside>
           )}
