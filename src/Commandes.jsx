@@ -192,17 +192,16 @@ if (newStatut === "Retour reçu") updates.date_retour = dateISO;
         observation: `CMD ${selected.id.slice(0, 8)}`
       }]);
     }
-try {
-  await supabase.from("commande_events").insert([{
-    commande_id:   selected.id,
-    ancien_statut: selected.statut,
-    nouveau_statut: newStatut,
-    user_nom:      "Admin",
-    transporteur:  transporteur || null,
-    tracking:      trackingVal || null,
-    note:          null,
-  }]);
-} catch {}
+const { error: evtError } = await supabase.from("commande_events").insert([{
+  commande_id:    selected.id,
+  ancien_statut:  selected.statut,
+  nouveau_statut: newStatut,
+  user_nom:       "Admin",
+  transporteur:   transporteur || null,
+  tracking:       trackingVal || null,
+  note:           null,
+}]);
+if (evtError) console.error("commande_events error:", evtError);
     try {
       await fetch(WEBHOOK + selected.id, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
