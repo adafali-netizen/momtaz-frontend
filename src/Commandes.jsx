@@ -100,6 +100,7 @@ export default function Commandes() {
 
   // Erreurs de validation
   const [errors, setErrors] = useState({});
+  const [events, setEvents] = useState([]);
 
   useEffect(() => {
     fetchCommandes();
@@ -116,16 +117,23 @@ export default function Commandes() {
   }
 
   // Sync panneau droit quand on change de commande
-  function selectCommande(c) {
-    setSelected(c);
-    setNewStatut(c.statut);
-    setTransporteur(c.transporteur || "Sendit");
-    setTrackingVal(c.tracking || "");
-    setFraisLivr(c.frais_livraison || "");
-    setFraisRet(c.frais_retour || "");
-    setErrors({});
-    setDateStatut(new Date().toISOString().split("T")[0]);
-  }
+async function selectCommande(c) {
+  setSelected(c);
+  setNewStatut(c.statut);
+  setTransporteur(c.transporteur || "Sendit");
+  setTrackingVal(c.tracking || "");
+  setFraisLivr(c.frais_livraison || "");
+  setFraisRet(c.frais_retour || "");
+  setErrors({});
+  setDateStatut(new Date().toISOString().split("T")[0]);
+  setEvents([]);
+  const { data } = await supabase
+    .from("commande_events")
+    .select("*")
+    .eq("commande_id", c.id)
+    .order("created_at", { ascending: false });
+  if (data) setEvents(data);
+}
 
   async function createCommande(form) {
     await supabase.from("commandes").insert([{
@@ -184,7 +192,17 @@ if (newStatut === "Retour reçu") updates.date_retour = dateISO;
         observation: `CMD ${selected.id.slice(0, 8)}`
       }]);
     }
-
+try {
+  await supabase.from("commande_events").insert([{
+    commande_id:   selected.id,
+    ancien_statut: selected.statut,
+    nouveau_statut: newStatut,
+    user_nom:      "Admin",
+    transporteur:  transporteur || null,
+    tracking:      trackingVal || null,
+    note:          null,
+  }]);
+} catch {}
     try {
       await fetch(WEBHOOK + selected.id, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -546,7 +564,60 @@ if (newStatut === "Retour reçu") updates.date_retour = dateISO;
                   >
                     {saving ? "Enregistrement…" : "Enregistrer"}
                   </button>
-
+{/* HISTORIQUE */}
+<div style={{ padding: "0 20px 20px" }}>
+  <div style={{ height: "0.5px", background: "#E2E8F0", margin: "4px 0 16px" }} />
+  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 12 }}>
+    Historique
+  </div>
+  {events.length === 0 ? (
+    <div style={{ fontSize: 12, color: "#94A3B8", fontStyle: "italic", textAlign: "center", padding: "12px 0" }}>
+      Aucun historique pour cette commande
+    </div>
+  ) : (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {events.map((ev, i) => {
+        const evMeta = S_CMD[ev.nouveau_statut] || { color: "#94A3B8", emoji: "•" };
+        return (
+          <div key={ev.id || i} style={{ display: "flex", gap: 10, paddingBottom: 14 }}>
+            {/* Ligne verticale */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 16, flexShrink: 0 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: evMeta.color, marginTop: 3, flexShrink: 0 }} />
+              {i < events.length - 1 && (
+                <div style={{ width: 1, flex: 1, background: "#E2E8F0", marginTop: 3 }} />
+              )}
+            </div>
+            {/* Contenu */}
+            <div style={{ flex: 1, paddingBottom: 2 }}>
+              {/* Statuts */}
+              <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 3 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: evMeta.color }}>
+                  {evMeta.emoji} {ev.nouveau_statut}
+                </span>
+                {ev.ancien_statut && (
+                  <span style={{ fontSize: 10, color: "#94A3B8" }}>← {ev.ancien_statut}</span>
+                )}
+              </div>
+              {/* Meta */}
+              <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 2 }}>
+                {ev.user_nom || "Système"} · {ev.created_at ? new Date(ev.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) + " " + new Date(ev.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+              </div>
+              {ev.tracking && (
+                <div style={{ fontSize: 11, color: "#64748B", fontFamily: "monospace" }}>🔍 {ev.tracking}</div>
+              )}
+              {ev.transporteur && (
+                <div style={{ fontSize: 11, color: "#64748B" }}>🚚 {ev.transporteur}</div>
+              )}
+              {ev.note && (
+                <div style={{ fontSize: 11, color: "#475569", fontStyle: "italic", marginTop: 2 }}>"{ev.note}"</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
                 </div>
               </div>
             </aside>
