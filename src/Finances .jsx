@@ -72,8 +72,8 @@ export default function ReleveBancaire({ role }) {
       {/* Topbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 20px", borderBottom: "0.5px solid #e2e8f0", marginBottom: 24 }}>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>Relevé bancaire</div>
-          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Journal des mouvements financiers</div>
+<div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>Finances</div>
+<div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Relevé bancaire · Journal des mouvements</div>
         </div>
         <button onClick={() => setShowForm(s => !s)} style={{ padding: "8px 16px", background: "#2563EB", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
           + Mouvement
