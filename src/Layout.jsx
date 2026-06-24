@@ -1,21 +1,23 @@
 import { useState } from "react";
 
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "📊" },
-  { id: "leads",     label: "Leads",     icon: "👥" },
-  { id: "commandes", label: "Commandes", icon: "📦" },
-  { id: "produits",  label: "Produits",  icon: "🏷️" },
-  { id: "ads",       label: "Ads",       icon: "📣" },
-  { id: "dashboard-analytique", label: "Analytique", icon: "📈" },
+  { id: "dashboard",            label: "Dashboard",   icon: "📊" },
+  { id: "leads",                label: "Leads",       icon: "👥" },
+  { id: "commandes",            label: "Commandes",   icon: "📦" },
+  { id: "produits",             label: "Produits",    icon: "🏷️" },
+  { id: "ads",                  label: "Ads",         icon: "📣" },
+  { id: "finances",             label: "Finances",    icon: "💰" },
+  { id: "dashboard-analytique", label: "Analytique",  icon: "📈" },
 ];
 
 const PAGE_TITLES = {
-  dashboard:          { title: "Dashboard",        sub: "Vue d'ensemble de l'activité" },
-  leads:              { title: "Leads",            sub: "Qui appeler maintenant ?" },
-  commandes:          { title: "Commandes",        sub: "Quoi expédier, livrer, retourner ?" },
-  produits:           { title: "Produits",         sub: "Coûts, stock et décisions" },
-  "stock-historique": { title: "Historique stock", sub: "Tous les mouvements" },
-  ads:                { title: "Ads",              sub: "Où part l'argent ?" },
+  dashboard:              { title: "Dashboard",            sub: "Vue d'ensemble de l'activité" },
+  leads:                  { title: "Leads",                sub: "Qui appeler maintenant ?" },
+  commandes:              { title: "Commandes",            sub: "Quoi expédier, livrer, retourner ?" },
+  produits:               { title: "Produits",             sub: "Coûts, stock et décisions" },
+  "stock-historique":     { title: "Historique stock",     sub: "Tous les mouvements" },
+  ads:                    { title: "Ads",                  sub: "Où part l'argent ?" },
+  finances:               { title: "Finances",             sub: "Relevé bancaire · Journal des mouvements" },
   "dashboard-analytique": { title: "Dashboard Analytique", sub: "CPL MAX, marge nette, décisions" },
 };
 
@@ -51,7 +53,6 @@ export default function Layout({ currentModule, setModule, role, nom, onLogout, 
           </button>
         </nav>
       </aside>
-
       <div className="main-area">
         <header className="topbar">
           <div className="topbar-left">
