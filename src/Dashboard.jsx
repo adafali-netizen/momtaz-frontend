@@ -200,7 +200,7 @@ export default function Dashboard({ role, nom, setModule }) {
       { data: transporteurs },
     ] = await Promise.all([
       supabase.from("releve_bancaire").select("date, montant, categorie, type, libelle, description").gte("date", start).lte("date", end),
-      supabase.from("commandes").select("id, statut, prix, cout_achat, frais_livraison, produit_id, conseillere_id, transporteur_id, created_at").gte("created_at", start).lte("created_at", endFull),
+      supabase.from("commandes").select("id, statut, prix, frais_livraison, transporteur, conseillere, created_at").gte("created_at", start).lte("created_at", endFull),
       supabase.from("leads").select("id, statut, conseillere_id, conseillere, created_at").gte("created_at", start).lte("created_at", endFull),
       supabase.from("ads_spend").select("date, plateforme, spend_mad, budget_mad, leads_count").gte("date", start).lte("date", end),
       supabase.from("produits").select("id, nom, cout_achat, stock_actuel"),
