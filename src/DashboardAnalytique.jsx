@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { supabase } from "./supabaseClient";import {
+import { supabase } from "../supabaseClient";
+import {
   Chart,
   LineElement,
   PointElement,
@@ -185,7 +186,7 @@ export default function DashboardAnalytique() {
         .lte("created_at", endStr + "T23:59:59"),
       supabase
         .from("leads")
-        .select("id, created_at, statut, conseillere_id, produit_id")
+        .select("id, created_at, statut, conseillere_id, conseillere, produit_id")
         .gte("created_at", startStr)
         .lte("created_at", endStr + "T23:59:59"),
       supabase
@@ -236,7 +237,7 @@ export default function DashboardAnalytique() {
 
     // Filtrer commandes période courante vs période complète
     const cmdCurrent = commandes.filter((c) => dateKey(c.created_at) >= startStr);
-    const cmdLivrees = cmdCurrent.filter((c) => c.statut === "Livrée");
+    const cmdLivrees = cmdCurrent.filter((c) => ["Livrée", "Facturée"].includes(c.statut));
     const cmdAll = commandes; // inclut période 2x pour comparaison
 
     // ── Courbe héro : marge unitaire par jour (livrées uniquement) ──
@@ -293,7 +294,7 @@ export default function DashboardAnalytique() {
       initProd(pid);
       const isCurrent = dateKey(c.created_at) >= startStr;
       const isPrev = dateKey(c.created_at) >= start2xStr && dateKey(c.created_at) < startStr;
-      if (c.statut === "Livrée") {
+      if (["Livrée", "Facturée"].includes(c.statut)) {
         const m = calcMarge(c);
         if (isCurrent) prodStats[pid].curr_livr.push(m);
         if (isPrev) prodStats[pid].prev_livr.push(m);
@@ -395,7 +396,7 @@ export default function DashboardAnalytique() {
     // ── Conseillères ──
     const consStats = {};
     leads.forEach((l) => {
-      const cid = l.conseillere_id;
+      const cid = l.conseillere_id || l.conseillere;
       if (!cid) return;
       if (!consStats[cid]) consStats[cid] = { id: cid, leads: 0, conf: 0 };
       consStats[cid].leads++;
@@ -415,7 +416,7 @@ export default function DashboardAnalytique() {
       if (!tid) return;
       if (!transStats[tid]) transStats[tid] = { id: tid, total: 0, livr: 0, retour: 0 };
       transStats[tid].total++;
-      if (c.statut === "Livrée") transStats[tid].livr++;
+      if (["Livrée", "Facturée"].includes(c.statut)) transStats[tid].livr++;
       if (["Retour reçu", "Retour en cours"].includes(c.statut)) transStats[tid].retour++;
     });
     const transporteursStats = Object.values(transStats).map((t) => {
