@@ -156,73 +156,81 @@ function validate() {
   return Object.keys(e).length === 0;
 }
 
-  async function handleEnregistrer() {
-    if (!validate()) return;
-    setSaving(true);
+async function handleEnregistrer() {
+  if (!validate()) return;
+  setSaving(true);
 
-    const updates = { statut: newStatut, transporteur, tracking: trackingVal };
-const dateISO = dateStatut ? new Date(dateStatut).toISOString() : new Date().toISOString();
-if (newStatut === "Expédiée") updates.date_expedition = dateISO;
-if (STATUTS_LIVRAISON.includes(newStatut)) updates.date_livraison = dateISO;
-if (newStatut === "Retour reçu") updates.date_retour = dateISO;
-    if (fraisLivr) updates.frais_livraison = +fraisLivr;
-    if (fraisRet)  updates.frais_retour    = +fraisRet;
+  const updates = { statut: newStatut, transporteur, tracking: trackingVal };
+  const dateISO = dateStatut ? new Date(dateStatut).toISOString() : new Date().toISOString();
+  if (newStatut === "Expédiée") updates.date_expedition = dateISO;
+  if (STATUTS_LIVRAISON.includes(newStatut)) updates.date_livraison = dateISO;
+  if (newStatut === "Retour reçu") updates.date_retour = dateISO;
+  if (fraisLivr) updates.frais_livraison = +fraisLivr;
+  if (fraisRet)  updates.frais_retour    = +fraisRet;
 
-    await supabase.from("commandes").update(updates).eq("id", selected.id);
+  await supabase.from("commandes").update(updates).eq("id", selected.id);
 
-    // Relevé bancaire frais livraison
-    if (STATUTS_LIVRAISON.includes(newStatut) && fraisLivr) {
-      await supabase.from("releve_bancaire").insert([{
-        date: new Date().toISOString().split("T")[0],
-        mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
-        mode_paiement: transporteur || "—", categorie: "Logistique",
-        intitule: "Frais livraison", debit: +fraisLivr,
-        commande_id: selected.id, produit: selected.produit || null,
-        observation: `CMD ${selected.id.slice(0, 8)}`
-      }]);
-    }
-    // Relevé bancaire frais retour
-    if (STATUTS_RETOUR.includes(newStatut) && fraisRet) {
-      await supabase.from("releve_bancaire").insert([{
-        date: new Date().toISOString().split("T")[0],
-        mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
-        mode_paiement: transporteur || "—", categorie: "Logistique",
-        intitule: "Frais retour", debit: +fraisRet,
-        commande_id: selected.id, produit: selected.produit || null,
-        observation: `CMD ${selected.id.slice(0, 8)}`
-      }]);
-    }
-const { error: evtError } = await supabase.from("commande_events").insert([{
-  commande_id:    selected.id,
-  ancien_statut:  selected.statut,
-  nouveau_statut: newStatut,
-  user_nom:       "Admin",
-  transporteur:   transporteur || null,
-  tracking:       trackingVal || null,
-  note:           null,
-}]);
-if (evtError) console.error("commande_events error:", evtError);
-    try {
-      await fetch(WEBHOOK + selected.id, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates)
-      });
-    } catch {}
-
-    const updated = { ...selected, ...updates };
-    setCommandes(prev => prev.map(c => c.id === selected.id ? updated : c));
-setSelected(updated);
-
-    // Recharger l'historique
-    const { data: newEvents } = await supabase
-      .from("commande_events")
-      .select("*")
-      .eq("commande_id", selected.id)
-      .order("created_at", { ascending: false });
-    if (newEvents) setEvents(newEvents);
-
-    setSaving(false);
+  // Relevé bancaire frais livraison
+  if (STATUTS_LIVRAISON.includes(newStatut) && fraisLivr) {
+    await supabase.from("releve_bancaire").insert([{
+      date: new Date().toISOString().split("T")[0],
+      mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+      mode_paiement: transporteur || "—", categorie: "Logistique",
+      intitule: "Frais livraison", debit: +fraisLivr,
+      commande_id: selected.id, produit: selected.produit || null,
+      observation: `CMD ${selected.id.slice(0, 8)}`
+    }]);
   }
+
+  // Relevé bancaire frais retour
+  if (STATUTS_RETOUR.includes(newStatut) && fraisRet) {
+    await supabase.from("releve_bancaire").insert([{
+      date: new Date().toISOString().split("T")[0],
+      mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+      mode_paiement: transporteur || "—", categorie: "Logistique",
+      intitule: "Frais retour", debit: +fraisRet,
+      commande_id: selected.id, produit: selected.produit || null,
+      observation: `CMD ${selected.id.slice(0, 8)}`
+    }]);
+  }
+
+  // Log historique
+  const evtPayload = {
+    commande_id:    selected.id,
+    ancien_statut:  selected.statut,
+    nouveau_statut: newStatut,
+    user_nom:       "Admin",
+  };
+  if (transporteur) evtPayload.transporteur = transporteur;
+  if (trackingVal)  evtPayload.tracking     = trackingVal;
+
+  const { error: evtError } = await supabase
+    .from("commande_events")
+    .insert(evtPayload);
+  if (evtError) console.error("commande_events error:", evtError);
+
+  // Webhook
+  try {
+    await fetch(WEBHOOK + selected.id, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates)
+    });
+  } catch {}
+
+  const updated = { ...selected, ...updates };
+  setCommandes(prev => prev.map(c => c.id === selected.id ? updated : c));
+  setSelected(updated);
+
+  // Recharger l'historique
+  const { data: newEvents } = await supabase
+    .from("commande_events")
+    .select("*")
+    .eq("commande_id", selected.id)
+    .order("created_at", { ascending: false });
+  if (newEvents) setEvents(newEvents);
+
+  setSaving(false);
+}
 
   // KPI
   const total    = commandes.length;
