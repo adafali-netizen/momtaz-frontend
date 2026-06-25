@@ -20,25 +20,15 @@ Chart.register(
   Tooltip, Filler
 );
 
-// ─── Constantes métier ───────────────────────────────────────────────────────
 const FRAIS_EMBALLAGE = 4;
 const FRAIS_CONFIRMATION = 10;
 const SEUIL_CONF = 35;
 const SEUIL_LIVR = 55;
+const STATUTS_LIVRES = ["Livrée", "Facturée"];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function fmt(n, decimals = 0) {
-  if (n == null || isNaN(n)) return "—";
-  return Number(n).toFixed(decimals);
-}
 function pct(val, total) {
   if (!total) return 0;
   return Math.round((val / total) * 100);
-}
-function addDays(date, n) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + n);
-  return d;
 }
 function dateKey(d) {
   return new Date(d).toISOString().slice(0, 10);
@@ -46,77 +36,24 @@ function dateKey(d) {
 function labelDate(d) {
   return new Date(d).toLocaleDateString("fr", { day: "numeric", month: "short" });
 }
-function last30() {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - 29);
-  return { start: dateKey(start), end: dateKey(end) };
-}
-function last60() {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - 59);
-  return { start: dateKey(start), end: dateKey(end) };
-}
-function calcMarge(row) {
+
+// Calcul marge : cout_achat vient du prodMap (table produits), pas de commandes
+function calcMarge(row, prodMap) {
   const prix = parseFloat(row.prix) || 0;
-  const cout = parseFloat(row.cout_achat) || 0;
+  const cout = parseFloat(prodMap[row.produit]?.cout_achat) || 0;
   const fraisLivr = parseFloat(row.frais_livraison) || 0;
   return prix - cout - fraisLivr - FRAIS_EMBALLAGE - FRAIS_CONFIRMATION;
 }
 
-// ─── Styles inline partagés ───────────────────────────────────────────────────
 const S = {
-  page: {
-    fontFamily: "var(--font-sans, system-ui)",
-    padding: "0 0 48px",
-    maxWidth: "100%",
-  },
-  topbar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "14px 0 18px",
-    borderBottom: "0.5px solid #e2e8f0",
-    marginBottom: "28px",
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: ".08em",
-    color: "#94a3b8",
-    marginBottom: 12,
-  },
+  page: { fontFamily: "var(--font-sans, system-ui)", padding: "0 0 48px", maxWidth: "100%" },
+  topbar: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 18px", borderBottom: "0.5px solid #e2e8f0", marginBottom: "28px" },
+  sectionLabel: { fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", color: "#94a3b8", marginBottom: 12 },
   divider: { height: "0.5px", background: "#e2e8f0", margin: "28px 0" },
-  card: {
-    background: "#fff",
-    border: "0.5px solid #e2e8f0",
-    borderRadius: 12,
-    padding: "20px 24px",
-  },
-  statCard: {
-    background: "#f8fafc",
-    borderRadius: 8,
-    padding: "14px 16px",
-  },
-  badge: (color) => ({
-    display: "inline-block",
-    padding: "2px 8px",
-    borderRadius: 20,
-    fontSize: 11,
-    fontWeight: 600,
-    ...badgeColors[color],
-  }),
-  chip: (ok) => ({
-    display: "inline-block",
-    padding: "1px 7px",
-    borderRadius: 4,
-    fontSize: 11,
-    fontWeight: 500,
-    background: ok ? "#EAF3DE" : "#FCEBEB",
-    color: ok ? "#3B6D11" : "#A32D2D",
-  }),
+  card: { background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "20px 24px" },
+  statCard: { background: "#f8fafc", borderRadius: 8, padding: "14px 16px" },
+  badge: (color) => ({ display: "inline-block", padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, ...badgeColors[color] }),
+  chip: (ok) => ({ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: ok ? "#EAF3DE" : "#FCEBEB", color: ok ? "#3B6D11" : "#A32D2D" }),
 };
 
 const badgeColors = {
@@ -127,7 +64,7 @@ const badgeColors = {
 };
 
 function decisionBadge(p) {
-  if (p.total_leads < 20) return "test";
+  if (p.total_leads < 5) return "test";
   if (p.taux_conf >= 40 && p.taux_livr >= 60 && p.marge_avg > 0) return "scale";
   if (p.taux_conf >= 25 && p.taux_livr >= 40 && p.marge_avg > 0) return "opti";
   return "stop";
@@ -141,21 +78,17 @@ function fuiteLabel(p) {
   return null;
 }
 
-// ─── Composant principal ──────────────────────────────────────────────────────
 export default function DashboardAnalytique() {
   const [period, setPeriod] = useState(30);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
-  const [drill, setDrill] = useState(null); // null | 'ads' | 'ops'
+  const [drill, setDrill] = useState(null);
   const heroRef = useRef(null);
   const heroChartRef = useRef(null);
   const adsRef = useRef(null);
   const adsChartRef = useRef(null);
 
-  // ─── Fetch data ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetchAll(period);
-  }, [period]);
+  useEffect(() => { fetchAll(period); }, [period]);
 
   async function fetchAll(days) {
     setLoading(true);
@@ -164,8 +97,6 @@ export default function DashboardAnalytique() {
     start.setDate(start.getDate() - (days - 1));
     const startStr = dateKey(start);
     const endStr = dateKey(end);
-
-    // Pour la comparaison marge en baisse, on prend 2x la période
     const start2x = new Date();
     start2x.setDate(start2x.getDate() - (days * 2 - 1));
     const start2xStr = dateKey(start2x);
@@ -176,17 +107,15 @@ export default function DashboardAnalytique() {
       { data: adsSpend },
       { data: releve },
       { data: produits },
-      { data: conseilleres },
-      { data: transporteurs },
     ] = await Promise.all([
       supabase
         .from("commandes")
-.select("id, created_at, statut, prix, frais_livraison, transporteur, conseillere, produit")
-      .gte("created_at", start2xStr)
+        .select("id, created_at, statut, prix, frais_livraison, transporteur, conseillere, produit")
+        .gte("created_at", start2xStr)
         .lte("created_at", endStr + "T23:59:59"),
       supabase
         .from("leads")
-        .select("id, created_at, statut, conseillere_id, conseillere, produit_id")
+        .select("id, created_at, statut, conseillere, produit_id")
         .gte("created_at", startStr)
         .lte("created_at", endStr + "T23:59:59"),
       supabase
@@ -199,9 +128,7 @@ export default function DashboardAnalytique() {
         .select("*")
         .order("date", { ascending: false })
         .limit(50),
-      supabase.from("produits").select("id, nom, cout_achat, titre_shopify"),
-      supabase.from("conseilleres").select("id, nom, active"),
-      supabase.from("transporteurs").select("id, nom").limit(20),
+      supabase.from("produits").select("id, nom, cout_achat"),
     ]);
 
     const result = buildAnalytics({
@@ -210,37 +137,26 @@ export default function DashboardAnalytique() {
       adsSpend: adsSpend || [],
       releve: releve || [],
       produits: produits || [],
-      conseilleres: conseilleres || [],
-      transporteurs: transporteurs || [],
-      days,
-      startStr,
-      endStr,
-      start2xStr,
+      days, startStr, endStr, start2xStr,
     });
 
     setData(result);
     setLoading(false);
   }
 
-  // ─── Analytics engine ────────────────────────────────────────────────────────
-  function buildAnalytics({ commandes, leads, adsSpend, releve, produits, conseilleres, transporteurs, days, startStr, endStr, start2xStr }) {
-    const midDate = new Date();
-    midDate.setDate(midDate.getDate() - Math.floor(days / 2));
-    const midStr = dateKey(midDate);
-
+  function buildAnalytics({ commandes, leads, adsSpend, releve, produits, days, startStr, endStr, start2xStr }) {
+    // prodMap par nom (car commandes.produit est un texte) ET par id
     const prodMap = {};
-    produits.forEach((p) => { prodMap[p.id] = p; });
-    const consMap = {};
-    conseilleres.forEach((c) => { consMap[c.id] = c; });
-    const transMap = {};
-    transporteurs.forEach((t) => { transMap[t.id] = t; });
+    produits.forEach((p) => {
+      prodMap[p.id] = p;
+      if (p.nom) prodMap[p.nom] = p;
+    });
 
-    // Filtrer commandes période courante vs période complète
+    // Commandes période courante
     const cmdCurrent = commandes.filter((c) => dateKey(c.created_at) >= startStr);
-    const cmdLivrees = cmdCurrent.filter((c) => ["Livrée", "Facturée"].includes(c.statut));
-    const cmdAll = commandes; // inclut période 2x pour comparaison
+    const cmdLivrees = cmdCurrent.filter((c) => STATUTS_LIVRES.includes(c.statut));
 
-    // ── Courbe héro : marge unitaire par jour (livrées uniquement) ──
+    // ── Courbe héro ──
     const margsByDay = {};
     for (let i = 0; i < days; i++) {
       const d = new Date();
@@ -250,93 +166,71 @@ export default function DashboardAnalytique() {
     cmdLivrees.forEach((c) => {
       const k = dateKey(c.created_at);
       if (margsByDay[k]) {
-        margsByDay[k].sum += calcMarge(c);
+        margsByDay[k].sum += calcMarge(c, prodMap);
         margsByDay[k].count += 1;
       }
     });
     const heroLabels = Object.keys(margsByDay).map(labelDate);
-    const heroValues = Object.values(margsByDay).map((d) =>
-      d.count ? Math.round(d.sum / d.count) : null
-    );
+    const heroValues = Object.values(margsByDay).map((d) => d.count ? Math.round(d.sum / d.count) : null);
     const heroAvg = cmdLivrees.length
-      ? Math.round(cmdLivrees.reduce((s, c) => s + calcMarge(c), 0) / cmdLivrees.length)
+      ? Math.round(cmdLivrees.reduce((s, c) => s + calcMarge(c, prodMap), 0) / cmdLivrees.length)
       : null;
 
-    // ── Produits : marge actuelle + marge en baisse ──
+    // ── Produits par nom de produit (texte) ──
     const prodStats = {};
-    const initProd = (id) => {
-      if (!prodStats[id]) {
-        prodStats[id] = {
-          id,
-          nom: prodMap[id]?.nom || `Produit #${id}`,
-          // période courante
+    const initProd = (nomProduit) => {
+      if (!prodStats[nomProduit]) {
+        prodStats[nomProduit] = {
+          nom: nomProduit,
           curr_livr: [], curr_leads: 0, curr_conf: 0,
-          // période précédente (pour delta)
           prev_livr: [], prev_leads: 0, prev_conf: 0,
         };
       }
     };
 
-    // Leads période courante
+    // Leads — groupés par produit_id si disponible, sinon ignorés
     leads.forEach((l) => {
-      const pid = l.produit_id;
-      if (!pid) return;
-      initProd(pid);
-      prodStats[pid].curr_leads++;
-      if (["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut))
-        prodStats[pid].curr_conf++;
+      // leads n'a pas de champ produit texte directement utilisable ici
+      // On compte juste les leads totaux pour les KPIs OPS
     });
 
-    // Commandes
-    cmdAll.forEach((c) => {
-      const pid = c.produit_id;
-      if (!pid) return;
-      initProd(pid);
+    // Commandes — groupées par nom produit
+    commandes.forEach((c) => {
+      const nom = c.produit;
+      if (!nom) return;
+      initProd(nom);
       const isCurrent = dateKey(c.created_at) >= startStr;
       const isPrev = dateKey(c.created_at) >= start2xStr && dateKey(c.created_at) < startStr;
-      if (["Livrée", "Facturée"].includes(c.statut)) {
-        const m = calcMarge(c);
-        if (isCurrent) prodStats[pid].curr_livr.push(m);
-        if (isPrev) prodStats[pid].prev_livr.push(m);
+      if (STATUTS_LIVRES.includes(c.statut)) {
+        const m = calcMarge(c, prodMap);
+        if (isCurrent) prodStats[nom].curr_livr.push(m);
+        if (isPrev) prodStats[nom].prev_livr.push(m);
       }
+      if (isCurrent) prodStats[nom].curr_leads++;
     });
 
     const prodList = Object.values(prodStats).map((p) => {
-      const curr_marge_avg = p.curr_livr.length
-        ? p.curr_livr.reduce((s, v) => s + v, 0) / p.curr_livr.length
-        : null;
-      const prev_marge_avg = p.prev_livr.length
-        ? p.prev_livr.reduce((s, v) => s + v, 0) / p.prev_livr.length
-        : null;
-      const delta = curr_marge_avg != null && prev_marge_avg != null
-        ? Math.round(curr_marge_avg - prev_marge_avg)
-        : null;
+      const curr_marge_avg = p.curr_livr.length ? p.curr_livr.reduce((s, v) => s + v, 0) / p.curr_livr.length : null;
+      const prev_marge_avg = p.prev_livr.length ? p.prev_livr.reduce((s, v) => s + v, 0) / p.prev_livr.length : null;
+      const delta = curr_marge_avg != null && prev_marge_avg != null ? Math.round(curr_marge_avg - prev_marge_avg) : null;
       const taux_conf = pct(p.curr_conf, p.curr_leads);
       const taux_livr = pct(p.curr_livr.length, p.curr_leads);
       const marge_avg = curr_marge_avg != null ? Math.round(curr_marge_avg) : null;
       return {
-        id: p.id, nom: p.nom,
+        id: p.nom, nom: p.nom,
         total_leads: p.curr_leads,
         total_livr: p.curr_livr.length,
-        taux_conf, taux_livr,
-        marge_avg,
+        taux_conf, taux_livr, marge_avg,
         delta_marge: delta,
         decision: decisionBadge({ total_leads: p.curr_leads, taux_conf, taux_livr, marge_avg: marge_avg || 0 }),
         fuite: fuiteLabel({ taux_conf, taux_livr, marge_avg: marge_avg || 0 }),
       };
     });
 
-    // Classement 1 : meilleure marge actuelle (avec data)
-    const byMargeCurrent = [...prodList]
-      .filter((p) => p.marge_avg != null)
-      .sort((a, b) => b.marge_avg - a.marge_avg);
+    const byMargeCurrent = [...prodList].filter((p) => p.marge_avg != null).sort((a, b) => b.marge_avg - a.marge_avg);
+    const byMargeDecline = [...prodList].filter((p) => p.delta_marge != null && p.delta_marge < 0).sort((a, b) => a.delta_marge - b.delta_marge);
 
-    // Classement 2 : marge en baisse (delta négatif, comparaison possible)
-    const byMargeDecline = [...prodList]
-      .filter((p) => p.delta_marge != null && p.delta_marge < 0)
-      .sort((a, b) => a.delta_marge - b.delta_marge);
-
-    // ── Diagnostic Ads ──
+    // ── Ads ──
     const totalSpend = adsSpend.reduce((s, a) => s + (parseFloat(a.spend_mad || a.budget_mad) || 0), 0);
     const totalLeadsAds = adsSpend.reduce((s, a) => s + (parseInt(a.leads_count) || 0), 0);
     const totalClics = adsSpend.reduce((s, a) => s + (parseInt(a.clics) || 0), 0);
@@ -344,12 +238,8 @@ export default function DashboardAnalytique() {
     const cplMoyen = totalLeadsAds ? Math.round(totalSpend / totalLeadsAds) : null;
     const ctr = totalImpr ? ((totalClics / totalImpr) * 100).toFixed(1) : null;
     const cpc = totalClics ? Math.round(totalSpend / totalClics) : null;
-    // CPL par livré = spend / livrees
     const cplLivre = cmdLivrees.length ? Math.round(totalSpend / cmdLivrees.length) : null;
-    // Coût Ads imputable à la marge
-    const coutAdsParLivr = cplLivre || 0;
 
-    // Par plateforme
     const platfMap = {};
     adsSpend.forEach((a) => {
       const pl = a.plateforme || "Inconnu";
@@ -367,71 +257,55 @@ export default function DashboardAnalytique() {
       cpc: d.clics ? Math.round(d.spend / d.clics) : null,
     })).sort((a, b) => b.spend - a.spend);
 
-    // ── Diagnostic OPS ──
+    // ── OPS depuis leads ──
     const totalLeadsPeriod = leads.length;
-    const confirmes = leads.filter((l) =>
-      ["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut)
-    ).length;
+    const STATUTS_CONFIRMS = ["Confirmé", "Livrée", "Facturée", "Expédiée", "En cours de livraison"];
+    const confirmes = leads.filter((l) => STATUTS_CONFIRMS.includes(l.statut)).length;
     const txConf = pct(confirmes, totalLeadsPeriod);
     const txLivr = pct(cmdLivrees.length, confirmes || 1);
     const retours = cmdCurrent.filter((c) => ["Retour reçu", "Retour en cours"].includes(c.statut)).length;
     const txRetour = pct(retours, cmdCurrent.length);
 
-    // Fuite OPS : points perdus × valeur
-    // Chaque point de conf perdu = on perd potentiellement des livraisons
-    // Chaque point de livr perdu = perte directe de marge
-    const margeTheorique = heroAvg || 0; // si tout se passait bien
     const pertePctConf = Math.max(0, SEUIL_CONF - txConf);
     const pertePctLivr = Math.max(0, SEUIL_LIVR - txLivr);
-    // Impact estimé Ads sur marge = coutAdsParLivr
-    // Impact OPS = pertes confirmation + livraison
-    const impactAdsMAD = coutAdsParLivr;
-    const impactConfMAD = pertePctConf * 2; // pondération
-    const impactLivrMAD = pertePctLivr * 3;
-    const impactOpsTotal = impactConfMAD + impactLivrMAD;
+    const impactAdsMAD = cplLivre || 0;
+    const impactOpsTotal = pertePctConf * 2 + pertePctLivr * 3;
     const totalImpact = impactAdsMAD + impactOpsTotal;
     const pctAds = totalImpact ? Math.round((impactAdsMAD / totalImpact) * 100) : 50;
     const pctOps = 100 - pctAds;
 
-    // ── Conseillères ──
+    // ── Conseillères (depuis leads — champ conseillere texte) ──
     const consStats = {};
     leads.forEach((l) => {
-      const cid = l.conseillere_id || l.conseillere;
+      const cid = l.conseillere;
       if (!cid) return;
-      if (!consStats[cid]) consStats[cid] = { id: cid, leads: 0, conf: 0 };
+      if (!consStats[cid]) consStats[cid] = { leads: 0, conf: 0 };
       consStats[cid].leads++;
-      if (["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut))
-        consStats[cid].conf++;
+      if (STATUTS_CONFIRMS.includes(l.statut)) consStats[cid].conf++;
     });
-    const conseilleresStats = Object.values(consStats).map((c) => ({
-      nom: consMap[c.id]?.nom || `#${c.id}`,
+    const conseilleresStats = Object.entries(consStats).map(([nom, c]) => ({
+      nom,
       leads: c.leads,
       taux_conf: pct(c.conf, c.leads),
     })).sort((a, b) => b.taux_conf - a.taux_conf);
 
-    // ── Transporteurs ──
+    // ── Transporteurs (depuis commandes — champ transporteur texte) ──
     const transStats = {};
     cmdCurrent.forEach((c) => {
-      const tid = c.transporteur_id;
+      const tid = c.transporteur;
       if (!tid) return;
-      if (!transStats[tid]) transStats[tid] = { id: tid, total: 0, livr: 0, retour: 0 };
+      if (!transStats[tid]) transStats[tid] = { total: 0, livr: 0, retour: 0 };
       transStats[tid].total++;
-      if (["Livrée", "Facturée"].includes(c.statut)) transStats[tid].livr++;
+      if (STATUTS_LIVRES.includes(c.statut)) transStats[tid].livr++;
       if (["Retour reçu", "Retour en cours"].includes(c.statut)) transStats[tid].retour++;
     });
-    const transporteursStats = Object.values(transStats).map((t) => {
+    const transporteursStats = Object.entries(transStats).map(([nom, t]) => {
       const txL = pct(t.livr, t.total);
       let grade = "STOP";
       if (txL >= 60) grade = "A1";
       else if (txL >= 45) grade = "A2";
       else if (txL >= 40) grade = "B2";
-      return {
-        nom: transMap[t.id]?.nom || `#${t.id}`,
-        total: t.total, livr: t.livr, retour: t.retour,
-        taux_livr: txL,
-        taux_retour: pct(t.retour, t.total),
-        grade,
-      };
+      return { nom, total: t.total, livr: t.livr, retour: t.retour, taux_livr: txL, taux_retour: pct(t.retour, t.total), grade };
     }).sort((a, b) => b.taux_livr - a.taux_livr);
 
     // ── Finance ──
@@ -440,8 +314,6 @@ export default function DashboardAnalytique() {
     const totalRevenu = revenus.reduce((s, r) => s + parseFloat(r.montant), 0);
     const totalDepense = depenses.reduce((s, r) => s + parseFloat(r.montant), 0);
     const soldeNet = totalRevenu + totalDepense;
-
-    // Ventilation dépenses par catégorie (si colonne categorie existe)
     const catMap = {};
     depenses.forEach((r) => {
       const cat = r.categorie || r.type || "Autre";
@@ -466,7 +338,6 @@ export default function DashboardAnalytique() {
     };
   }
 
-  // ─── Charts ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!data || !heroRef.current) return;
     if (heroChartRef.current) heroChartRef.current.destroy();
@@ -474,23 +345,11 @@ export default function DashboardAnalytique() {
       type: "line",
       data: {
         labels: data.heroLabels,
-        datasets: [{
-          label: "Marge nette / livré (MAD)",
-          data: data.heroValues,
-          borderColor: "#E24B4A",
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-          backgroundColor: "rgba(226,75,74,0.06)",
-          spanGaps: true,
-        }],
+        datasets: [{ label: "Marge nette / livré (MAD)", data: data.heroValues, borderColor: "#E24B4A", borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true, backgroundColor: "rgba(226,75,74,0.06)", spanGaps: true }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: {
-          callbacks: { label: (ctx) => `${ctx.parsed.y} MAD` }
-        }},
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} MAD` } } },
         scales: {
           x: { display: true, ticks: { font: { size: 10 }, color: "#94a3b8", maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
           y: { grid: { color: "rgba(0,0,0,0.04)" }, ticks: { font: { size: 10 }, color: "#94a3b8", callback: (v) => v + " MAD" } },
@@ -509,15 +368,7 @@ export default function DashboardAnalytique() {
       const colors = ["#1877f2", "#e1306c", "#010101", "#FF4500", "#0077B5"];
       adsChartRef.current = new Chart(adsRef.current, {
         type: "bar",
-        data: {
-          labels,
-          datasets: [{
-            label: "Spend (MAD)",
-            data: spends,
-            backgroundColor: labels.map((_, i) => colors[i % colors.length]),
-            borderRadius: 4,
-          }],
-        },
+        data: { labels, datasets: [{ label: "Spend (MAD)", data: spends, backgroundColor: labels.map((_, i) => colors[i % colors.length]), borderRadius: 4 }] },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: { legend: { display: false } },
@@ -530,18 +381,18 @@ export default function DashboardAnalytique() {
     }, 80);
   }, [drill, data]);
 
-  // ─── Render helpers ───────────────────────────────────────────────────────────
   const gradeColor = { A1: { bg: "#EAF3DE", color: "#3B6D11" }, A2: { bg: "#E1F5EE", color: "#0F6E56" }, B2: { bg: "#FAEEDA", color: "#854F0B" }, STOP: { bg: "#FCEBEB", color: "#A32D2D" } };
 
   function ProdTable({ rows, showDelta }) {
+    const th = { padding: "8px 10px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", fontWeight: 500, borderBottom: "0.5px solid #e2e8f0", textAlign: "left", whiteSpace: "nowrap" };
+    const td = (center) => ({ padding: "9px 10px", fontSize: 13, color: "#1e293b", textAlign: center ? "right" : "left", verticalAlign: "middle" });
     return (
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
             <th style={th}>#</th>
             <th style={th}>Produit</th>
-            <th style={{ ...th, textAlign: "right" }}>Leads</th>
-            <th style={{ ...th, textAlign: "right" }}>Conf.</th>
+            <th style={{ ...th, textAlign: "right" }}>Cmds</th>
             <th style={{ ...th, textAlign: "right" }}>Livr.</th>
             {showDelta && <th style={{ ...th, textAlign: "right" }}>Δ Marge</th>}
             <th style={{ ...th, textAlign: "right" }}>Marge moy.</th>
@@ -553,38 +404,31 @@ export default function DashboardAnalytique() {
           {rows.map((p, i) => {
             const f = p.fuite;
             const dec = p.decision;
-            const confOk = p.taux_conf >= SEUIL_CONF;
             const livrOk = p.taux_livr >= SEUIL_LIVR;
             return (
               <tr key={p.id} style={{ borderTop: "0.5px solid #f1f5f9" }}>
                 <td style={td(true)}>{i + 1}</td>
                 <td style={{ ...td(), maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nom}>{p.nom}</td>
                 <td style={td(true)}>{p.total_leads}</td>
-                <td style={{ ...td(true), color: confOk ? "#3B6D11" : p.taux_conf >= 25 ? "#BA7517" : "#A32D2D", fontWeight: 500 }}>{p.taux_conf}%</td>
-                <td style={{ ...td(true), color: livrOk ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>{p.taux_livr}%</td>
+                <td style={{ ...td(true), color: livrOk ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>{p.total_livr}</td>
                 {showDelta && (
                   <td style={{ ...td(true), color: p.delta_marge < 0 ? "#A32D2D" : "#3B6D11", fontWeight: 500 }}>
                     {p.delta_marge != null ? `${p.delta_marge > 0 ? "+" : ""}${p.delta_marge} MAD` : "—"}
                   </td>
                 )}
-                <td style={{ ...td(true), color: p.marge_avg >= 0 ? "#3B6D11" : "#A32D2D", fontWeight: 600 }}>
+                <td style={{ ...td(true), color: p.marge_avg != null ? (p.marge_avg >= 0 ? "#3B6D11" : "#A32D2D") : "#94a3b8", fontWeight: 600 }}>
                   {p.marge_avg != null ? `${p.marge_avg} MAD` : "—"}
                 </td>
+                <td style={td()}><span style={S.badge(dec)}>{decisionLabel[dec]}</span></td>
                 <td style={td()}>
-                  <span style={S.badge(dec)}>{decisionLabel[dec]}</span>
-                </td>
-                <td style={td()}>
-                  {f ? (
-                    <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: f.bg, color: f.color }}>{f.label}</span>
-                  ) : (
-                    <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>
-                  )}
+                  {f ? <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: f.bg, color: f.color }}>{f.label}</span>
+                     : <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>}
                 </td>
               </tr>
             );
           })}
           {rows.length === 0 && (
-            <tr><td colSpan={9} style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée sur la période</td></tr>
+            <tr><td colSpan={8} style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée sur la période</td></tr>
           )}
         </tbody>
       </table>
@@ -594,25 +438,17 @@ export default function DashboardAnalytique() {
   const th = { padding: "8px 10px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", fontWeight: 500, borderBottom: "0.5px solid #e2e8f0", textAlign: "left", whiteSpace: "nowrap" };
   const td = (center) => ({ padding: "9px 10px", fontSize: 13, color: "#1e293b", textAlign: center ? "right" : "left", verticalAlign: "middle" });
 
-  // ─── UI ───────────────────────────────────────────────────────────────────────
   if (loading) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: "#94a3b8", fontSize: 14 }}>
-        Chargement du cockpit analytique…
-      </div>
-    );
+    return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: "#94a3b8", fontSize: 14 }}>Chargement du cockpit analytique…</div>;
   }
-
   if (!data) return null;
 
-  const { heroLabels, heroValues, heroAvg, byMargeCurrent, byMargeDecline, totalLeadsPeriod, txConf, txLivr, txRetour, cmdLivrees, totalSpend, cplMoyen, cplLivre, ctr, cpc, plateformes, pctAds, pctOps, impactAdsMAD, impactOpsTotal, conseilleresStats, transporteursStats, releve, totalRevenu, totalDepense, soldeNet, catMap } = data;
-
+  const { heroLabels, heroValues, heroAvg, byMargeCurrent, byMargeDecline, totalLeadsPeriod, txConf, txLivr, txRetour, cmdLivrees, totalSpend, cplMoyen, cplLivre, ctr, cpc, plateformes, pctAds, pctOps, conseilleresStats, transporteursStats, releve, totalRevenu, totalDepense, soldeNet, catMap } = data;
   const periodLabel = period === 7 ? "7 derniers jours" : period === 30 ? "30 derniers jours" : "90 derniers jours";
   const hasDecline = byMargeDecline.length > 0;
 
   return (
     <div style={S.page}>
-      {/* ── Topbar ── */}
       <div style={S.topbar}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Cockpit analytique</span>
@@ -633,21 +469,20 @@ export default function DashboardAnalytique() {
         </div>
       </div>
 
-      {/* ── Section 1 : Héro marge unitaire ── */}
       <div style={S.sectionLabel}>1 — Signal principal · marge unitaire / livré · {periodLabel}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 20, marginBottom: 28 }}>
         <div style={S.card}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 6 }}>
-            <span style={{ fontSize: 40, fontWeight: 600, color: heroAvg >= 0 ? "#3B6D11" : "#E24B4A", lineHeight: 1 }}>
+            <span style={{ fontSize: 40, fontWeight: 600, color: heroAvg != null ? (heroAvg >= 0 ? "#3B6D11" : "#E24B4A") : "#94a3b8", lineHeight: 1 }}>
               {heroAvg != null ? `${heroAvg} MAD` : "—"}
             </span>
             <span style={{ fontSize: 13, color: "#64748b" }}>marge nette moyenne / livré</span>
           </div>
           <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
-            Calculé sur {cmdLivrees} commandes livrées · prix − coût achat − livraison − emballage ({FRAIS_EMBALLAGE} MAD) − confirmation ({FRAIS_CONFIRMATION} MAD)
+            Calculé sur {cmdLivrees} commandes livrées · prix − coût achat produit − livraison − emballage ({FRAIS_EMBALLAGE} MAD) − confirmation ({FRAIS_CONFIRMATION} MAD)
           </div>
           <div style={{ position: "relative", height: 140 }}>
-            <canvas ref={heroRef} role="img" aria-label={`Courbe marge unitaire nette sur ${period} jours`} />
+            <canvas ref={heroRef} />
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -655,7 +490,7 @@ export default function DashboardAnalytique() {
             { label: "Taux confirmation", val: `${txConf}%`, ok: txConf >= SEUIL_CONF, warn: txConf >= 25, seuil: `Seuil > ${SEUIL_CONF}%` },
             { label: "Taux livraison", val: `${txLivr}%`, ok: txLivr >= SEUIL_LIVR, warn: txLivr >= 40, seuil: `Seuil > ${SEUIL_LIVR}%` },
             { label: "Leads période", val: totalLeadsPeriod, ok: true, seuil: periodLabel },
-            { label: "Livrées période", val: cmdLivrees, ok: cmdLivrees > 0, seuil: "Commandes livrées" },
+            { label: "Livrées période", val: cmdLivrees, ok: cmdLivrees > 0, seuil: "Livrée + Facturée" },
           ].map((s) => (
             <div key={s.label} style={S.statCard}>
               <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{s.label}</div>
@@ -668,51 +503,37 @@ export default function DashboardAnalytique() {
 
       <div style={S.divider} />
 
-      {/* ── Section 2a : Meilleure marge actuelle ── */}
       <div style={S.sectionLabel}>2a — Produits · classement par marge actuelle</div>
       <div style={{ ...S.card, marginBottom: 20, overflowX: "auto" }}>
         <ProdTable rows={byMargeCurrent.slice(0, 10)} showDelta={false} />
       </div>
 
-      {/* ── Section 2b : Produits en baisse ── */}
       <div style={S.sectionLabel}>2b — Produits · marge en baisse · comparaison {period}j vs {period}j précédents</div>
       <div style={{ ...S.card, marginBottom: 0, overflowX: "auto" }}>
         {hasDecline ? (
           <>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>
-              Delta = marge moyenne période courante − période précédente. Rouge = dégradation réelle sur données livrées.
-            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>Delta = marge moyenne période courante − période précédente.</div>
             <ProdTable rows={byMargeDecline} showDelta={true} />
           </>
         ) : (
-          <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-            Aucun produit en dégradation détecté sur la période — pas assez de données livrées sur les deux périodes pour comparer.
-          </div>
+          <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun produit en dégradation sur la période.</div>
         )}
       </div>
 
       <div style={S.divider} />
 
-      {/* ── Section 3 : Diagnostic Ads vs OPS ── */}
       <div style={S.sectionLabel}>3 — Diagnostic fuite · Ads vs OPS</div>
       <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
-        Logique : impact Ads = coût acquisition par livré ({cplLivre != null ? `${cplLivre} MAD/livré` : "aucune donnée"}) · impact OPS = points perdus en confirmation ({Math.max(0, SEUIL_CONF - txConf)} pts sous seuil) et livraison ({Math.max(0, SEUIL_LIVR - txLivr)} pts sous seuil)
+        Impact Ads = CPL/livré ({cplLivre != null ? `${cplLivre} MAD` : "—"}) · Impact OPS = points sous seuil conf ({Math.max(0, SEUIL_CONF - txConf)} pts) et livraison ({Math.max(0, SEUIL_LIVR - txLivr)} pts)
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-        {/* Ads */}
-        <div
-          onClick={() => setDrill(drill === "ads" ? null : "ads")}
-          style={{ ...S.card, cursor: "pointer", borderColor: drill === "ads" ? "#534AB7" : "#e2e8f0", borderWidth: drill === "ads" ? 1.5 : 0.5 }}
-        >
+        <div onClick={() => setDrill(drill === "ads" ? null : "ads")} style={{ ...S.card, cursor: "pointer", borderColor: drill === "ads" ? "#534AB7" : "#e2e8f0", borderWidth: drill === "ads" ? 1.5 : 0.5 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 18, color: "#534AB7" }}>📣</span>
               <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>Acquisition — Ads</span>
             </div>
             <span style={{ fontSize: 20, fontWeight: 700, color: "#534AB7" }}>{pctAds}%</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
-            Part estimée dans la fuite de marge, basée sur le coût d'acquisition réel.
           </div>
           {[
             { label: "Spend total", val: `${Math.round(totalSpend)} MAD`, pct: 100 },
@@ -728,23 +549,16 @@ export default function DashboardAnalytique() {
               <span style={{ fontSize: 12, fontWeight: 600, color: "#534AB7", minWidth: 60, textAlign: "right" }}>{row.val}</span>
             </div>
           ))}
-          <div style={{ marginTop: 10, fontSize: 11, color: "#534AB7" }}>▸ {drill === "ads" ? "Masquer le détail" : "Voir détail par plateforme"}</div>
+          <div style={{ marginTop: 10, fontSize: 11, color: "#534AB7" }}>▸ {drill === "ads" ? "Masquer" : "Voir détail par plateforme"}</div>
         </div>
 
-        {/* OPS */}
-        <div
-          onClick={() => setDrill(drill === "ops" ? null : "ops")}
-          style={{ ...S.card, cursor: "pointer", borderColor: drill === "ops" ? "#BA7517" : "#e2e8f0", borderWidth: drill === "ops" ? 1.5 : 0.5 }}
-        >
+        <div onClick={() => setDrill(drill === "ops" ? null : "ops")} style={{ ...S.card, cursor: "pointer", borderColor: drill === "ops" ? "#BA7517" : "#e2e8f0", borderWidth: drill === "ops" ? 1.5 : 0.5 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 18, color: "#BA7517" }}>👥</span>
               <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>OPS — Confirmation & Livraison</span>
             </div>
             <span style={{ fontSize: 20, fontWeight: 700, color: "#BA7517" }}>{pctOps}%</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
-            Part estimée dans la fuite, basée sur les écarts réels aux seuils de confirmation et livraison.
           </div>
           {[
             { label: "Confirmation", val: `${txConf}%`, pct: txConf, seuil: SEUIL_CONF, color: "#BA7517" },
@@ -759,40 +573,23 @@ export default function DashboardAnalytique() {
               <span style={{ fontSize: 12, fontWeight: 600, color: row.pct < row.seuil ? "#A32D2D" : "#3B6D11", minWidth: 40, textAlign: "right" }}>{row.val}</span>
             </div>
           ))}
-          <div style={{ marginTop: 10, fontSize: 11, color: "#BA7517" }}>▸ {drill === "ops" ? "Masquer le détail" : "Voir conseillères & transporteurs"}</div>
+          <div style={{ marginTop: 10, fontSize: 11, color: "#BA7517" }}>▸ {drill === "ops" ? "Masquer" : "Voir conseillères & transporteurs"}</div>
         </div>
       </div>
 
-      {/* ── Drill Ads ── */}
       {drill === "ads" && (
         <div style={{ ...S.card, marginBottom: 20, borderColor: "#AFA9EC" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>📣 Ads — Détail par plateforme</span>
             <button onClick={() => setDrill(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>✕ Fermer</button>
           </div>
-          {/* KPI synthèse */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
-            {[
-              { label: "Spend total", val: `${Math.round(totalSpend)} MAD` },
-              { label: "CPL moyen", val: cplMoyen != null ? `${cplMoyen} MAD` : "—" },
-              { label: "CPL / livré", val: cplLivre != null ? `${cplLivre} MAD` : "—" },
-              { label: "CTR global", val: ctr ? `${ctr}%` : "—" },
-            ].map((k) => (
-              <div key={k.label} style={S.statCard}>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{k.label}</div>
-                <div style={{ fontSize: 18, fontWeight: 600, color: "#1e293b" }}>{k.val}</div>
-              </div>
+            {[{ label: "Spend total", val: `${Math.round(totalSpend)} MAD` }, { label: "CPL moyen", val: cplMoyen != null ? `${cplMoyen} MAD` : "—" }, { label: "CPL / livré", val: cplLivre != null ? `${cplLivre} MAD` : "—" }, { label: "CTR global", val: ctr ? `${ctr}%` : "—" }].map((k) => (
+              <div key={k.label} style={S.statCard}><div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{k.label}</div><div style={{ fontSize: 18, fontWeight: 600, color: "#1e293b" }}>{k.val}</div></div>
             ))}
           </div>
-          {/* Table plateformes */}
           <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["Plateforme", "Spend", "CPL", "CTR", "CPC"].map((h) => (
-                  <th key={h} style={{ ...th, background: "#f8fafc" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
+            <thead><tr style={{ background: "#f8fafc" }}>{["Plateforme", "Spend", "CPL", "CTR", "CPC"].map((h) => (<th key={h} style={{ ...th, background: "#f8fafc" }}>{h}</th>))}</tr></thead>
             <tbody>
               {plateformes.length > 0 ? plateformes.map((pl) => (
                 <tr key={pl.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
@@ -802,18 +599,13 @@ export default function DashboardAnalytique() {
                   <td style={td(true)}>{pl.ctr ? `${pl.ctr}%` : "—"}</td>
                   <td style={td(true)}>{pl.cpc != null ? `${pl.cpc} MAD` : "—"}</td>
                 </tr>
-              )) : (
-                <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée ads sur la période</td></tr>
-              )}
+              )) : <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée ads</td></tr>}
             </tbody>
           </table>
-          <div style={{ position: "relative", height: 140 }}>
-            <canvas ref={adsRef} role="img" aria-label="Spend par plateforme publicitaire" />
-          </div>
+          <div style={{ position: "relative", height: 140 }}><canvas ref={adsRef} /></div>
         </div>
       )}
 
-      {/* ── Drill OPS ── */}
       {drill === "ops" && (
         <div style={{ ...S.card, marginBottom: 20, borderColor: "#FAC775" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
@@ -821,62 +613,38 @@ export default function DashboardAnalytique() {
             <button onClick={() => setDrill(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>✕ Fermer</button>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {/* Conseillères */}
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Conseillères</div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Conseillère", "Leads", "Taux conf.", "Tendance"].map((h) => (
-                      <th key={h} style={th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
+                <thead><tr>{["Conseillère", "Leads", "Taux conf.", "Tendance"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {conseilleresStats.length > 0 ? conseilleresStats.map((c) => (
                     <tr key={c.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
                       <td style={{ ...td(), fontWeight: 500 }}>{c.nom}</td>
                       <td style={td(true)}>{c.leads}</td>
                       <td style={{ ...td(true), color: c.taux_conf >= SEUIL_CONF ? "#3B6D11" : c.taux_conf >= 25 ? "#BA7517" : "#A32D2D", fontWeight: 600 }}>{c.taux_conf}%</td>
-                      <td style={td()}>
-                        <span style={S.chip(c.taux_conf >= SEUIL_CONF)}>{c.taux_conf >= SEUIL_CONF ? "OK" : "À améliorer"}</span>
-                      </td>
+                      <td style={td()}><span style={S.chip(c.taux_conf >= SEUIL_CONF)}>{c.taux_conf >= SEUIL_CONF ? "OK" : "À améliorer"}</span></td>
                     </tr>
-                  )) : (
-                    <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée</td></tr>
-                  )}
+                  )) : <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée</td></tr>}
                 </tbody>
               </table>
             </div>
-            {/* Transporteurs */}
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Transporteurs</div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Transporteur", "Livr.", "Retours", "Grade"].map((h) => (
-                      <th key={h} style={th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
+                <thead><tr>{["Transporteur", "Livr.", "Retours", "Grade"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {transporteursStats.length > 0 ? transporteursStats.map((t) => (
                     <tr key={t.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
                       <td style={{ ...td(), fontWeight: 500 }}>{t.nom}</td>
                       <td style={{ ...td(true), color: t.taux_livr >= SEUIL_LIVR ? "#3B6D11" : "#A32D2D", fontWeight: 600 }}>{t.taux_livr}%</td>
                       <td style={{ ...td(true), color: t.taux_retour > 25 ? "#A32D2D" : "#1e293b" }}>{t.taux_retour}%</td>
-                      <td style={td()}>
-                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, ...gradeColor[t.grade] }}>{t.grade}</span>
-                      </td>
+                      <td style={td()}><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, ...gradeColor[t.grade] }}>{t.grade}</span></td>
                     </tr>
-                  )) : (
-                    <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun transporteur assigné sur la période</td></tr>
-                  )}
+                  )) : <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun transporteur</td></tr>}
                 </tbody>
               </table>
-              <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8" }}>
-                A1 ≥ 60% · A2 45–60% · B2 40–45% · STOP &lt; 40%
-              </div>
+              <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8" }}>A1 ≥ 60% · A2 45–60% · B2 40–45% · STOP &lt; 40%</div>
             </div>
           </div>
         </div>
@@ -884,20 +652,12 @@ export default function DashboardAnalytique() {
 
       <div style={S.divider} />
 
-      {/* ── Section 6 : Finance ── */}
       <div style={S.sectionLabel}>6 — Finance · trésorerie & mouvements</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20 }}>
-        {/* Journal */}
         <div style={S.card}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", marginBottom: 14 }}>Journal des mouvements</div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {["Date", "Libellé", "Catégorie", "Type", "Montant"].map((h) => (
-                  <th key={h} style={th}>{h}</th>
-                ))}
-              </tr>
-            </thead>
+            <thead><tr>{["Date", "Libellé", "Catégorie", "Type", "Montant"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>
               {releve.length > 0 ? releve.slice(0, 20).map((r, i) => {
                 const montant = parseFloat(r.montant) || 0;
@@ -905,61 +665,38 @@ export default function DashboardAnalytique() {
                 return (
                   <tr key={i} style={{ borderTop: "0.5px solid #f1f5f9" }}>
                     <td style={{ ...td(), color: "#94a3b8", fontSize: 12 }}>{r.date ? new Date(r.date).toLocaleDateString("fr", { day: "numeric", month: "short" }) : "—"}</td>
-                    <td style={{ ...td(), maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }} title={r.libelle || r.description || ""}>{r.libelle || r.description || "—"}</td>
+                    <td style={{ ...td(), maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{r.libelle || r.description || r.intitule || "—"}</td>
                     <td style={td()}><span style={{ fontSize: 11, color: "#64748b" }}>{r.categorie || r.type || "—"}</span></td>
-                    <td style={td()}>
-                      <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: isIn ? "#EAF3DE" : "#FCEBEB", color: isIn ? "#3B6D11" : "#A32D2D" }}>
-                        {isIn ? "Recette" : "Dépense"}
-                      </span>
-                    </td>
-                    <td style={{ ...td(true), fontWeight: 600, color: isIn ? "#3B6D11" : "#A32D2D" }}>
-                      {isIn ? "+" : ""}{Math.round(montant)} MAD
-                    </td>
+                    <td style={td()}><span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: isIn ? "#EAF3DE" : "#FCEBEB", color: isIn ? "#3B6D11" : "#A32D2D" }}>{isIn ? "Recette" : "Dépense"}</span></td>
+                    <td style={{ ...td(true), fontWeight: 600, color: isIn ? "#3B6D11" : "#A32D2D" }}>{isIn ? "+" : ""}{Math.round(Math.abs(montant))} MAD</td>
                   </tr>
                 );
-              }) : (
-                <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun mouvement enregistré</td></tr>
-              )}
+              }) : <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun mouvement enregistré</td></tr>}
             </tbody>
           </table>
         </div>
-
-        {/* Synthèse cash */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={S.card}>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>Cash net (mouvements enregistrés)</div>
-            <div style={{ fontSize: 34, fontWeight: 700, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", lineHeight: 1, marginBottom: 4 }}>
-              {soldeNet >= 0 ? "+" : ""}{soldeNet} MAD
-            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>Cash net</div>
+            <div style={{ fontSize: 34, fontWeight: 700, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", lineHeight: 1, marginBottom: 4 }}>{soldeNet >= 0 ? "+" : ""}{soldeNet} MAD</div>
             <div style={{ height: "0.5px", background: "#e2e8f0", margin: "14px 0" }} />
-            {[
-              { label: "Recettes totales", val: `+${totalRevenu} MAD`, color: "#3B6D11" },
-              { label: "Dépenses totales", val: `${totalDepense} MAD`, color: "#A32D2D" },
-              { label: "Solde net", val: `${soldeNet >= 0 ? "+" : ""}${soldeNet} MAD`, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", bold: true },
-            ].map((row) => (
+            {[{ label: "Recettes", val: `+${totalRevenu} MAD`, color: "#3B6D11" }, { label: "Dépenses", val: `${totalDepense} MAD`, color: "#A32D2D" }, { label: "Solde net", val: `${soldeNet >= 0 ? "+" : ""}${soldeNet} MAD`, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", bold: true }].map((row) => (
               <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 10 }}>
                 <span style={{ color: "#64748b" }}>{row.label}</span>
                 <span style={{ fontWeight: row.bold ? 700 : 500, color: row.color }}>{row.val}</span>
               </div>
             ))}
           </div>
-
-          {/* Ventilation dépenses */}
           {Object.keys(catMap).length > 0 && (
             <div style={S.card}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Ventilation dépenses</div>
-              {/* Barre proportionnelle */}
-              <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 2, marginBottom: 12 }}>
+              <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 1, marginBottom: 12 }}>
                 {Object.entries(catMap).map(([cat, val], i) => {
-                  const total = Math.abs(totalDepense) || 1;
                   const barColors = ["#534AB7", "#E24B4A", "#BA7517", "#3B6D11", "#888"];
-                  return (
-                    <div key={cat} title={`${cat} : ${Math.round(val)} MAD`} style={{ flex: val / total * 100, background: barColors[i % barColors.length], minWidth: 2 }} />
-                  );
+                  return <div key={cat} title={`${cat}`} style={{ flex: val / (Math.abs(totalDepense) || 1) * 100, background: barColors[i % barColors.length], minWidth: 2 }} />;
                 })}
               </div>
               {Object.entries(catMap).map(([cat, val], i) => {
-                const total = Math.abs(totalDepense) || 1;
                 const barColors = ["#534AB7", "#E24B4A", "#BA7517", "#3B6D11", "#888"];
                 return (
                   <div key={cat} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6, alignItems: "center" }}>
@@ -967,7 +704,7 @@ export default function DashboardAnalytique() {
                       <span style={{ width: 8, height: 8, borderRadius: 2, background: barColors[i % barColors.length], display: "inline-block" }} />
                       {cat}
                     </span>
-                    <span style={{ fontWeight: 500, color: "#1e293b" }}>{Math.round(val)} MAD · {Math.round((val / total) * 100)}%</span>
+                    <span style={{ fontWeight: 500, color: "#1e293b" }}>{Math.round(val)} MAD · {Math.round(val / (Math.abs(totalDepense) || 1) * 100)}%</span>
                   </div>
                 );
               })}
