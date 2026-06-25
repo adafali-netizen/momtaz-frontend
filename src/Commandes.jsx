@@ -159,6 +159,7 @@ function validate() {
 async function handleEnregistrer() {
   if (!validate()) return;
   setSaving(true);
+  try {
 
   const updates = { statut: newStatut, transporteur, tracking: trackingVal };
   const dateISO = dateStatut ? new Date(dateStatut).toISOString() : new Date().toISOString();
