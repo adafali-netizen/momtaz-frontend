@@ -230,7 +230,9 @@ async function handleEnregistrer() {
     .order("created_at", { ascending: false });
   if (newEvents) setEvents(newEvents);
 
-  setSaving(false);
+  } finally {
+    setSaving(false);
+  }
 }
 
   // KPI
