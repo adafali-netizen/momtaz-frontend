@@ -181,8 +181,8 @@ export default function DashboardAnalytique() {
     ] = await Promise.all([
       supabase
         .from("commandes")
-        .select("id, created_at, statut, prix, cout_achat, frais_livraison, frais_retour, produit_id, conseillere_id, transporteur_id")
-        .gte("created_at", start2xStr)
+.select("id, created_at, statut, prix, frais_livraison, transporteur, conseillere, produit")
+      .gte("created_at", start2xStr)
         .lte("created_at", endStr + "T23:59:59"),
       supabase
         .from("leads")
