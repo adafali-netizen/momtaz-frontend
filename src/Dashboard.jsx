@@ -1,749 +1,980 @@
-import { useEffect, useState, useCallback } from "react";
-import { supabase } from "./supabaseClient";
+import { useEffect, useState, useRef } from "react";
+import { supabase } from "../supabaseClient";
+import {
+  Chart,
+  LineElement,
+  PointElement,
+  LineController,
+  BarElement,
+  BarController,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Filler,
+} from "chart.js";
 
-// ─── Constantes métier ────────────────────────────────────────────────────────
+Chart.register(
+  LineElement, PointElement, LineController,
+  BarElement, BarController,
+  CategoryScale, LinearScale,
+  Tooltip, Filler
+);
+
+// ─── Constantes métier ───────────────────────────────────────────────────────
 const FRAIS_EMBALLAGE = 4;
 const FRAIS_CONFIRMATION = 10;
-const STATUTS_CONFIRMS = ["Confirmé", "Livrée", "Expédiée", "Facturée", "En cours de livraison"];
-const STATUTS_LIVRES = ["Livrée", "Facturée"];
-const STATUTS_RETOURS = ["Retour reçu", "Retour en cours"];
-const STATUTS_EXCLUS = ["Annulée", "Doublon", "Fausse commande"];
+const SEUIL_CONF = 35;
+const SEUIL_LIVR = 55;
 
-// ─── Couleurs ─────────────────────────────────────────────────────────────────
-const CLR = {
-  green:  { bg: "#EAF3DE", border: "#97C459", text: "#3B6D11", dark: "#27500A" },
-  amber:  { bg: "#FAEEDA", border: "#EF9F27", text: "#854F0B", dark: "#633806" },
-  red:    { bg: "#FCEBEB", border: "#F09595", text: "#A32D2D", dark: "#791F1F" },
-  purple: { bg: "#EEEDFE", border: "#AFA9EC", text: "#534AB7", dark: "#3C3489" },
-  slate:  { bg: "#f8fafc", border: "#e2e8f0", text: "#64748b", dark: "#1e293b" },
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function fmt(n, decimals = 0) {
+  if (n == null || isNaN(n)) return "—";
+  return Number(n).toFixed(decimals);
+}
+function pct(val, total) {
+  if (!total) return 0;
+  return Math.round((val / total) * 100);
+}
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+function dateKey(d) {
+  return new Date(d).toISOString().slice(0, 10);
+}
+function labelDate(d) {
+  return new Date(d).toLocaleDateString("fr", { day: "numeric", month: "short" });
+}
+function last30() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 29);
+  return { start: dateKey(start), end: dateKey(end) };
+}
+function last60() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 59);
+  return { start: dateKey(start), end: dateKey(end) };
+}
+function calcMarge(row) {
+  const prix = parseFloat(row.prix) || 0;
+  const cout = parseFloat(row.cout_achat) || 0;
+  const fraisLivr = parseFloat(row.frais_livraison) || 0;
+  return prix - cout - fraisLivr - FRAIS_EMBALLAGE - FRAIS_CONFIRMATION;
+}
+
+// ─── Styles inline partagés ───────────────────────────────────────────────────
+const S = {
+  page: {
+    fontFamily: "var(--font-sans, system-ui)",
+    padding: "0 0 48px",
+    maxWidth: "100%",
+  },
+  topbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "14px 0 18px",
+    borderBottom: "0.5px solid #e2e8f0",
+    marginBottom: "28px",
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: ".08em",
+    color: "#94a3b8",
+    marginBottom: 12,
+  },
+  divider: { height: "0.5px", background: "#e2e8f0", margin: "28px 0" },
+  card: {
+    background: "#fff",
+    border: "0.5px solid #e2e8f0",
+    borderRadius: 12,
+    padding: "20px 24px",
+  },
+  statCard: {
+    background: "#f8fafc",
+    borderRadius: 8,
+    padding: "14px 16px",
+  },
+  badge: (color) => ({
+    display: "inline-block",
+    padding: "2px 8px",
+    borderRadius: 20,
+    fontSize: 11,
+    fontWeight: 600,
+    ...badgeColors[color],
+  }),
+  chip: (ok) => ({
+    display: "inline-block",
+    padding: "1px 7px",
+    borderRadius: 4,
+    fontSize: 11,
+    fontWeight: 500,
+    background: ok ? "#EAF3DE" : "#FCEBEB",
+    color: ok ? "#3B6D11" : "#A32D2D",
+  }),
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function pct(a, b) { return (b > 0) ? Math.round((a / b) * 100) : null; }
-function avg(arr) { return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null; }
-function sum(arr) { return arr.reduce((s, v) => s + v, 0); }
-function round(n) { return Math.round(n); }
-function fmtMAD(n, opts = {}) {
-  if (n == null || isNaN(n)) return null;
-  const sign = n > 0 ? "+" : "";
-  return `${opts.noSign ? "" : sign}${round(n).toLocaleString("fr")} MAD`;
-}
-function dateKey(d) { return new Date(d).toISOString().slice(0, 10); }
+const badgeColors = {
+  test:  { background: "#EAF3DE", color: "#3B6D11" },
+  scale: { background: "#E1F5EE", color: "#0F6E56" },
+  opti:  { background: "#FAEEDA", color: "#854F0B" },
+  stop:  { background: "#FCEBEB", color: "#A32D2D" },
+};
 
-function startOfMonth(d = new Date()) {
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+function decisionBadge(p) {
+  if (p.total_leads < 20) return "test";
+  if (p.taux_conf >= 40 && p.taux_livr >= 60 && p.marge_avg > 0) return "scale";
+  if (p.taux_conf >= 25 && p.taux_livr >= 40 && p.marge_avg > 0) return "opti";
+  return "stop";
 }
-function endOfMonth(d = new Date()) {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-}
-function prevMonthRange() {
-  const d = new Date();
-  const first = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-  const last  = new Date(d.getFullYear(), d.getMonth(), 0);
-  return { start: dateKey(first), end: dateKey(last) };
-}
-function startOfQuarter() {
-  const d = new Date();
-  const q = Math.floor(d.getMonth() / 3);
-  return new Date(d.getFullYear(), q * 3, 1).toISOString().slice(0, 10);
-}
+const decisionLabel = { test: "EN TEST", scale: "SCALE", opti: "OPTIMISER", stop: "STOP" };
 
-// ─── Composants UI partagés ───────────────────────────────────────────────────
-function Signal({ color }) {
-  return (
-    <div style={{ width: 8, height: 8, borderRadius: "50%", background: color.text, flexShrink: 0 }} />
-  );
-}
-
-function EstimLabel() {
-  return (
-    <span style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8", background: "#f1f5f9", borderRadius: 3, padding: "1px 5px", marginLeft: 5, verticalAlign: "middle", letterSpacing: ".02em" }}>
-      estimé
-    </span>
-  );
-}
-
-function Unavailable({ label }) {
-  return (
-    <span style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>
-      {label || "donnée indisponible"}
-    </span>
-  );
-}
-
-function ProgressBar({ value, color, showPct = true }) {
-  if (value == null) return <Unavailable />;
-  const w = Math.min(100, Math.max(0, value));
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${w}%`, background: color.text, borderRadius: 99, transition: "width .4s" }} />
-      </div>
-      {showPct && <span style={{ fontSize: 12, fontWeight: 700, color: color.dark, minWidth: 35, textAlign: "right" }}>{value}%</span>}
-    </div>
-  );
-}
-
-function BlockCard({ children, onClick, borderColor, style = {} }) {
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: "#fff",
-        border: `0.5px solid ${borderColor || "#e2e8f0"}`,
-        borderRadius: 12,
-        padding: "20px 22px",
-        cursor: onClick ? "pointer" : "default",
-        ...style,
-      }}
-      onMouseEnter={e => { if (onClick) e.currentTarget.style.boxShadow = "0 2px 16px rgba(0,0,0,0.06)"; }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function BlockHeader({ title, signal, onAnalyse }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {signal && <Signal color={signal} />}
-        <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: "#0f172a" }}>{title}</span>
-      </div>
-      {onAnalyse && (
-        <button
-          onClick={e => { e.stopPropagation(); onAnalyse(); }}
-          style={{ fontSize: 11, color: CLR.purple.text, fontWeight: 600, background: CLR.purple.bg, border: `0.5px solid ${CLR.purple.border}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}
-        >
-          Analyser →
-        </button>
-      )}
-    </div>
-  );
-}
-
-function KpiRow({ label, value, valueColor, estim = false, sub }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "0.5px solid #f8fafc" }}>
-      <span style={{ fontSize: 12, color: "#64748b" }}>{label}</span>
-      <div style={{ textAlign: "right" }}>
-        {value == null
-          ? <Unavailable />
-          : <span style={{ fontSize: 13, fontWeight: 600, color: valueColor || "#1e293b" }}>
-              {value}{estim && <EstimLabel />}
-            </span>
-        }
-        {sub && <div style={{ fontSize: 11, color: "#94a3b8" }}>{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Sélecteur de période ─────────────────────────────────────────────────────
-function PeriodSelector({ start, end, onChange }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const shortcuts = [
-    { label: "Mois en cours",   fn: () => onChange(startOfMonth(), endOfMonth()) },
-    { label: "Mois précédent",  fn: () => { const r = prevMonthRange(); onChange(r.start, r.end); } },
-    { label: "Trimestre",       fn: () => onChange(startOfQuarter(), today) },
-  ];
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <input
-          type="date"
-          value={start}
-          max={end}
-          onChange={e => onChange(e.target.value, end)}
-          style={{ padding: "5px 10px", border: "0.5px solid #e2e8f0", borderRadius: 7, fontSize: 13, color: "#1e293b", background: "#fff" }}
-        />
-        <span style={{ fontSize: 12, color: "#94a3b8" }}>→</span>
-        <input
-          type="date"
-          value={end}
-          min={start}
-          max={today}
-          onChange={e => onChange(start, e.target.value)}
-          style={{ padding: "5px 10px", border: "0.5px solid #e2e8f0", borderRadius: 7, fontSize: 13, color: "#1e293b", background: "#fff" }}
-        />
-      </div>
-      <div style={{ display: "flex", gap: 4 }}>
-        {shortcuts.map(s => (
-          <button key={s.label} onClick={s.fn} style={{ padding: "5px 10px", border: "0.5px solid #e2e8f0", borderRadius: 6, fontSize: 11, fontWeight: 500, color: "#64748b", background: "#fff", cursor: "pointer" }}>
-            {s.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+function fuiteLabel(p) {
+  if (p.taux_conf < SEUIL_CONF) return { label: "Confirmation", color: "#854F0B", bg: "#FAEEDA" };
+  if (p.taux_livr < SEUIL_LIVR) return { label: "Livraison", color: "#A32D2D", bg: "#FCEBEB" };
+  if (p.marge_avg < 0) return { label: "Coûts", color: "#534AB7", bg: "#EEEDFE" };
+  return null;
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
-export default function Dashboard({ role, nom, setModule }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [period, setPeriod] = useState({ start: startOfMonth(), end: today });
+export default function DashboardAnalytique() {
+  const [period, setPeriod] = useState(30);
   const [loading, setLoading] = useState(true);
-  const [data, setData]     = useState(null);
+  const [data, setData] = useState(null);
+  const [drill, setDrill] = useState(null); // null | 'ads' | 'ops'
+  const heroRef = useRef(null);
+  const heroChartRef = useRef(null);
+  const adsRef = useRef(null);
+  const adsChartRef = useRef(null);
 
-  const load = useCallback(async () => {
+  // ─── Fetch data ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchAll(period);
+  }, [period]);
+
+  async function fetchAll(days) {
     setLoading(true);
-    const { start, end } = period;
-    const endFull = end + "T23:59:59";
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    const startStr = dateKey(start);
+    const endStr = dateKey(end);
+
+    // Pour la comparaison marge en baisse, on prend 2x la période
+    const start2x = new Date();
+    start2x.setDate(start2x.getDate() - (days * 2 - 1));
+    const start2xStr = dateKey(start2x);
 
     const [
-      { data: releve },
       { data: commandes },
       { data: leads },
       { data: adsSpend },
+      { data: releve },
       { data: produits },
+      { data: conseilleres },
       { data: transporteurs },
     ] = await Promise.all([
-      supabase.from("releve_bancaire").select("date, montant, categorie, type, libelle, description").gte("date", start).lte("date", end),
-      supabase.from("commandes").select("id, statut, prix, cout_achat, frais_livraison, produit_id, conseillere_id, transporteur_id, created_at").gte("created_at", start).lte("created_at", endFull),
-      supabase.from("leads").select("id, statut, conseillere_id, created_at").gte("created_at", start).lte("created_at", endFull),
-      supabase.from("ads_spend").select("date, plateforme, spend_mad, budget_mad, leads_count").gte("date", start).lte("date", end),
-      supabase.from("produits").select("id, nom, cout_achat, stock_actuel"),
-      supabase.from("transporteurs").select("id, nom"),
+      supabase
+        .from("commandes")
+        .select("id, created_at, statut, prix, cout_achat, frais_livraison, frais_retour, produit_id, conseillere_id, transporteur_id")
+        .gte("created_at", start2xStr)
+        .lte("created_at", endStr + "T23:59:59"),
+      supabase
+        .from("leads")
+        .select("id, created_at, statut, conseillere_id, conseillere, produit_id")
+        .gte("created_at", startStr)
+        .lte("created_at", endStr + "T23:59:59"),
+      supabase
+        .from("ads_spend")
+        .select("date, plateforme, budget_mad, spend_mad, impressions, clics, leads_count")
+        .gte("date", startStr)
+        .lte("date", endStr),
+      supabase
+        .from("releve_bancaire")
+        .select("*")
+        .order("date", { ascending: false })
+        .limit(50),
+      supabase.from("produits").select("id, nom, cout_achat, titre_shopify"),
+      supabase.from("conseilleres").select("id, nom, active"),
+      supabase.from("transporteurs").select("id, nom").limit(20),
     ]);
 
-    setData(compute({
-      releve: releve || [],
+    const result = buildAnalytics({
       commandes: commandes || [],
       leads: leads || [],
       adsSpend: adsSpend || [],
+      releve: releve || [],
       produits: produits || [],
+      conseilleres: conseilleres || [],
       transporteurs: transporteurs || [],
-    }));
+      days,
+      startStr,
+      endStr,
+      start2xStr,
+    });
+
+    setData(result);
     setLoading(false);
-  }, [period]);
+  }
 
-  useEffect(() => { load(); }, [load]);
+  // ─── Analytics engine ────────────────────────────────────────────────────────
+  function buildAnalytics({ commandes, leads, adsSpend, releve, produits, conseilleres, transporteurs, days, startStr, endStr, start2xStr }) {
+    const midDate = new Date();
+    midDate.setDate(midDate.getDate() - Math.floor(days / 2));
+    const midStr = dateKey(midDate);
 
-  function compute({ releve, commandes, leads, adsSpend, produits, transporteurs }) {
     const prodMap = {};
-    produits.forEach(p => { prodMap[p.id] = p; });
+    produits.forEach((p) => { prodMap[p.id] = p; });
+    const consMap = {};
+    conseilleres.forEach((c) => { consMap[c.id] = c; });
     const transMap = {};
-    transporteurs.forEach(t => { transMap[t.id] = t; });
+    transporteurs.forEach((t) => { transMap[t.id] = t; });
 
-    // ── Bloc 1 : Finances ──────────────────────────────────────────────────
-    const releve_ok = releve.length > 0;
-    const montants = releve.map(r => parseFloat(r.montant) || 0);
-    const recettes = sum(montants.filter(m => m > 0));
-    const depenses = Math.abs(sum(montants.filter(m => m < 0)));
-    const resultat = recettes - depenses;
-    const ratioDepRec = recettes > 0 ? depenses / recettes : null;
+    // Filtrer commandes période courante vs période complète
+    const cmdCurrent = commandes.filter((c) => dateKey(c.created_at) >= startStr);
+    const cmdLivrees = cmdCurrent.filter((c) => ["Livrée", "Facturée"].includes(c.statut));
+    const cmdAll = commandes; // inclut période 2x pour comparaison
 
-    const capitalImmobilise = produits
-      .filter(p => p.stock_actuel > 0 && p.cout_achat > 0)
-      .reduce((s, p) => s + (p.stock_actuel * p.cout_achat), 0);
-    const hasCapitalData = produits.some(p => p.stock_actuel > 0 && p.cout_achat > 0);
+    // ── Courbe héro : marge unitaire par jour (livrées uniquement) ──
+    const margsByDay = {};
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - (days - 1 - i));
+      margsByDay[dateKey(d)] = { sum: 0, count: 0 };
+    }
+    cmdLivrees.forEach((c) => {
+      const k = dateKey(c.created_at);
+      if (margsByDay[k]) {
+        margsByDay[k].sum += calcMarge(c);
+        margsByDay[k].count += 1;
+      }
+    });
+    const heroLabels = Object.keys(margsByDay).map(labelDate);
+    const heroValues = Object.values(margsByDay).map((d) =>
+      d.count ? Math.round(d.sum / d.count) : null
+    );
+    const heroAvg = cmdLivrees.length
+      ? Math.round(cmdLivrees.reduce((s, c) => s + calcMarge(c), 0) / cmdLivrees.length)
+      : null;
 
-    const finSignal = !releve_ok ? CLR.slate
-      : resultat > 0 ? CLR.green
-      : resultat > -500 ? CLR.amber
-      : CLR.red;
-
-    // ── Bloc 2 : Produit ───────────────────────────────────────────────────
-    const calcMarge = (c) => {
-      const prix = parseFloat(c.prix) || 0;
-      const cout = parseFloat(c.cout_achat) || parseFloat(prodMap[c.produit_id]?.cout_achat) || null;
-      const livr = parseFloat(c.frais_livraison) || 0;
-      if (!prix || cout == null) return null;
-      return prix - cout - livr - FRAIS_EMBALLAGE - FRAIS_CONFIRMATION;
+    // ── Produits : marge actuelle + marge en baisse ──
+    const prodStats = {};
+    const initProd = (id) => {
+      if (!prodStats[id]) {
+        prodStats[id] = {
+          id,
+          nom: prodMap[id]?.nom || `Produit #${id}`,
+          // période courante
+          curr_livr: [], curr_leads: 0, curr_conf: 0,
+          // période précédente (pour delta)
+          prev_livr: [], prev_leads: 0, prev_conf: 0,
+        };
+      }
     };
 
-    const livrees = commandes.filter(c => STATUTS_LIVRES.includes(c.statut));
-    const margesLivrees = livrees.map(c => calcMarge(c)).filter(v => v !== null);
-    const margeAvg = margesLivrees.length >= 1 ? avg(margesLivrees) : null; // min 3 livrées pour être fiable
+    // Leads période courante
+    leads.forEach((l) => {
+      const pid = l.produit_id;
+      if (!pid) return;
+      initProd(pid);
+      prodStats[pid].curr_leads++;
+      if (["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut))
+        prodStats[pid].curr_conf++;
+    });
 
-    // Par produit
-    const prodStats = {};
-    livrees.forEach(c => {
+    // Commandes
+    cmdAll.forEach((c) => {
       const pid = c.produit_id;
       if (!pid) return;
-      if (!prodStats[pid]) prodStats[pid] = { nom: prodMap[pid]?.nom || `#${pid}`, marges: [], total: 0 };
-      const m = calcMarge(c);
-      if (m !== null) prodStats[pid].marges.push(m);
-      prodStats[pid].total++;
+      initProd(pid);
+      const isCurrent = dateKey(c.created_at) >= startStr;
+      const isPrev = dateKey(c.created_at) >= start2xStr && dateKey(c.created_at) < startStr;
+      if (["Livrée", "Facturée"].includes(c.statut)) {
+        const m = calcMarge(c);
+        if (isCurrent) prodStats[pid].curr_livr.push(m);
+        if (isPrev) prodStats[pid].prev_livr.push(m);
+      }
     });
 
-    const prodList = Object.values(prodStats)
-      .map(p => ({
-        nom: p.nom,
-        margeAvg: p.marges.length ? avg(p.marges) : null,
-        margeTotal: p.marges.length ? sum(p.marges) : null,
-        count: p.total,
-        fiable: p.marges.length >= 3,
-      }))
-      .filter(p => p.margeAvg !== null);
+    const prodList = Object.values(prodStats).map((p) => {
+      const curr_marge_avg = p.curr_livr.length
+        ? p.curr_livr.reduce((s, v) => s + v, 0) / p.curr_livr.length
+        : null;
+      const prev_marge_avg = p.prev_livr.length
+        ? p.prev_livr.reduce((s, v) => s + v, 0) / p.prev_livr.length
+        : null;
+      const delta = curr_marge_avg != null && prev_marge_avg != null
+        ? Math.round(curr_marge_avg - prev_marge_avg)
+        : null;
+      const taux_conf = pct(p.curr_conf, p.curr_leads);
+      const taux_livr = pct(p.curr_livr.length, p.curr_leads);
+      const marge_avg = curr_marge_avg != null ? Math.round(curr_marge_avg) : null;
+      return {
+        id: p.id, nom: p.nom,
+        total_leads: p.curr_leads,
+        total_livr: p.curr_livr.length,
+        taux_conf, taux_livr,
+        marge_avg,
+        delta_marge: delta,
+        decision: decisionBadge({ total_leads: p.curr_leads, taux_conf, taux_livr, marge_avg: marge_avg || 0 }),
+        fuite: fuiteLabel({ taux_conf, taux_livr, marge_avg: marge_avg || 0 }),
+      };
+    });
 
-    const rentables = prodList.filter(p => p.margeAvg > 0);
-    const nonRentables = prodList.filter(p => p.margeAvg <= 0);
-    const topCreateurs = [...prodList].sort((a, b) => (b.margeTotal || 0) - (a.margeTotal || 0)).slice(0, 2);
-    const topDestructeur = [...prodList].filter(p => p.margeAvg < 0).sort((a, b) => a.margeAvg - b.margeAvg)[0] || null;
+    // Classement 1 : meilleure marge actuelle (avec data)
+    const byMargeCurrent = [...prodList]
+      .filter((p) => p.marge_avg != null)
+      .sort((a, b) => b.marge_avg - a.marge_avg);
 
-    const capitalParProduit = produits
-      .filter(p => p.stock_actuel > 0 && p.cout_achat > 0)
-      .map(p => ({ nom: p.nom, capital: p.stock_actuel * p.cout_achat }))
-      .sort((a, b) => b.capital - a.capital);
-    const topCapitalImmob = capitalParProduit[0] || null;
+    // Classement 2 : marge en baisse (delta négatif, comparaison possible)
+    const byMargeDecline = [...prodList]
+      .filter((p) => p.delta_marge != null && p.delta_marge < 0)
+      .sort((a, b) => a.delta_marge - b.delta_marge);
 
-    const prodSignal = prodList.length === 0 ? CLR.slate
-      : rentables.length / prodList.length >= 0.6 ? CLR.green
-      : rentables.length / prodList.length >= 0.4 ? CLR.amber
-      : CLR.red;
+    // ── Diagnostic Ads ──
+    const totalSpend = adsSpend.reduce((s, a) => s + (parseFloat(a.spend_mad || a.budget_mad) || 0), 0);
+    const totalLeadsAds = adsSpend.reduce((s, a) => s + (parseInt(a.leads_count) || 0), 0);
+    const totalClics = adsSpend.reduce((s, a) => s + (parseInt(a.clics) || 0), 0);
+    const totalImpr = adsSpend.reduce((s, a) => s + (parseInt(a.impressions) || 0), 0);
+    const cplMoyen = totalLeadsAds ? Math.round(totalSpend / totalLeadsAds) : null;
+    const ctr = totalImpr ? ((totalClics / totalImpr) * 100).toFixed(1) : null;
+    const cpc = totalClics ? Math.round(totalSpend / totalClics) : null;
+    // CPL par livré = spend / livrees
+    const cplLivre = cmdLivrees.length ? Math.round(totalSpend / cmdLivrees.length) : null;
+    // Coût Ads imputable à la marge
+    const coutAdsParLivr = cplLivre || 0;
 
-    // ── Bloc 3 : Ads ───────────────────────────────────────────────────────
-    const hasAds = adsSpend.length > 0;
-    const totalSpend = sum(adsSpend.map(a => parseFloat(a.spend_mad || a.budget_mad) || 0));
-    const totalLeadsAds = sum(adsSpend.map(a => parseInt(a.leads_count) || 0));
-    const cplMoyen = (hasAds && totalLeadsAds > 0) ? totalSpend / totalLeadsAds : null;
-    const cplLivre = (hasAds && livrees.length > 0) ? totalSpend / livrees.length : null;
-    const contribNette = (hasAds && margeAvg !== null && livrees.length > 0)
-      ? (livrees.length * margeAvg) - totalSpend
-      : null;
+    // Par plateforme
+    const platfMap = {};
+    adsSpend.forEach((a) => {
+      const pl = a.plateforme || "Inconnu";
+      if (!platfMap[pl]) platfMap[pl] = { spend: 0, leads: 0, clics: 0, impr: 0 };
+      platfMap[pl].spend += parseFloat(a.spend_mad || a.budget_mad) || 0;
+      platfMap[pl].leads += parseInt(a.leads_count) || 0;
+      platfMap[pl].clics += parseInt(a.clics) || 0;
+      platfMap[pl].impr += parseInt(a.impressions) || 0;
+    });
+    const plateformes = Object.entries(platfMap).map(([nom, d]) => ({
+      nom,
+      spend: Math.round(d.spend),
+      cpl: d.leads ? Math.round(d.spend / d.leads) : null,
+      ctr: d.impr ? ((d.clics / d.impr) * 100).toFixed(1) : null,
+      cpc: d.clics ? Math.round(d.spend / d.clics) : null,
+    })).sort((a, b) => b.spend - a.spend);
 
-    // Seuil CPL/livré : rouge si CPL/livré > margeAvg (on dépense plus en ads que la marge produite)
-    const adsSignal = !hasAds ? CLR.slate
-      : contribNette === null ? CLR.slate
-      : contribNette > 0 ? CLR.green
-      : contribNette > -1000 ? CLR.amber
-      : CLR.red;
+    // ── Diagnostic OPS ──
+    const totalLeadsPeriod = leads.length;
+    const confirmes = leads.filter((l) =>
+      ["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut)
+    ).length;
+    const txConf = pct(confirmes, totalLeadsPeriod);
+    const txLivr = pct(cmdLivrees.length, confirmes || 1);
+    const retours = cmdCurrent.filter((c) => ["Retour reçu", "Retour en cours"].includes(c.statut)).length;
+    const txRetour = pct(retours, cmdCurrent.length);
 
-    // ── Bloc 4 : Call Center ───────────────────────────────────────────────
-    const totalLeads = leads.length;
-    const confirmes = leads.filter(l => STATUTS_CONFIRMS.includes(l.statut)).length;
-    const tauxConf = pct(confirmes, totalLeads);
+    // Fuite OPS : points perdus × valeur
+    // Chaque point de conf perdu = on perd potentiellement des livraisons
+    // Chaque point de livr perdu = perte directe de marge
+    const margeTheorique = heroAvg || 0; // si tout se passait bien
+    const pertePctConf = Math.max(0, SEUIL_CONF - txConf);
+    const pertePctLivr = Math.max(0, SEUIL_LIVR - txLivr);
+    // Impact estimé Ads sur marge = coutAdsParLivr
+    // Impact OPS = pertes confirmation + livraison
+    const impactAdsMAD = coutAdsParLivr;
+    const impactConfMAD = pertePctConf * 2; // pondération
+    const impactLivrMAD = pertePctLivr * 3;
+    const impactOpsTotal = impactConfMAD + impactLivrMAD;
+    const totalImpact = impactAdsMAD + impactOpsTotal;
+    const pctAds = totalImpact ? Math.round((impactAdsMAD / totalImpact) * 100) : 50;
+    const pctOps = 100 - pctAds;
 
-    // Capital activé = leads confirmés × marge avg (estimation)
-    const capitalActive = (confirmes > 0 && margeAvg !== null)
-      ? confirmes * margeAvg
-      : null;
-
-    // Par conseillère
-    const consMap = {};
-    leads.forEach(l => {
-      const cid = l.conseillere_id;
+    // ── Conseillères ──
+    const consStats = {};
+    leads.forEach((l) => {
+      const cid = l.conseillere_id || l.conseillere;
       if (!cid) return;
-      if (!consMap[cid]) consMap[cid] = { id: cid, total: 0, conf: 0 };
-      consMap[cid].total++;
-      if (STATUTS_CONFIRMS.includes(l.statut)) consMap[cid].conf++;
+      if (!consStats[cid]) consStats[cid] = { id: cid, leads: 0, conf: 0 };
+      consStats[cid].leads++;
+      if (["Confirmé", "Livrée", "Facturée", "Expédiée"].includes(l.statut))
+        consStats[cid].conf++;
     });
-    const consStats = Object.values(consMap)
-      .filter(c => c.total >= 1) // min 3 leads pour être significatif
-      .map(c => ({ id: c.id, taux: pct(c.conf, c.total), total: c.total }))
-      .sort((a, b) => b.taux - a.taux);
-    const topCons = consStats[0] || null;
-    const flopCons = consStats[consStats.length - 1] || null;
-    const hasConsData = consStats.length >= 2;
+    const conseilleresStats = Object.values(consStats).map((c) => ({
+      nom: consMap[c.id]?.nom || `#${c.id}`,
+      leads: c.leads,
+      taux_conf: pct(c.conf, c.leads),
+    })).sort((a, b) => b.taux_conf - a.taux_conf);
 
-    const confSignal = tauxConf === null ? CLR.slate
-      : tauxConf >= 35 ? CLR.green
-      : tauxConf >= 25 ? CLR.amber
-      : CLR.red;
-
-    // ── Bloc 5 : Logistique ────────────────────────────────────────────────
-    const expedies = commandes.filter(c => !STATUTS_EXCLUS.includes(c.statut));
-    const retours = commandes.filter(c => STATUTS_RETOURS.includes(c.statut));
-    const tauxLivr = pct(livrees.length, expedies.length);
-    const tauxRetour = pct(retours.length, expedies.length);
-
-    // Capital encaissé (proxy : livrées × prix moyen)
-    const prixLivrees = livrees.map(c => parseFloat(c.prix) || 0).filter(v => v > 0);
-    const capitalEncaisse = prixLivrees.length > 0 ? sum(prixLivrees) : null;
-
-    // Capital détruit par retours (estimation : retours × frais engagés)
-    const fraisEngagesAvg = (cplLivre || 0) + 15 + FRAIS_EMBALLAGE + FRAIS_CONFIRMATION;
-    const capitalDetruit = retours.length > 0 ? retours.length * fraisEngagesAvg : 0;
-
-    // Par transporteur
-    const tStats = {};
-    commandes.forEach(c => {
+    // ── Transporteurs ──
+    const transStats = {};
+    cmdCurrent.forEach((c) => {
       const tid = c.transporteur_id;
       if (!tid) return;
-      if (!tStats[tid]) tStats[tid] = { id: tid, total: 0, livr: 0 };
-      tStats[tid].total++;
-      if (c.statut === "Livrée") tStats[tid].livr++;
+      if (!transStats[tid]) transStats[tid] = { id: tid, total: 0, livr: 0, retour: 0 };
+      transStats[tid].total++;
+      if (["Livrée", "Facturée"].includes(c.statut)) transStats[tid].livr++;
+      if (["Retour reçu", "Retour en cours"].includes(c.statut)) transStats[tid].retour++;
     });
-    const transStats = Object.values(tStats)
-      .filter(t => t.total >= 1)
-      .map(t => ({
+    const transporteursStats = Object.values(transStats).map((t) => {
+      const txL = pct(t.livr, t.total);
+      let grade = "STOP";
+      if (txL >= 60) grade = "A1";
+      else if (txL >= 45) grade = "A2";
+      else if (txL >= 40) grade = "B2";
+      return {
         nom: transMap[t.id]?.nom || `#${t.id}`,
-        taux: pct(t.livr, t.total),
-        total: t.total,
-        grade: pct(t.livr, t.total) >= 60 ? "A1" : pct(t.livr, t.total) >= 45 ? "A2" : pct(t.livr, t.total) >= 40 ? "B2" : "STOP",
-      }))
-      .sort((a, b) => b.total - a.total);
-    const transPrincipal = transStats[0] || null;
+        total: t.total, livr: t.livr, retour: t.retour,
+        taux_livr: txL,
+        taux_retour: pct(t.retour, t.total),
+        grade,
+      };
+    }).sort((a, b) => b.taux_livr - a.taux_livr);
 
-    const livrSignal = tauxLivr === null ? CLR.slate
-      : tauxLivr >= 55 ? CLR.green
-      : tauxLivr >= 40 ? CLR.amber
-      : CLR.red;
+    // ── Finance ──
+    const revenus = (releve || []).filter((r) => parseFloat(r.montant) > 0);
+    const depenses = (releve || []).filter((r) => parseFloat(r.montant) < 0);
+    const totalRevenu = revenus.reduce((s, r) => s + parseFloat(r.montant), 0);
+    const totalDepense = depenses.reduce((s, r) => s + parseFloat(r.montant), 0);
+    const soldeNet = totalRevenu + totalDepense;
+
+    // Ventilation dépenses par catégorie (si colonne categorie existe)
+    const catMap = {};
+    depenses.forEach((r) => {
+      const cat = r.categorie || r.type || "Autre";
+      if (!catMap[cat]) catMap[cat] = 0;
+      catMap[cat] += Math.abs(parseFloat(r.montant));
+    });
 
     return {
-      // Finances
-      releve_ok, recettes, depenses, resultat, ratioDepRec,
-      capitalImmobilise, hasCapitalData, finSignal,
-      // Produit
-      margeAvg, prodList, rentables, nonRentables,
-      topCreateurs, topDestructeur, topCapitalImmob,
-      hasMargeData: margesLivrees.length >= 3,
-      prodSignal,
-      // Ads
-      hasAds, totalSpend, cplMoyen, cplLivre, contribNette, adsSignal,
-      // Call center
-      totalLeads, confirmes, tauxConf, capitalActive, consStats,
-      topCons, flopCons, hasConsData, confSignal,
-      // Logistique
-      tauxLivr, tauxRetour, livrees: livrees.length,
-      capitalEncaisse, capitalDetruit, transStats, transPrincipal, livrSignal,
+      heroLabels, heroValues, heroAvg,
+      prodList, byMargeCurrent, byMargeDecline,
+      totalLeadsPeriod, txConf, txLivr, txRetour,
+      cmdLivrees: cmdLivrees.length,
+      totalSpend, cplMoyen, cplLivre, ctr, cpc,
+      plateformes,
+      pctAds, pctOps, impactAdsMAD, impactOpsTotal,
+      conseilleresStats, transporteursStats,
+      releve: releve || [],
+      totalRevenu: Math.round(totalRevenu),
+      totalDepense: Math.round(totalDepense),
+      soldeNet: Math.round(soldeNet),
+      catMap,
     };
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-  if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 320, color: "#94a3b8", fontSize: 14 }}>
-      Chargement…
-    </div>
-  );
+  // ─── Charts ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!data || !heroRef.current) return;
+    if (heroChartRef.current) heroChartRef.current.destroy();
+    heroChartRef.current = new Chart(heroRef.current, {
+      type: "line",
+      data: {
+        labels: data.heroLabels,
+        datasets: [{
+          label: "Marge nette / livré (MAD)",
+          data: data.heroValues,
+          borderColor: "#E24B4A",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          fill: true,
+          backgroundColor: "rgba(226,75,74,0.06)",
+          spanGaps: true,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: (ctx) => `${ctx.parsed.y} MAD` }
+        }},
+        scales: {
+          x: { display: true, ticks: { font: { size: 10 }, color: "#94a3b8", maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
+          y: { grid: { color: "rgba(0,0,0,0.04)" }, ticks: { font: { size: 10 }, color: "#94a3b8", callback: (v) => v + " MAD" } },
+        },
+      },
+    });
+  }, [data]);
 
-  const d = data;
-  const gradeClr = { A1: CLR.green, A2: CLR.green, B2: CLR.amber, STOP: CLR.red };
+  useEffect(() => {
+    if (!data || drill !== "ads" || !adsRef.current) return;
+    setTimeout(() => {
+      if (!adsRef.current) return;
+      if (adsChartRef.current) adsChartRef.current.destroy();
+      const labels = data.plateformes.map((p) => p.nom);
+      const spends = data.plateformes.map((p) => p.spend);
+      const colors = ["#1877f2", "#e1306c", "#010101", "#FF4500", "#0077B5"];
+      adsChartRef.current = new Chart(adsRef.current, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Spend (MAD)",
+            data: spends,
+            backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+            y: { grid: { color: "rgba(0,0,0,0.04)" }, ticks: { font: { size: 10 }, callback: (v) => v + " MAD" } },
+          },
+        },
+      });
+    }, 80);
+  }, [drill, data]);
+
+  // ─── Render helpers ───────────────────────────────────────────────────────────
+  const gradeColor = { A1: { bg: "#EAF3DE", color: "#3B6D11" }, A2: { bg: "#E1F5EE", color: "#0F6E56" }, B2: { bg: "#FAEEDA", color: "#854F0B" }, STOP: { bg: "#FCEBEB", color: "#A32D2D" } };
+
+  function ProdTable({ rows, showDelta }) {
+    return (
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={th}>#</th>
+            <th style={th}>Produit</th>
+            <th style={{ ...th, textAlign: "right" }}>Leads</th>
+            <th style={{ ...th, textAlign: "right" }}>Conf.</th>
+            <th style={{ ...th, textAlign: "right" }}>Livr.</th>
+            {showDelta && <th style={{ ...th, textAlign: "right" }}>Δ Marge</th>}
+            <th style={{ ...th, textAlign: "right" }}>Marge moy.</th>
+            <th style={th}>Décision</th>
+            <th style={th}>Fuite</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p, i) => {
+            const f = p.fuite;
+            const dec = p.decision;
+            const confOk = p.taux_conf >= SEUIL_CONF;
+            const livrOk = p.taux_livr >= SEUIL_LIVR;
+            return (
+              <tr key={p.id} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                <td style={td(true)}>{i + 1}</td>
+                <td style={{ ...td(), maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nom}>{p.nom}</td>
+                <td style={td(true)}>{p.total_leads}</td>
+                <td style={{ ...td(true), color: confOk ? "#3B6D11" : p.taux_conf >= 25 ? "#BA7517" : "#A32D2D", fontWeight: 500 }}>{p.taux_conf}%</td>
+                <td style={{ ...td(true), color: livrOk ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>{p.taux_livr}%</td>
+                {showDelta && (
+                  <td style={{ ...td(true), color: p.delta_marge < 0 ? "#A32D2D" : "#3B6D11", fontWeight: 500 }}>
+                    {p.delta_marge != null ? `${p.delta_marge > 0 ? "+" : ""}${p.delta_marge} MAD` : "—"}
+                  </td>
+                )}
+                <td style={{ ...td(true), color: p.marge_avg >= 0 ? "#3B6D11" : "#A32D2D", fontWeight: 600 }}>
+                  {p.marge_avg != null ? `${p.marge_avg} MAD` : "—"}
+                </td>
+                <td style={td()}>
+                  <span style={S.badge(dec)}>{decisionLabel[dec]}</span>
+                </td>
+                <td style={td()}>
+                  {f ? (
+                    <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: f.bg, color: f.color }}>{f.label}</span>
+                  ) : (
+                    <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {rows.length === 0 && (
+            <tr><td colSpan={9} style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée sur la période</td></tr>
+          )}
+        </tbody>
+      </table>
+    );
+  }
+
+  const th = { padding: "8px 10px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", fontWeight: 500, borderBottom: "0.5px solid #e2e8f0", textAlign: "left", whiteSpace: "nowrap" };
+  const td = (center) => ({ padding: "9px 10px", fontSize: 13, color: "#1e293b", textAlign: center ? "right" : "left", verticalAlign: "middle" });
+
+  // ─── UI ───────────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: "#94a3b8", fontSize: 14 }}>
+        Chargement du cockpit analytique…
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { heroLabels, heroValues, heroAvg, byMargeCurrent, byMargeDecline, totalLeadsPeriod, txConf, txLivr, txRetour, cmdLivrees, totalSpend, cplMoyen, cplLivre, ctr, cpc, plateformes, pctAds, pctOps, impactAdsMAD, impactOpsTotal, conseilleresStats, transporteursStats, releve, totalRevenu, totalDepense, soldeNet, catMap } = data;
+
+  const periodLabel = period === 7 ? "7 derniers jours" : period === 30 ? "30 derniers jours" : "90 derniers jours";
+  const hasDecline = byMargeDecline.length > 0;
 
   return (
-    <div style={{ fontFamily: "var(--font-sans, system-ui)", padding: "0 0 48px", maxWidth: "100%" }}>
-
+    <div style={S.page}>
       {/* ── Topbar ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 22px", borderBottom: "0.5px solid #e2e8f0", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>Vue d'ensemble</div>
-          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Pilotage financier & business</div>
+      <div style={S.topbar}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Cockpit analytique</span>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>{new Date().toLocaleDateString("fr", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span>
         </div>
-        <PeriodSelector start={period.start} end={period.end} onChange={(s, e) => setPeriod({ start: s, end: e })} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {hasDecline && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#FCEBEB", border: "0.5px solid #F7C1C1", borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 500, color: "#A32D2D" }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#E24B4A", display: "inline-block" }} />
+              {byMargeDecline.length} produit{byMargeDecline.length > 1 ? "s" : ""} en déclin
+            </div>
+          )}
+          {[7, 30, 90].map((p) => (
+            <button key={p} onClick={() => setPeriod(p)} style={{ padding: "5px 12px", border: "0.5px solid", borderRadius: 6, fontSize: 12, cursor: "pointer", background: period === p ? "#534AB7" : "#fff", color: period === p ? "#fff" : "#64748b", borderColor: period === p ? "#534AB7" : "#e2e8f0", fontWeight: period === p ? 600 : 400 }}>
+              {p}j
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── BLOC 1 : FINANCES ── */}
-      <div style={{ background: "#fff", border: `1px solid ${d.finSignal.border}`, borderRadius: 14, padding: "24px 28px", marginBottom: 20 }}>
-        <BlockHeader
-          title="Pilotage financier"
-          signal={d.finSignal}
-          onAnalyse={() => setModule("dashboard-analytique")}
-        />
-
-        {!d.releve_ok ? (
-          <div style={{ padding: "12px 0", color: "#94a3b8", fontSize: 13 }}>
-            Aucun mouvement enregistré sur la période. <span style={{ color: CLR.purple.text, cursor: "pointer", fontWeight: 600 }} onClick={() => setModule("releve-bancaire")} >Alimenter le relevé bancaire →</span>
+      {/* ── Section 1 : Héro marge unitaire ── */}
+      <div style={S.sectionLabel}>1 — Signal principal · marge unitaire / livré · {periodLabel}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 20, marginBottom: 28 }}>
+        <div style={S.card}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 6 }}>
+            <span style={{ fontSize: 40, fontWeight: 600, color: heroAvg >= 0 ? "#3B6D11" : "#E24B4A", lineHeight: 1 }}>
+              {heroAvg != null ? `${heroAvg} MAD` : "—"}
+            </span>
+            <span style={{ fontSize: 13, color: "#64748b" }}>marge nette moyenne / livré</span>
           </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+            Calculé sur {cmdLivrees} commandes livrées · prix − coût achat − livraison − emballage ({FRAIS_EMBALLAGE} MAD) − confirmation ({FRAIS_CONFIRMATION} MAD)
+          </div>
+          <div style={{ position: "relative", height: 140 }}>
+            <canvas ref={heroRef} role="img" aria-label={`Courbe marge unitaire nette sur ${period} jours`} />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {[
+            { label: "Taux confirmation", val: `${txConf}%`, ok: txConf >= SEUIL_CONF, warn: txConf >= 25, seuil: `Seuil > ${SEUIL_CONF}%` },
+            { label: "Taux livraison", val: `${txLivr}%`, ok: txLivr >= SEUIL_LIVR, warn: txLivr >= 40, seuil: `Seuil > ${SEUIL_LIVR}%` },
+            { label: "Leads période", val: totalLeadsPeriod, ok: true, seuil: periodLabel },
+            { label: "Livrées période", val: cmdLivrees, ok: cmdLivrees > 0, seuil: "Commandes livrées" },
+          ].map((s) => (
+            <div key={s.label} style={S.statCard}>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 600, color: s.ok ? "#1e293b" : s.warn ? "#BA7517" : "#A32D2D" }}>{s.val}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{s.seuil}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.divider} />
+
+      {/* ── Section 2a : Meilleure marge actuelle ── */}
+      <div style={S.sectionLabel}>2a — Produits · classement par marge actuelle</div>
+      <div style={{ ...S.card, marginBottom: 20, overflowX: "auto" }}>
+        <ProdTable rows={byMargeCurrent.slice(0, 10)} showDelta={false} />
+      </div>
+
+      {/* ── Section 2b : Produits en baisse ── */}
+      <div style={S.sectionLabel}>2b — Produits · marge en baisse · comparaison {period}j vs {period}j précédents</div>
+      <div style={{ ...S.card, marginBottom: 0, overflowX: "auto" }}>
+        {hasDecline ? (
+          <>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>
+              Delta = marge moyenne période courante − période précédente. Rouge = dégradation réelle sur données livrées.
+            </div>
+            <ProdTable rows={byMargeDecline} showDelta={true} />
+          </>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", gap: 20, alignItems: "start" }}>
-            {/* Résultat net — héro */}
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", color: d.finSignal.text, marginBottom: 6 }}>Résultat net période</div>
-              <div style={{ fontSize: 48, fontWeight: 800, color: d.finSignal.dark, lineHeight: 1, marginBottom: 6 }}>
-                {d.resultat >= 0 ? "+" : ""}{round(d.resultat).toLocaleString("fr")}
-                <span style={{ fontSize: 20, fontWeight: 500, marginLeft: 6 }}>MAD</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#94a3b8" }}>recettes encaissées − toutes dépenses</div>
-            </div>
-
-            {/* Recettes */}
-            <div style={{ borderLeft: "0.5px solid #f1f5f9", paddingLeft: 20 }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em" }}>Recettes</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: CLR.green.dark }}>{round(d.recettes).toLocaleString("fr")} MAD</div>
-              <div style={{ height: "0.5px", background: "#f1f5f9", margin: "10px 0" }} />
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em" }}>Dépenses</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: CLR.red.dark }}>{round(d.depenses).toLocaleString("fr")} MAD</div>
-            </div>
-
-            {/* Ratio */}
-            <div style={{ borderLeft: "0.5px solid #f1f5f9", paddingLeft: 20 }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em" }}>Ratio dépenses / recettes</div>
-              {d.ratioDepRec === null
-                ? <Unavailable label="recettes nulles" />
-                : <>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: d.ratioDepRec > 1 ? CLR.red.dark : d.ratioDepRec > 0.8 ? CLR.amber.dark : CLR.green.dark }}>
-                      {d.ratioDepRec.toFixed(2)}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{d.ratioDepRec > 1 ? "⚠ dépenses > recettes" : d.ratioDepRec > 0.8 ? "attention, marge faible" : "ratio sain"}</div>
-                  </>
-              }
-              <div style={{ height: "0.5px", background: "#f1f5f9", margin: "10px 0" }} />
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em" }}>Capital immobilisé stock</div>
-              {!d.hasCapitalData
-                ? <Unavailable />
-                : <div style={{ fontSize: 18, fontWeight: 600, color: "#1e293b" }}>{round(d.capitalImmobilise).toLocaleString("fr")} MAD</div>
-              }
-            </div>
-
-            {/* Lecture rapide */}
-            <div style={{ borderLeft: "0.5px solid #f1f5f9", paddingLeft: 20 }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 10, textTransform: "uppercase", letterSpacing: ".06em" }}>Lecture rapide</div>
-              <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.8 }}>
-                {d.resultat > 0
-                  ? <span style={{ color: CLR.green.dark, fontWeight: 500 }}>✓ Le cycle crée de la valeur</span>
-                  : <span style={{ color: CLR.red.dark, fontWeight: 500 }}>✗ Le cycle détruit de la valeur</span>
-                }
-                <br />
-                {d.ratioDepRec !== null && d.ratioDepRec > 1
-                  ? <span style={{ color: CLR.amber.dark }}>→ Vérifier Ads et logistique</span>
-                  : null
-                }
-              </div>
-              <div style={{ marginTop: 14 }}>
-                <button onClick={() => setModule("dashboard-analytique")} style={{ fontSize: 11, color: CLR.purple.text, fontWeight: 600, background: CLR.purple.bg, border: `0.5px solid ${CLR.purple.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", width: "100%" }}>
-                  Détail finance →
-                </button>
-              </div>
-            </div>
+          <div style={{ padding: "20px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+            Aucun produit en dégradation détecté sur la période — pas assez de données livrées sur les deux périodes pour comparer.
           </div>
         )}
       </div>
 
-      {/* ── GRILLE 2×2 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 0 }}>
+      <div style={S.divider} />
 
-        {/* ── BLOC 2 : PRODUIT ── */}
-        <BlockCard borderColor={d.prodSignal.border}>
-          <BlockHeader title="Sélection produit" signal={d.prodSignal} onAnalyse={() => setModule("dashboard-analytique")} />
-
-          {!d.hasMargeData ? (
-            <Unavailable label="Moins de 3 commandes livrées — données insuffisantes pour calculer la marge" />
-          ) : (
-            <>
-              {/* KPI principaux fiables */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-                <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>Marge moy. / livré</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: d.margeAvg >= 0 ? CLR.green.dark : CLR.red.dark }}>
-                    {round(d.margeAvg)} MAD
-                  </div>
-                  <div style={{ fontSize: 10, color: "#94a3b8" }}>prix − coût − livr − {FRAIS_EMBALLAGE} − {FRAIS_CONFIRMATION}</div>
-                </div>
-                <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>Produits rentables</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: d.rentables.length > 0 ? CLR.green.dark : CLR.red.dark }}>
-                    {d.rentables.length}<span style={{ fontSize: 14, color: "#94a3b8", fontWeight: 400 }}>/{d.prodList.length}</span>
-                  </div>
-                  <div style={{ fontSize: 10, color: "#94a3b8" }}>avec marge &gt; 0 MAD/livré</div>
-                </div>
-              </div>
-
-              {/* Top créateurs */}
-              {d.topCreateurs.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", marginBottom: 6 }}>Créateurs de valeur</div>
-                  {d.topCreateurs.map((p, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "0.5px solid #f8fafc", fontSize: 12 }}>
-                      <span style={{ color: "#1e293b", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nom}>{p.nom}</span>
-                      <span style={{ fontWeight: 600, color: CLR.green.dark }}>
-                        +{round(p.margeTotal).toLocaleString("fr")} MAD
-                        {!p.fiable && <EstimLabel />}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Destructeur */}
-              {d.topDestructeur && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", marginBottom: 6 }}>Destructeur de valeur</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "5px 8px", background: CLR.red.bg, borderRadius: 6 }}>
-                    <span style={{ color: CLR.red.dark, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.topDestructeur.nom}>{d.topDestructeur.nom}</span>
-                    <span style={{ fontWeight: 600, color: CLR.red.dark }}>{round(d.topDestructeur.margeAvg)} MAD/livré</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Capital immobilisé */}
-              {d.topCapitalImmob && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", marginBottom: 6 }}>Capital immobilisé — stock principal</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: "#64748b", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.topCapitalImmob.nom}>{d.topCapitalImmob.nom}</span>
-                    <span style={{ fontWeight: 600, color: "#1e293b" }}>{round(d.topCapitalImmob.capital).toLocaleString("fr")} MAD</span>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </BlockCard>
-
-        {/* ── BLOC 3 : ADS ── */}
-        <BlockCard borderColor={d.adsSignal.border}>
-          <BlockHeader title="Ads / Acquisition" signal={d.adsSignal} onAnalyse={() => setModule("dashboard-analytique")} />
-
-          {!d.hasAds ? (
-            <div style={{ color: "#94a3b8", fontSize: 13 }}>
-              Aucune dépense ads enregistrée sur la période.{" "}
-              <span style={{ color: CLR.purple.text, cursor: "pointer", fontWeight: 600 }} onClick={() => setModule("ads")}>Ajouter →</span>
+      {/* ── Section 3 : Diagnostic Ads vs OPS ── */}
+      <div style={S.sectionLabel}>3 — Diagnostic fuite · Ads vs OPS</div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+        Logique : impact Ads = coût acquisition par livré ({cplLivre != null ? `${cplLivre} MAD/livré` : "aucune donnée"}) · impact OPS = points perdus en confirmation ({Math.max(0, SEUIL_CONF - txConf)} pts sous seuil) et livraison ({Math.max(0, SEUIL_LIVR - txLivr)} pts sous seuil)
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        {/* Ads */}
+        <div
+          onClick={() => setDrill(drill === "ads" ? null : "ads")}
+          style={{ ...S.card, cursor: "pointer", borderColor: drill === "ads" ? "#534AB7" : "#e2e8f0", borderWidth: drill === "ads" ? 1.5 : 0.5 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 18, color: "#534AB7" }}>📣</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>Acquisition — Ads</span>
             </div>
-          ) : (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-                <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>Spend période</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: "#1e293b" }}>{round(d.totalSpend).toLocaleString("fr")} MAD</div>
-                </div>
-                <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>CPL / livré</div>
-                  {d.cplLivre === null
-                    ? <Unavailable />
-                    : <>
-                        <div style={{ fontSize: 22, fontWeight: 700, color: (d.margeAvg !== null && d.cplLivre > d.margeAvg) ? CLR.red.dark : CLR.green.dark }}>
-                          {round(d.cplLivre)} MAD
-                        </div>
-                        <div style={{ fontSize: 10, color: "#94a3b8" }}>spend / commandes livrées</div>
-                      </>
-                  }
-                </div>
-              </div>
-
-              <KpiRow
-                label="CPL moyen"
-                value={d.cplMoyen !== null ? `${round(d.cplMoyen)} MAD` : null}
-                sub={d.cplMoyen === null ? "leads_count non renseigné" : undefined}
-              />
-
-              <div style={{ padding: "10px 0", borderBottom: "0.5px solid #f8fafc" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: "#64748b" }}>
-                    Contribution nette Ads
-                    <EstimLabel />
-                  </span>
-                  {d.contribNette === null
-                    ? <Unavailable />
-                    : <span style={{ fontSize: 13, fontWeight: 700, color: d.contribNette >= 0 ? CLR.green.dark : CLR.red.dark }}>
-                        {d.contribNette >= 0 ? "+" : ""}{round(d.contribNette).toLocaleString("fr")} MAD
-                      </span>
-                  }
-                </div>
-                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>(livrées × marge moy.) − spend</div>
-              </div>
-
-              {d.margeAvg !== null && d.cplLivre !== null && (
-                <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 7, background: d.cplLivre > d.margeAvg ? CLR.red.bg : CLR.green.bg }}>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: d.cplLivre > d.margeAvg ? CLR.red.dark : CLR.green.dark }}>
-                    {d.cplLivre > d.margeAvg
-                      ? "⚠ Ads coûtent plus que la marge produite — acquisition non rentable"
-                      : "✓ Ads rentables sur la période"
-                    }
-                  </span>
-                </div>
-              )}
-            </>
-          )}
-        </BlockCard>
-
-        {/* ── BLOC 4 : CALL CENTER ── */}
-        <BlockCard borderColor={d.confSignal.border}>
-          <BlockHeader title="Call center / Conversion" signal={d.confSignal} onAnalyse={() => setModule("dashboard-analytique")} />
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>Taux confirmation</div>
-              {d.tauxConf === null
-                ? <Unavailable label="aucun lead" />
-                : <>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: d.confSignal.dark, marginBottom: 6 }}>{d.tauxConf}%</div>
-                    <ProgressBar value={d.tauxConf} color={d.confSignal} />
-                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>seuil bon &gt; 35%</div>
-                  </>
-              }
-            </div>
-            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>Leads traités</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "#1e293b" }}>{d.totalLeads}</div>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{d.confirmes} confirmés</div>
-            </div>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "#534AB7" }}>{pctAds}%</span>
           </div>
-
-          <div style={{ padding: "8px 0", borderBottom: "0.5px solid #f8fafc", marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "#64748b" }}>Capital activé vers livraison <EstimLabel /></span>
-              {d.capitalActive === null
-                ? <Unavailable />
-                : <span style={{ fontSize: 13, fontWeight: 600, color: d.capitalActive >= 0 ? CLR.green.dark : CLR.red.dark }}>
-                    {round(d.capitalActive).toLocaleString("fr")} MAD
-                  </span>
-              }
-            </div>
-            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>confirmés × marge moy. / livré</div>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+            Part estimée dans la fuite de marge, basée sur le coût d'acquisition réel.
           </div>
+          {[
+            { label: "Spend total", val: `${Math.round(totalSpend)} MAD`, pct: 100 },
+            { label: "CPL moyen", val: cplMoyen != null ? `${cplMoyen} MAD` : "—", pct: cplMoyen ? Math.min(100, cplMoyen) : 0 },
+            { label: "CPL / livré", val: cplLivre != null ? `${cplLivre} MAD` : "—", pct: cplLivre ? Math.min(100, cplLivre / 2) : 0 },
+            { label: "CTR moyen", val: ctr ? `${ctr}%` : "—", pct: ctr ? parseFloat(ctr) * 20 : 0 },
+          ].map((row) => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: "#64748b", width: 90, flexShrink: 0 }}>{row.label}</span>
+              <div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${row.pct}%`, background: "#534AB7", borderRadius: 3 }} />
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#534AB7", minWidth: 60, textAlign: "right" }}>{row.val}</span>
+            </div>
+          ))}
+          <div style={{ marginTop: 10, fontSize: 11, color: "#534AB7" }}>▸ {drill === "ads" ? "Masquer le détail" : "Voir détail par plateforme"}</div>
+        </div>
 
-          {!d.hasConsData ? (
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>
-              {d.totalLeads === 0 ? "Aucun lead sur la période" : "Données conseillères insuffisantes (min. 3 leads / personne)"}
+        {/* OPS */}
+        <div
+          onClick={() => setDrill(drill === "ops" ? null : "ops")}
+          style={{ ...S.card, cursor: "pointer", borderColor: drill === "ops" ? "#BA7517" : "#e2e8f0", borderWidth: drill === "ops" ? 1.5 : 0.5 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 18, color: "#BA7517" }}>👥</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>OPS — Confirmation & Livraison</span>
             </div>
-          ) : (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "#94a3b8", marginBottom: 6 }}>Meilleures / moins bonne</div>
-              {[d.topCons, d.flopCons].filter(Boolean).map((c, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "0.5px solid #f8fafc", fontSize: 12 }}>
-                  <span style={{ color: "#64748b" }}>{i === 0 ? "↑ Meilleure" : "↓ Moins bonne"}</span>
-                  <span style={{ fontWeight: 600, color: i === 0 ? CLR.green.dark : CLR.red.dark }}>{c.taux}% conf · {c.total} leads</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </BlockCard>
-
-        {/* ── BLOC 5 : LOGISTIQUE ── */}
-        <BlockCard borderColor={d.livrSignal.border}>
-          <BlockHeader title="Logistique / Encaissement" signal={d.livrSignal} onAnalyse={() => setModule("dashboard-analytique")} />
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>Taux livraison</div>
-              {d.tauxLivr === null
-                ? <Unavailable label="aucune commande" />
-                : <>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: d.livrSignal.dark, marginBottom: 6 }}>{d.tauxLivr}%</div>
-                    <ProgressBar value={d.tauxLivr} color={d.livrSignal} />
-                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>seuil bon &gt; 55%</div>
-                  </>
-              }
-            </div>
-            <div style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>Taux retour</div>
-              {d.tauxRetour === null
-                ? <Unavailable label="aucune commande" />
-                : <>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: d.tauxRetour > 25 ? CLR.red.dark : d.tauxRetour > 10 ? CLR.amber.dark : CLR.green.dark }}>{d.tauxRetour}%</div>
-                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>seuil critique &gt; 25%</div>
-                  </>
-              }
-            </div>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "#BA7517" }}>{pctOps}%</span>
           </div>
-
-          <KpiRow
-            label="Capital encaissé (proxy)"
-            value={d.capitalEncaisse !== null ? `${round(d.capitalEncaisse).toLocaleString("fr")} MAD` : null}
-            estim={true}
-            sub="livrées × prix · avant rapprochement bancaire"
-          />
-          <KpiRow
-            label="Capital détruit par retours"
-            value={d.capitalDetruit > 0 ? `${round(d.capitalDetruit).toLocaleString("fr")} MAD` : "0 MAD"}
-            valueColor={d.capitalDetruit > 0 ? CLR.red.dark : CLR.green.dark}
-            estim={true}
-            sub={`${d.livrees} livrées · frais engagés estimés`}
-          />
-
-          {d.transPrincipal && (
-            <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#f8fafc", borderRadius: 7 }}>
-              <span style={{ fontSize: 12, color: "#64748b" }}>Transporteur principal — {d.transPrincipal.nom}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: gradeClr[d.transPrincipal.grade].bg, color: gradeClr[d.transPanel?.grade]?.dark || gradeClr[d.transPrincipal.grade].dark }}>
-                {d.transPrincipal.grade}
-              </span>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+            Part estimée dans la fuite, basée sur les écarts réels aux seuils de confirmation et livraison.
+          </div>
+          {[
+            { label: "Confirmation", val: `${txConf}%`, pct: txConf, seuil: SEUIL_CONF, color: "#BA7517" },
+            { label: "Livraison", val: `${txLivr}%`, pct: txLivr, seuil: SEUIL_LIVR, color: "#BA7517" },
+            { label: "Retours", val: `${txRetour}%`, pct: txRetour, seuil: 25, color: "#E24B4A" },
+          ].map((row) => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: "#64748b", width: 90, flexShrink: 0 }}>{row.label}</span>
+              <div style={{ flex: 1, height: 5, background: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${row.pct}%`, background: row.color, borderRadius: 3 }} />
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: row.pct < row.seuil ? "#A32D2D" : "#3B6D11", minWidth: 40, textAlign: "right" }}>{row.val}</span>
             </div>
-          )}
-        </BlockCard>
-
+          ))}
+          <div style={{ marginTop: 10, fontSize: 11, color: "#BA7517" }}>▸ {drill === "ops" ? "Masquer le détail" : "Voir conseillères & transporteurs"}</div>
+        </div>
       </div>
 
+      {/* ── Drill Ads ── */}
+      {drill === "ads" && (
+        <div style={{ ...S.card, marginBottom: 20, borderColor: "#AFA9EC" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>📣 Ads — Détail par plateforme</span>
+            <button onClick={() => setDrill(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>✕ Fermer</button>
+          </div>
+          {/* KPI synthèse */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+            {[
+              { label: "Spend total", val: `${Math.round(totalSpend)} MAD` },
+              { label: "CPL moyen", val: cplMoyen != null ? `${cplMoyen} MAD` : "—" },
+              { label: "CPL / livré", val: cplLivre != null ? `${cplLivre} MAD` : "—" },
+              { label: "CTR global", val: ctr ? `${ctr}%` : "—" },
+            ].map((k) => (
+              <div key={k.label} style={S.statCard}>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>{k.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 600, color: "#1e293b" }}>{k.val}</div>
+              </div>
+            ))}
+          </div>
+          {/* Table plateformes */}
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
+            <thead>
+              <tr style={{ background: "#f8fafc" }}>
+                {["Plateforme", "Spend", "CPL", "CTR", "CPC"].map((h) => (
+                  <th key={h} style={{ ...th, background: "#f8fafc" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {plateformes.length > 0 ? plateformes.map((pl) => (
+                <tr key={pl.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                  <td style={{ ...td(), fontWeight: 500 }}>{pl.nom}</td>
+                  <td style={td(true)}>{pl.spend} MAD</td>
+                  <td style={td(true)}>{pl.cpl != null ? `${pl.cpl} MAD` : "—"}</td>
+                  <td style={td(true)}>{pl.ctr ? `${pl.ctr}%` : "—"}</td>
+                  <td style={td(true)}>{pl.cpc != null ? `${pl.cpc} MAD` : "—"}</td>
+                </tr>
+              )) : (
+                <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée ads sur la période</td></tr>
+              )}
+            </tbody>
+          </table>
+          <div style={{ position: "relative", height: 140 }}>
+            <canvas ref={adsRef} role="img" aria-label="Spend par plateforme publicitaire" />
+          </div>
+        </div>
+      )}
+
+      {/* ── Drill OPS ── */}
+      {drill === "ops" && (
+        <div style={{ ...S.card, marginBottom: 20, borderColor: "#FAC775" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>👥 OPS — Conseillères & Transporteurs</span>
+            <button onClick={() => setDrill(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8" }}>✕ Fermer</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            {/* Conseillères */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Conseillères</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Conseillère", "Leads", "Taux conf.", "Tendance"].map((h) => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {conseilleresStats.length > 0 ? conseilleresStats.map((c) => (
+                    <tr key={c.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                      <td style={{ ...td(), fontWeight: 500 }}>{c.nom}</td>
+                      <td style={td(true)}>{c.leads}</td>
+                      <td style={{ ...td(true), color: c.taux_conf >= SEUIL_CONF ? "#3B6D11" : c.taux_conf >= 25 ? "#BA7517" : "#A32D2D", fontWeight: 600 }}>{c.taux_conf}%</td>
+                      <td style={td()}>
+                        <span style={S.chip(c.taux_conf >= SEUIL_CONF)}>{c.taux_conf >= SEUIL_CONF ? "OK" : "À améliorer"}</span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucune donnée</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {/* Transporteurs */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Transporteurs</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Transporteur", "Livr.", "Retours", "Grade"].map((h) => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {transporteursStats.length > 0 ? transporteursStats.map((t) => (
+                    <tr key={t.nom} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                      <td style={{ ...td(), fontWeight: 500 }}>{t.nom}</td>
+                      <td style={{ ...td(true), color: t.taux_livr >= SEUIL_LIVR ? "#3B6D11" : "#A32D2D", fontWeight: 600 }}>{t.taux_livr}%</td>
+                      <td style={{ ...td(true), color: t.taux_retour > 25 ? "#A32D2D" : "#1e293b" }}>{t.taux_retour}%</td>
+                      <td style={td()}>
+                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, ...gradeColor[t.grade] }}>{t.grade}</span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun transporteur assigné sur la période</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8" }}>
+                A1 ≥ 60% · A2 45–60% · B2 40–45% · STOP &lt; 40%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={S.divider} />
+
+      {/* ── Section 6 : Finance ── */}
+      <div style={S.sectionLabel}>6 — Finance · trésorerie & mouvements</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20 }}>
+        {/* Journal */}
+        <div style={S.card}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", marginBottom: 14 }}>Journal des mouvements</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["Date", "Libellé", "Catégorie", "Type", "Montant"].map((h) => (
+                  <th key={h} style={th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {releve.length > 0 ? releve.slice(0, 20).map((r, i) => {
+                const montant = parseFloat(r.montant) || 0;
+                const isIn = montant > 0;
+                return (
+                  <tr key={i} style={{ borderTop: "0.5px solid #f1f5f9" }}>
+                    <td style={{ ...td(), color: "#94a3b8", fontSize: 12 }}>{r.date ? new Date(r.date).toLocaleDateString("fr", { day: "numeric", month: "short" }) : "—"}</td>
+                    <td style={{ ...td(), maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }} title={r.libelle || r.description || ""}>{r.libelle || r.description || "—"}</td>
+                    <td style={td()}><span style={{ fontSize: 11, color: "#64748b" }}>{r.categorie || r.type || "—"}</span></td>
+                    <td style={td()}>
+                      <span style={{ display: "inline-block", padding: "1px 7px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: isIn ? "#EAF3DE" : "#FCEBEB", color: isIn ? "#3B6D11" : "#A32D2D" }}>
+                        {isIn ? "Recette" : "Dépense"}
+                      </span>
+                    </td>
+                    <td style={{ ...td(true), fontWeight: 600, color: isIn ? "#3B6D11" : "#A32D2D" }}>
+                      {isIn ? "+" : ""}{Math.round(montant)} MAD
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Aucun mouvement enregistré</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Synthèse cash */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={S.card}>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>Cash net (mouvements enregistrés)</div>
+            <div style={{ fontSize: 34, fontWeight: 700, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", lineHeight: 1, marginBottom: 4 }}>
+              {soldeNet >= 0 ? "+" : ""}{soldeNet} MAD
+            </div>
+            <div style={{ height: "0.5px", background: "#e2e8f0", margin: "14px 0" }} />
+            {[
+              { label: "Recettes totales", val: `+${totalRevenu} MAD`, color: "#3B6D11" },
+              { label: "Dépenses totales", val: `${totalDepense} MAD`, color: "#A32D2D" },
+              { label: "Solde net", val: `${soldeNet >= 0 ? "+" : ""}${soldeNet} MAD`, color: soldeNet >= 0 ? "#3B6D11" : "#A32D2D", bold: true },
+            ].map((row) => (
+              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 10 }}>
+                <span style={{ color: "#64748b" }}>{row.label}</span>
+                <span style={{ fontWeight: row.bold ? 700 : 500, color: row.color }}>{row.val}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Ventilation dépenses */}
+          {Object.keys(catMap).length > 0 && (
+            <div style={S.card}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 12 }}>Ventilation dépenses</div>
+              {/* Barre proportionnelle */}
+              <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 2, marginBottom: 12 }}>
+                {Object.entries(catMap).map(([cat, val], i) => {
+                  const total = Math.abs(totalDepense) || 1;
+                  const barColors = ["#534AB7", "#E24B4A", "#BA7517", "#3B6D11", "#888"];
+                  return (
+                    <div key={cat} title={`${cat} : ${Math.round(val)} MAD`} style={{ flex: val / total * 100, background: barColors[i % barColors.length], minWidth: 2 }} />
+                  );
+                })}
+              </div>
+              {Object.entries(catMap).map(([cat, val], i) => {
+                const total = Math.abs(totalDepense) || 1;
+                const barColors = ["#534AB7", "#E24B4A", "#BA7517", "#3B6D11", "#888"];
+                return (
+                  <div key={cat} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6, alignItems: "center" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748b" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: barColors[i % barColors.length], display: "inline-block" }} />
+                      {cat}
+                    </span>
+                    <span style={{ fontWeight: 500, color: "#1e293b" }}>{Math.round(val)} MAD · {Math.round((val / total) * 100)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
