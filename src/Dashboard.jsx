@@ -5,9 +5,9 @@ import { supabase } from "./supabaseClient";
 const FRAIS_EMBALLAGE = 4;
 const FRAIS_CONFIRMATION = 10;
 const STATUTS_CONFIRMS = ["Confirmé", "Livrée", "Expédiée", "Facturée", "En cours de livraison"];
-const STATUTS_LIVRES = ["Livrée"];
+const STATUTS_LIVRES = ["Livrée", "Facturée"];
 const STATUTS_RETOURS = ["Retour reçu", "Retour en cours"];
-const STATUTS_EXCLUS = ["Annulé", "Doublon", "Fausse commande"];
+const STATUTS_EXCLUS = ["Annulée", "Doublon", "Fausse commande"];
 
 // ─── Couleurs ─────────────────────────────────────────────────────────────────
 const CLR = {
@@ -255,7 +255,7 @@ export default function Dashboard({ role, nom, setModule }) {
 
     const livrees = commandes.filter(c => STATUTS_LIVRES.includes(c.statut));
     const margesLivrees = livrees.map(c => calcMarge(c)).filter(v => v !== null);
-    const margeAvg = margesLivrees.length >= 3 ? avg(margesLivrees) : null; // min 3 livrées pour être fiable
+    const margeAvg = margesLivrees.length >= 1 ? avg(margesLivrees) : null; // min 3 livrées pour être fiable
 
     // Par produit
     const prodStats = {};
@@ -331,7 +331,7 @@ export default function Dashboard({ role, nom, setModule }) {
       if (STATUTS_CONFIRMS.includes(l.statut)) consMap[cid].conf++;
     });
     const consStats = Object.values(consMap)
-      .filter(c => c.total >= 3) // min 3 leads pour être significatif
+      .filter(c => c.total >= 1) // min 3 leads pour être significatif
       .map(c => ({ id: c.id, taux: pct(c.conf, c.total), total: c.total }))
       .sort((a, b) => b.taux - a.taux);
     const topCons = consStats[0] || null;
@@ -367,7 +367,7 @@ export default function Dashboard({ role, nom, setModule }) {
       if (c.statut === "Livrée") tStats[tid].livr++;
     });
     const transStats = Object.values(tStats)
-      .filter(t => t.total >= 5)
+      .filter(t => t.total >= 1)
       .map(t => ({
         nom: transMap[t.id]?.nom || `#${t.id}`,
         taux: pct(t.livr, t.total),
