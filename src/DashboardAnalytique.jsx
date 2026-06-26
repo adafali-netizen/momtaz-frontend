@@ -309,10 +309,11 @@ export default function DashboardAnalytique() {
     }).sort((a, b) => b.taux_livr - a.taux_livr);
 
     // ── Finance ──
-    const revenus = (releve || []).filter((r) => parseFloat(r.montant) > 0);
-    const depenses = (releve || []).filter((r) => parseFloat(r.montant) < 0);
-    const totalRevenu = revenus.reduce((s, r) => s + parseFloat(r.montant), 0);
-    const totalDepense = depenses.reduce((s, r) => s + parseFloat(r.montant), 0);
+const getMontant = r => parseFloat(r.montant) || (r.credit ? +r.credit : r.debit ? -Math.abs(+r.debit) : 0);
+const revenus = (releve || []).filter(r => getMontant(r) > 0);
+const depenses = (releve || []).filter(r => getMontant(r) < 0);
+const totalRevenu = revenus.reduce((s, r) => s + getMontant(r), 0);
+const totalDepense = depenses.reduce((s, r) => s + getMontant(r), 0);
     const soldeNet = totalRevenu + totalDepense;
     const catMap = {};
     depenses.forEach((r) => {
@@ -660,7 +661,7 @@ export default function DashboardAnalytique() {
             <thead><tr>{["Date", "Libellé", "Catégorie", "Type", "Montant"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>
               {releve.length > 0 ? releve.slice(0, 20).map((r, i) => {
-                const montant = parseFloat(r.montant) || 0;
+                const montant = getMontant(r);
                 const isIn = montant > 0;
                 return (
                   <tr key={i} style={{ borderTop: "0.5px solid #f1f5f9" }}>
