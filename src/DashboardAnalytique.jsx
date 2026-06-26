@@ -529,8 +529,8 @@ export default function DashboardAnalytique() {
   const periodLabel = `${fmtDate(dateStart)} — ${fmtDate(dateEnd)}`;
 
   return (
-    <div style={{ fontFamily: "Inter, system-ui, sans-serif", padding: "0 32px 48px",
-                  maxWidth: 1280, margin: "0 auto", background: CLR.pageBg }}>
+<div style={{ fontFamily: "Inter, system-ui, sans-serif", padding: "0 24px 48px",
+              background: CLR.pageBg }}>
 
       {/* ── Header ── */}
       <div style={{ padding: "16px 0 0" }}>
