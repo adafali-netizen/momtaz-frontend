@@ -143,7 +143,7 @@ export default function DashboardAnalytique() {
     setData(result);
     setLoading(false);
   }
-
+const getMontant = r => parseFloat(r.montant) || (r.credit ? +r.credit : r.debit ? -Math.abs(+r.debit) : 0);
   function buildAnalytics({ commandes, leads, adsSpend, releve, produits, days, startStr, endStr, start2xStr }) {
     // prodMap par nom (car commandes.produit est un texte) ET par id
     const prodMap = {};
@@ -314,7 +314,7 @@ const txLivr = pct(cmdLivrees.length, cmdExpediables.length || 1);
     }).sort((a, b) => b.taux_livr - a.taux_livr);
 
     // ── Finance ──
-const getMontant = r => parseFloat(r.montant) || (r.credit ? +r.credit : r.debit ? -Math.abs(+r.debit) : 0);
+
 const revenus = (releve || []).filter(r => getMontant(r) > 0);
 const depenses = (releve || []).filter(r => getMontant(r) < 0);
 const totalRevenu = revenus.reduce((s, r) => s + getMontant(r), 0);
