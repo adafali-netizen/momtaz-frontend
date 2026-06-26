@@ -53,17 +53,18 @@ export default function ReleveBancaire({ role }) {
   }
 
   // Calculs synthèse
-  const recettes  = mouvements.filter(m => parseFloat(m.montant) > 0).reduce((s, m) => s + parseFloat(m.montant), 0);
-  const depenses  = mouvements.filter(m => parseFloat(m.montant) < 0).reduce((s, m) => s + Math.abs(parseFloat(m.montant)), 0);
-  const solde     = recettes - depenses;
+const getMontant = m => parseFloat(m.montant) || (m.credit ? +m.credit : m.debit ? -Math.abs(+m.debit) : 0);
+const recettes  = mouvements.filter(m => getMontant(m) > 0).reduce((s, m) => s + getMontant(m), 0);
+const depenses  = mouvements.filter(m => getMontant(m) < 0).reduce((s, m) => s + Math.abs(getMontant(m)), 0);
+const solde     = recettes - depenses;
   const soldeClr  = solde >= 0 ? "#16A34A" : "#DC2626";
 
   // Ventilation par catégorie (dépenses uniquement)
   const catMap = {};
-  mouvements.filter(m => parseFloat(m.montant) < 0).forEach(m => {
-    const cat = m.categorie || "Autre";
-    catMap[cat] = (catMap[cat] || 0) + Math.abs(parseFloat(m.montant));
-  });
+mouvements.filter(m => parseFloat(m.montant) < 0).forEach(m => {
+  const cat = m.categorie || "Autre";
+  catMap[cat] = (catMap[cat] || 0) + Math.abs(parseFloat(m.montant));
+});
   const catColors = { Logistique: "#7C3AED", Ads: "#2563EB", Stock: "#D97706", OPS: "#0891B2", Remboursement: "#16A34A", Recette: "#16A34A", Autre: "#94A3B8" };
 
   return (
