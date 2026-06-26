@@ -7,7 +7,8 @@ const FRAIS_CONFIRMATION = 10;
 const STATUTS_CONFIRMS = ["Confirmé", "Livrée", "Expédiée", "Facturée", "En cours de livraison"];
 const STATUTS_LIVRES = ["Livrée", "Facturée"];
 const STATUTS_RETOURS = ["Retour reçu", "Retour en cours"];
-const STATUTS_EXCLUS = ["Annulée", "Doublon", "Fausse commande"];
+const STATUTS_EXCLUS = ["Annulée", "Refusée", "Doublon", "Fausse commande"];
+
 
 // ─── Couleurs ─────────────────────────────────────────────────────────────────
 const CLR = {
