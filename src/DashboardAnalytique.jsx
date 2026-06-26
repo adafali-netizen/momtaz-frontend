@@ -40,6 +40,7 @@ const CLR = {
 };
 
 const SHADOW = "0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)";
+const SHADOW_HERO = "0 4px 24px rgba(0,0,0,0.08)";
 const RADIUS = "10px";
 const BORDER = `1px solid ${CLR.borderLight}`;
 
@@ -116,15 +117,24 @@ function fuiteLabel(taux_conf, taux_livr, marge_avg) {
 }
 
 // ─── Composants UI ────────────────────────────────────────────────────────────
+
+// POLISH : SectionDivider avec pill, ligne 1px, texte plus sombre
 function SectionDivider({ label }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "44px 0 20px" }}>
-      <div style={{ flex: 1, height: "0.5px", background: CLR.borderLight }} />
-      <span style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
-                     letterSpacing: "0.1em", color: CLR.textMuted, whiteSpace: "nowrap" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "52px 0 22px" }}>
+      <div style={{ flex: 1, height: "1px", background: CLR.borderLight }} />
+      <span style={{
+        fontSize: "11px", fontWeight: 700,
+        textTransform: "uppercase", letterSpacing: "0.12em",
+        color: CLR.textPrimary, whiteSpace: "nowrap",
+        background: CLR.cardBg,
+        padding: "3px 14px",
+        border: `1px solid ${CLR.borderLight}`,
+        borderRadius: 20,
+      }}>
         {label}
       </span>
-      <div style={{ flex: 1, height: "0.5px", background: CLR.borderLight }} />
+      <div style={{ flex: 1, height: "1px", background: CLR.borderLight }} />
     </div>
   );
 }
@@ -160,6 +170,21 @@ function Card({ children, style = {} }) {
   );
 }
 
+// POLISH : état vide structuré avec icône + sous-texte
+function EmptyState({ icon = "◎", title, sub }) {
+  return (
+    <div style={{
+      padding: "36px 20px", textAlign: "center",
+      background: "#F9FAFB", borderRadius: 8,
+      border: `1px dashed ${CLR.borderLight}`,
+    }}>
+      <div style={{ fontSize: 22, marginBottom: 8, opacity: 0.35 }}>{icon}</div>
+      <div style={{ fontSize: 13, color: CLR.textMuted, fontWeight: 500 }}>{title}</div>
+      {sub && <div style={{ fontSize: 11, color: CLR.textGhost, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
 const TH = {
   padding: "8px 12px", fontSize: "10px", fontWeight: 600,
   textTransform: "uppercase", letterSpacing: "0.08em",
@@ -175,9 +200,10 @@ const TD = (right) => ({
 
 function ProdTable({ rows, showDelta }) {
   if (rows.length === 0) return (
-    <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: CLR.textMuted }}>
-      Aucune donnée sur la période
-    </div>
+    <EmptyState
+      title="Aucune donnée sur la période"
+      sub="Les résultats s'afficheront dès qu'une commande livrée sera enregistrée"
+    />
   );
   return (
     <div style={{ overflowX: "auto" }}>
@@ -243,7 +269,6 @@ export default function DashboardAnalytique() {
 
   useEffect(() => { fetchAll(dateStart, dateEnd); }, [dateStart, dateEnd]);
 
-  // ─── Fetch ─────────────────────────────────────────────────────────────────
   async function fetchAll(sStr, eStr) {
     setLoading(true);
     const diffDays = Math.max(1, Math.round((new Date(eStr) - new Date(sStr)) / 86400000));
@@ -277,16 +302,14 @@ export default function DashboardAnalytique() {
     setLoading(false);
   }
 
-  // ─── Analytics ─────────────────────────────────────────────────────────────
   function build({ commandes, leads, adsSpend, releve, produits, sStr, eStr, s2Str, diffDays }) {
     const prodMap = {};
     produits.forEach(p => { prodMap[p.id] = p; if (p.nom) prodMap[p.nom] = p; });
 
-    const cmdCurrent    = commandes.filter(c => dateKey(c.created_at) >= sStr);
-    const cmdLivrees    = cmdCurrent.filter(c => STATUTS_LIVRES.includes(c.statut));
+    const cmdCurrent     = commandes.filter(c => dateKey(c.created_at) >= sStr);
+    const cmdLivrees     = cmdCurrent.filter(c => STATUTS_LIVRES.includes(c.statut));
     const cmdExpediables = cmdCurrent.filter(c => !STATUTS_EXCLUS.includes(c.statut));
 
-    // ── Courbe héro ──
     const byDay = {};
     for (let i = 0; i <= diffDays; i++) {
       const d = new Date(sStr); d.setDate(d.getDate() + i);
@@ -303,11 +326,8 @@ export default function DashboardAnalytique() {
       : null;
     const heroPoints = heroValues.filter(v => v !== null).length;
 
-    // ── Produits ──
     const PS = {};
-    const initP = nom => {
-      if (!PS[nom]) PS[nom] = { nom, cl: [], pl: [], cLeads: 0, cConf: 0 };
-    };
+    const initP = nom => { if (!PS[nom]) PS[nom] = { nom, cl: [], pl: [], cLeads: 0, cConf: 0 }; };
     leads.forEach(l => {
       const nom = l.produit; if (!nom) return;
       initP(nom); PS[nom].cLeads++;
@@ -340,7 +360,6 @@ export default function DashboardAnalytique() {
     const byMargeCurrent = [...prodList].filter(p => p.marge_avg != null).sort((a, b) => b.marge_avg - a.marge_avg);
     const byMargeDecline = [...prodList].filter(p => p.delta_marge != null && p.delta_marge < 0).sort((a, b) => a.delta_marge - b.delta_marge);
 
-    // ── Ads ──
     const totalSpend    = adsSpend.reduce((s, a) => s + (parseFloat(a.spend_mad || a.budget_mad) || 0), 0);
     const totalLeadsAds = adsSpend.reduce((s, a) => s + (parseInt(a.leads_count) || 0), 0);
     const totalClics    = adsSpend.reduce((s, a) => s + (parseInt(a.clics) || 0), 0);
@@ -363,7 +382,6 @@ export default function DashboardAnalytique() {
       ctr: d.impr  > 0 ? ((d.clics / d.impr) * 100).toFixed(1) : null,
     })).sort((a, b) => b.spend - a.spend);
 
-    // ── OPS ──
     const totalLeads = leads.length;
     const confirmes  = leads.filter(l => STATUTS_CONFIRMS.includes(l.statut)).length;
     const txConf     = pct(confirmes, totalLeads);
@@ -375,7 +393,6 @@ export default function DashboardAnalytique() {
     const totalImp   = impactAds + impactOps;
     const pctAds     = totalImp > 0 ? Math.round((impactAds / totalImp) * 100) : 0;
 
-    // ── Conseillères ──
     const consMap = {};
     leads.forEach(l => {
       const c = l.conseillere; if (!c) return;
@@ -387,7 +404,6 @@ export default function DashboardAnalytique() {
       .map(([nom, c]) => ({ nom, leads: c.leads, taux_conf: pct(c.conf, c.leads) }))
       .sort((a, b) => b.taux_conf - a.taux_conf);
 
-    // ── Transporteurs ──
     const transMap = {};
     cmdCurrent.forEach(c => {
       const t = c.transporteur; if (!t) return;
@@ -402,7 +418,6 @@ export default function DashboardAnalytique() {
                grade: tl >= 60 ? "A1" : tl >= 45 ? "A2" : tl >= 40 ? "B2" : "STOP" };
     }).sort((a, b) => b.taux_livr - a.taux_livr);
 
-    // ── Finance ──
     const revenues = releve.filter(r => getMontant(r) > 0);
     const expenses = releve.filter(r => getMontant(r) < 0);
     const totalRev = revenues.reduce((s, r) => s + getMontant(r), 0);
@@ -427,7 +442,6 @@ export default function DashboardAnalytique() {
     };
   }
 
-  // ─── Charts ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!data || !heroRef.current) return;
     if (heroChart.current) heroChart.current.destroy();
@@ -437,9 +451,9 @@ export default function DashboardAnalytique() {
       data: {
         labels: data.heroLabels,
         datasets: [{
-          data: data.heroValues, borderColor: col, borderWidth: 2,
+          data: data.heroValues, borderColor: col, borderWidth: 2.5,
           pointRadius: 0, tension: 0.35, fill: true,
-          backgroundColor: data.heroAvg > 0 ? "rgba(22,163,74,0.07)" : "rgba(220,38,38,0.07)",
+          backgroundColor: data.heroAvg > 0 ? "rgba(22,163,74,0.09)" : "rgba(220,38,38,0.09)",
           spanGaps: data.heroPoints >= 7,
         }],
       },
@@ -484,7 +498,6 @@ export default function DashboardAnalytique() {
     }, 80);
   }, [drill, data]);
 
-  // ─── Render ────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
                   height: 360, color: CLR.textMuted, fontSize: 13 }}>
@@ -503,7 +516,12 @@ export default function DashboardAnalytique() {
   const heroBg    = heroAvg === null ? CLR.heroBgEmpty : heroAvg > 0 ? CLR.heroBgOk : CLR.heroBgAlert;
   const heroBdr   = heroAvg === null ? CLR.borderLight : heroAvg > 0 ? CLR.greenBorder : CLR.redBorder;
   const heroColor = heroAvg === null ? CLR.textGhost   : heroAvg > 0 ? CLR.green : CLR.red;
-  const heroFontSz = heroAvg != null && String(Math.abs(heroAvg)).length <= 4 ? "64px" : "52px";
+  // POLISH : chiffre héro plus grand
+  const heroFontSz = heroAvg != null && String(Math.abs(heroAvg)).length <= 4 ? "72px" : "58px";
+  // POLISH : ombre héro colorée selon état
+  const heroShadow = heroAvg === null ? SHADOW
+    : heroAvg > 0 ? "0 4px 24px rgba(22,163,74,0.12)"
+    : "0 4px 24px rgba(220,38,38,0.12)";
 
   const gradeClr = {
     A1:   { bg: CLR.greenBg, color: CLR.green },
@@ -524,24 +542,21 @@ export default function DashboardAnalytique() {
     cursor: "pointer", transition: "all 0.15s", outline: "none",
   };
 
-  // Label période pour les sections
   const fmtDate = d => new Date(d).toLocaleDateString("fr", { day: "numeric", month: "short" });
   const periodLabel = `${fmtDate(dateStart)} — ${fmtDate(dateEnd)}`;
 
   return (
-<div style={{ fontFamily: "Inter, system-ui, sans-serif", padding: "0 24px 48px",
-              background: CLR.pageBg }}>
+    <div style={{ fontFamily: "Inter, system-ui, sans-serif", padding: "0 24px 48px",
+                  background: CLR.pageBg }}>
 
       {/* ── Header ── */}
       <div style={{ padding: "16px 0 0" }}>
-        {/* Ligne 1 — titre */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: CLR.textPrimary }}>Cockpit analytique</span>
           <span style={{ fontSize: 12, color: CLR.textMuted }}>
             {new Date().toLocaleDateString("fr", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </span>
         </div>
-        {/* Ligne 2 — sélecteur période */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 16,
                       borderBottom: `1px solid ${CLR.borderLight}`, flexWrap: "wrap" }}>
           <input type="date" value={dateStart} max={dateEnd}
@@ -569,45 +584,50 @@ export default function DashboardAnalytique() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 28 }}>
 
-        {/* Surface héro */}
+        {/* POLISH : border 1.5px, radius 14, padding 28, ombre colorée */}
         <div style={{
-          background: heroBg, border: `1px solid ${heroBdr}`, borderRadius: RADIUS,
-          padding: "24px 24px 0", overflow: "hidden", boxShadow: SHADOW,
-          transition: "background-color 0.3s ease, border-color 0.3s ease",
+          background: heroBg,
+          border: `1.5px solid ${heroBdr}`,
+          borderRadius: 14,
+          padding: "28px 28px 0",
+          overflow: "hidden",
+          boxShadow: heroShadow,
+          transition: "all 0.3s ease",
         }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 6 }}>
             <span style={{ fontSize: heroFontSz, fontWeight: 800, color: heroColor, lineHeight: 1,
                            fontVariantNumeric: "tabular-nums", transition: "color 0.3s ease" }}>
               {heroAvg != null ? `${heroAvg} MAD` : "—"}
             </span>
-            <span style={{ fontSize: 14, fontWeight: 500, color: CLR.textSecond }}>marge nette / livré</span>
+            {/* POLISH : sous-titre plus affirmé */}
+            <span style={{ fontSize: 15, fontWeight: 600, color: CLR.textSecond }}>marge nette / livré</span>
           </div>
           <div style={{ fontSize: 11, color: CLR.textMuted, marginBottom: 16 }}>
             {heroAvg != null
               ? `Calculé sur ${cmdLivrees} commandes · prix − coût produit − livraison − ${FRAIS_EMBALLAGE} − ${FRAIS_CONFIRMATION} MAD`
               : "Aucune commande livrée sur la période"}
           </div>
-          <div style={{ height: 200, margin: "0 -24px" }}>
+          <div style={{ height: 200, margin: "0 -28px" }}>
             <canvas ref={heroRef} />
           </div>
         </div>
 
-        {/* Colonne KPI */}
+        {/* POLISH : KPI padding 20px, valeur 30px */}
         <div style={{ borderLeft: `1px solid ${CLR.borderLight}`, paddingLeft: 24,
                       display: "flex", flexDirection: "column" }}>
           {[
             { label: "Taux confirmation", val: txConf,    unit: "%", seuil: SEUIL_CONF, sub: `Seuil > ${SEUIL_CONF}%` },
             { label: "Taux livraison",    val: txLivr,    unit: "%", seuil: SEUIL_LIVR, sub: `Seuil > ${SEUIL_LIVR}%` },
-            { label: "Leads période",     val: totalLeads, unit: "", seuil: null,       sub: periodLabel },
-            { label: "Livrées période",   val: cmdLivrees, unit: "", seuil: null,       sub: "Livrée + Facturée" },
+            { label: "Leads période",     val: totalLeads, unit: "", seuil: null,        sub: periodLabel },
+            { label: "Livrées période",   val: cmdLivrees, unit: "", seuil: null,        sub: "Livrée + Facturée" },
           ].map((k, i, arr) => (
-            <div key={k.label} style={{ padding: "16px 0",
+            <div key={k.label} style={{ padding: "20px 0",
                                         borderBottom: i < arr.length - 1 ? `1px solid ${CLR.borderLight}` : "none" }}>
               <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase",
                             letterSpacing: "0.12em", color: CLR.textMuted, marginBottom: 6 }}>
                 {k.label}
               </div>
-              <div style={{ fontSize: "26px", fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums",
+              <div style={{ fontSize: "30px", fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums",
                             color: k.seuil ? signal(k.val, k.seuil) : (k.val > 0 ? CLR.textPrimary : CLR.textGhost) }}>
                 {k.val != null ? `${k.val}${k.unit}` : "—"}
               </div>
@@ -634,35 +654,67 @@ export default function DashboardAnalytique() {
             <ProdTable rows={byMargeDecline} showDelta={true} />
           </>
         ) : (
-          <div style={{ padding: "12px 0", fontSize: 13, color: CLR.textMuted }}>
-            — Aucun produit en dégradation sur la période
-          </div>
+          <EmptyState
+            icon="✓"
+            title="Aucun produit en dégradation sur la période"
+            sub="Les marges sont stables ou en progression"
+          />
         )}
       </Card>
 
       {/* ── SECTION 3 : DIAGNOSTIC ADS VS OPS ── */}
       <SectionDivider label="DIAGNOSTIC · ADS VS OPS" />
-      <div style={{ fontSize: 12, color: CLR.textSecond, marginBottom: 16 }}>
-        CPL/livré : <strong>{cplLivre != null ? `${cplLivre} MAD` : "—"}</strong>
-        &nbsp;·&nbsp; Pts sous seuil conf : <strong>{Math.max(0, SEUIL_CONF - txConf)}</strong>
-        &nbsp;·&nbsp; Pts sous seuil livr : <strong>{Math.max(0, SEUIL_LIVR - txLivr)}</strong>
+
+      {/* POLISH : bandeau résumé plus structuré */}
+      <div style={{
+        display: "flex", gap: 24, marginBottom: 16,
+        padding: "12px 18px", background: CLR.cardBg,
+        border: BORDER, borderRadius: RADIUS, boxShadow: SHADOW,
+      }}>
+        <div style={{ fontSize: 12, color: CLR.textSecond }}>
+          CPL / livré&nbsp;
+          <strong style={{ color: CLR.textPrimary, fontVariantNumeric: "tabular-nums" }}>
+            {cplLivre != null ? `${cplLivre} MAD` : "—"}
+          </strong>
+        </div>
+        <div style={{ width: "0.5px", background: CLR.borderLight }} />
+        <div style={{ fontSize: 12, color: CLR.textSecond }}>
+          Écart conf.&nbsp;
+          <strong style={{ color: Math.max(0, SEUIL_CONF - txConf) > 0 ? CLR.red : CLR.green }}>
+            {Math.max(0, SEUIL_CONF - txConf) > 0 ? `-${Math.max(0, SEUIL_CONF - txConf)} pts` : "OK"}
+          </strong>
+        </div>
+        <div style={{ width: "0.5px", background: CLR.borderLight }} />
+        <div style={{ fontSize: 12, color: CLR.textSecond }}>
+          Écart livr.&nbsp;
+          <strong style={{ color: Math.max(0, SEUIL_LIVR - txLivr) > 0 ? CLR.red : CLR.green }}>
+            {Math.max(0, SEUIL_LIVR - txLivr) > 0 ? `-${Math.max(0, SEUIL_LIVR - txLivr)} pts` : "OK"}
+          </strong>
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-        {/* Ads */}
+
+        {/* POLISH : fond teinté + barre de score ads */}
         <div onClick={() => setDrill(drill === "ads" ? null : "ads")} style={{
-          background: CLR.cardBg,
+          background: drill === "ads" ? CLR.indigoBg : "#FAFBFF",
           border: drill === "ads" ? `1.5px solid ${CLR.indigo}` : BORDER,
           borderRadius: RADIUS, padding: "20px 24px", cursor: "pointer",
           boxShadow: drill === "ads" ? `0 0 0 3px ${CLR.indigoBg}` : SHADOW,
-          transition: "border 0.15s, box-shadow 0.15s",
+          transition: "all 0.15s",
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 16 }}>📣</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: CLR.textPrimary }}>Acquisition — Ads</span>
             </div>
             <span style={{ fontSize: 20, fontWeight: 800, color: CLR.indigo }}>{pctAds}%</span>
+          </div>
+          {/* POLISH : barre de score */}
+          <div style={{ height: 3, borderRadius: 99, background: CLR.indigoBorder,
+                        margin: "0 -24px 14px", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pctAds}%`, background: CLR.indigo, borderRadius: 99,
+                          transition: "width 0.4s ease" }} />
           </div>
           {[
             { label: "Spend total", val: `${Math.round(totalSpend)} MAD`, pct: 100 },
@@ -682,20 +734,26 @@ export default function DashboardAnalytique() {
           </div>
         </div>
 
-        {/* OPS */}
+        {/* POLISH : fond teinté + barre de score OPS */}
         <div onClick={() => setDrill(drill === "ops" ? null : "ops")} style={{
-          background: CLR.cardBg,
+          background: drill === "ops" ? CLR.amberBg : "#FFFDF5",
           border: drill === "ops" ? `1.5px solid ${CLR.amber}` : BORDER,
           borderRadius: RADIUS, padding: "20px 24px", cursor: "pointer",
           boxShadow: drill === "ops" ? `0 0 0 3px ${CLR.amberBg}` : SHADOW,
-          transition: "border 0.15s, box-shadow 0.15s",
+          transition: "all 0.15s",
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 16 }}>👥</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: CLR.textPrimary }}>OPS — Confirmation & Livraison</span>
             </div>
             <span style={{ fontSize: 20, fontWeight: 800, color: CLR.amber }}>{pctOps}%</span>
+          </div>
+          {/* POLISH : barre de score */}
+          <div style={{ height: 3, borderRadius: 99, background: CLR.amberBorder,
+                        margin: "0 -24px 14px", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pctOps}%`, background: CLR.amber, borderRadius: 99,
+                          transition: "width 0.4s ease" }} />
           </div>
           {[
             { label: "Confirmation", val: txConf,   seuil: SEUIL_CONF },
@@ -756,7 +814,7 @@ export default function DashboardAnalytique() {
               </tbody>
             </table>
           ) : (
-            <div style={{ padding: "12px 0", fontSize: 13, color: CLR.textMuted }}>— Aucune donnée ads</div>
+            <EmptyState title="Aucune donnée ads" sub="Renseigne les dépenses dans l'onglet Ads" />
           )}
           <div style={{ height: 140 }}><canvas ref={adsRef} /></div>
         </Card>
@@ -794,7 +852,9 @@ export default function DashboardAnalytique() {
                     ))}
                   </tbody>
                 </table>
-              ) : <div style={{ fontSize: 13, color: CLR.textGhost }}>— Aucune donnée</div>}
+              ) : (
+                <EmptyState title="Aucune conseillère identifiée" sub="Le champ conseillere doit être renseigné dans les leads" />
+              )}
             </div>
             <div>
               <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase",
@@ -819,7 +879,9 @@ export default function DashboardAnalytique() {
                   </table>
                   <div style={{ fontSize: 11, color: CLR.textMuted }}>A1 ≥ 60% · A2 45–60% · B2 40–45% · STOP &lt; 40%</div>
                 </>
-              ) : <div style={{ fontSize: 13, color: CLR.textGhost }}>— Aucun transporteur</div>}
+              ) : (
+                <EmptyState title="Aucun transporteur identifié" sub="Le champ transporteur doit être renseigné dans les commandes" />
+              )}
             </div>
           </div>
         </Card>
@@ -830,17 +892,28 @@ export default function DashboardAnalytique() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20 }}>
 
         <Card style={{ padding: 0, overflow: "hidden" }}>
+          {/* POLISH : header journal fond gris */}
           <div style={{ padding: "14px 20px", borderBottom: `1px solid ${CLR.borderLight}`,
+                        background: "#F9FAFB",
                         display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: CLR.textPrimary }}>Journal des mouvements</span>
-            <span style={{ fontSize: 11, color: CLR.textMuted }}>{releve.length} entrées</span>
+            <span style={{ fontSize: 11, color: CLR.textMuted,
+                           background: CLR.cardBg, border: BORDER,
+                           borderRadius: 5, padding: "2px 8px" }}>
+              {releve.length} entrées
+            </span>
           </div>
           {releve.length === 0 ? (
-            <div style={{ padding: "24px 20px", fontSize: 13, color: CLR.textGhost }}>— Aucun mouvement enregistré</div>
+            <div style={{ padding: "32px 20px" }}>
+              <EmptyState
+                title="Aucun mouvement enregistré"
+                sub="Alimente le relevé bancaire depuis l'onglet Finances"
+              />
+            </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
               <thead>
-                <tr style={{ background: "#F9FAFB" }}>
+                <tr>
                   {["Date", "Libellé", "Catégorie", "Type", "Montant"].map(h => (
                     <th key={h} style={{ ...TH, background: "#F9FAFB" }}>{h}</th>
                   ))}
@@ -874,7 +947,9 @@ export default function DashboardAnalytique() {
                           </span>
                         </span>
                       </td>
-                      <td style={{ ...TD(true), fontWeight: 700, color: isIn ? CLR.green : CLR.red }}>
+                      {/* POLISH : police monospace sur les montants */}
+                      <td style={{ ...TD(true), fontWeight: 700, color: isIn ? CLR.green : CLR.red,
+                                   fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace" }}>
                         {isIn ? "+" : ""}{Math.round(Math.abs(mont)).toLocaleString("fr")} MAD
                       </td>
                     </tr>
@@ -886,16 +961,23 @@ export default function DashboardAnalytique() {
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Card>
+          {/* POLISH : card cash net colorée selon solde */}
+          <Card style={{
+            background: solde >= 0 ? CLR.greenBg : CLR.redBg,
+            border: `1.5px solid ${solde >= 0 ? CLR.greenBorder : CLR.redBorder}`,
+          }}>
             <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase",
-                          letterSpacing: "0.1em", color: CLR.textMuted, marginBottom: 8 }}>Cash net</div>
+                          letterSpacing: "0.1em", color: solde >= 0 ? CLR.green : CLR.red, marginBottom: 8 }}>
+              Cash net
+            </div>
             <div style={{ fontSize: String(Math.abs(solde)).length <= 5 ? "36px" : "28px",
                           fontWeight: 800, lineHeight: 1, fontVariantNumeric: "tabular-nums",
+                          fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
                           color: solde >= 0 ? CLR.green : CLR.red, marginBottom: 4,
                           transition: "color 0.3s ease" }}>
               {solde >= 0 ? "+" : ""}{solde.toLocaleString("fr")} MAD
             </div>
-            <div style={{ height: "0.5px", background: CLR.borderLight, margin: "14px 0" }} />
+            <div style={{ height: "0.5px", background: solde >= 0 ? CLR.greenBorder : CLR.redBorder, margin: "14px 0" }} />
             {[
               { label: "Recettes",  val: `+${totalRev.toLocaleString("fr")} MAD`, color: CLR.green },
               { label: "Dépenses",  val: `${totalExp.toLocaleString("fr")} MAD`,  color: CLR.red },
@@ -906,7 +988,10 @@ export default function DashboardAnalytique() {
                                             alignItems: "center", marginBottom: 10 }}>
                 <span style={{ fontSize: 12, color: CLR.textSecond }}>{row.label}</span>
                 <span style={{ fontSize: 13, fontWeight: row.bold ? 700 : 500, color: row.color,
-                               fontVariantNumeric: "tabular-nums" }}>{row.val}</span>
+                               fontVariantNumeric: "tabular-nums",
+                               fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace" }}>
+                  {row.val}
+                </span>
               </div>
             ))}
           </Card>
@@ -942,15 +1027,10 @@ export default function DashboardAnalytique() {
       </div>
 
       <style>{`
-        @media (max-width: 1024px) {
-          .analytique-page { padding: 0 20px 48px !important; }
-        }
         @media (max-width: 900px) {
           .analytique-hero-grid { grid-template-columns: 1fr !important; }
           .analytique-diag-grid { grid-template-columns: 1fr !important; }
           .analytique-finance-grid { grid-template-columns: 1fr !important; }
-          .analytique-kpi-col { border-left: none !important; border-top: 1px solid #E4E7EC !important;
-                                 padding-left: 0 !important; padding-top: 16px !important; }
         }
       `}</style>
     </div>
