@@ -115,7 +115,7 @@ export default function DashboardAnalytique() {
         .lte("created_at", endStr + "T23:59:59"),
       supabase
         .from("leads")
-        .select("id, created_at, statut, conseillere, produit_id")
+        .select("id, created_at, statut, conseillere, produit")
         .gte("created_at", startStr)
         .lte("created_at", endStr + "T23:59:59"),
       supabase
@@ -189,10 +189,14 @@ export default function DashboardAnalytique() {
     };
 
     // Leads — groupés par produit_id si disponible, sinon ignorés
-    leads.forEach((l) => {
-      // leads n'a pas de champ produit texte directement utilisable ici
-      // On compte juste les leads totaux pour les KPIs OPS
-    });
+leads.forEach((l) => {
+  const nom = l.produit;
+  if (!nom) return;
+  initProd(nom);
+  prodStats[nom].curr_leads++;
+  if (["Confirmé", "Livrée", "Facturée", "Expédiée", "En cours de livraison"].includes(l.statut))
+    prodStats[nom].curr_conf++;
+});
 
     // Commandes — groupées par nom produit
     commandes.forEach((c) => {
@@ -262,7 +266,8 @@ export default function DashboardAnalytique() {
     const STATUTS_CONFIRMS = ["Confirmé", "Livrée", "Facturée", "Expédiée", "En cours de livraison"];
     const confirmes = leads.filter((l) => STATUTS_CONFIRMS.includes(l.statut)).length;
     const txConf = pct(confirmes, totalLeadsPeriod);
-    const txLivr = pct(cmdLivrees.length, confirmes || 1);
+    const cmdExpediables = cmdCurrent.filter(c => !["Annulée","Refusée","Doublon","Fausse commande"].includes(c.statut));
+const txLivr = pct(cmdLivrees.length, cmdExpediables.length || 1);
     const retours = cmdCurrent.filter((c) => ["Retour reçu", "Retour en cours"].includes(c.statut)).length;
     const txRetour = pct(retours, cmdCurrent.length);
 
@@ -319,7 +324,7 @@ const totalDepense = depenses.reduce((s, r) => s + getMontant(r), 0);
     depenses.forEach((r) => {
       const cat = r.categorie || r.type || "Autre";
       if (!catMap[cat]) catMap[cat] = 0;
-      catMap[cat] += Math.abs(parseFloat(r.montant));
+      catMap[cat] += Math.abs(getMontant(r));
     });
 
     return {
