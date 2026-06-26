@@ -46,7 +46,7 @@ function calcMarge(row, prodMap) {
 }
 
 const S = {
-  page: { fontFamily: "var(--font-sans, system-ui)", padding: "0 0 48px", maxWidth: "100%" },
+  page: { fontFamily: "var(--font-sans, system-ui)", padding: "0 0 48px", maxWidth: 1100, margin: "0 auto" },
   topbar: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 18px", borderBottom: "0.5px solid #e2e8f0", marginBottom: "28px" },
   sectionLabel: { fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", color: "#94a3b8", marginBottom: 12 },
   divider: { height: "0.5px", background: "#e2e8f0", margin: "28px 0" },
@@ -481,9 +481,9 @@ export default function DashboardAnalytique() {
           <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
             Calculé sur {cmdLivrees} commandes livrées · prix − coût achat produit − livraison − emballage ({FRAIS_EMBALLAGE} MAD) − confirmation ({FRAIS_CONFIRMATION} MAD)
           </div>
-          <div style={{ position: "relative", height: 140 }}>
-            <canvas ref={heroRef} />
-          </div>
+<div style={{ position: "relative", height: 180 }}>
+  <canvas ref={heroRef} />
+</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {[
