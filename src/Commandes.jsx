@@ -81,7 +81,7 @@ function Modal({ onClose, onCreate }) {
   );
 }
 
-export default function Commandes() {
+export default function Commandes({ role, nom, navigate }) {
   const [commandes,   setCommandes]  = useState([]);
   const [loading,     setLoading]    = useState(true);
   const [filtre,      setFiltre]     = useState("tous");
@@ -111,12 +111,11 @@ export default function Commandes() {
   }, []);
 
 async function fetchCommandes() {
-  let q = supabase.from("commandes").select("*").order("created_at", { ascending: false });
-  if (role !== "admin") q = q.eq("conseillere", nom);
-  const { data, error } = await q;
-  if (!error) setCommandes(data);
-  setLoading(false);
-}
+    let q = supabase.from("commandes").select("*").order("created_at", { ascending: false });
+    if (role !== "admin") q = q.eq("conseillere", nom);
+    const { data, error } = await q;
+    if (!error) setCommandes(data);
+    setLoading(false);
 
   // Sync panneau droit quand on change de commande
 async function selectCommande(c) {
