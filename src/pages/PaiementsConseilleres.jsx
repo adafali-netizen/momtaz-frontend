@@ -300,6 +300,7 @@ categorie: "Paiement conseillère",
 observation: `Relevé #${releve.id.slice(0, 8)} — ${releve.nb_commandes} commandes livrées · Réf: ${refVirement.trim()}`,
 type: "DEPENSE_OPS",
 est_bancaire: true,
+ })
           .select()
           .single();
 
