@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../supabaseClient";
+import { useState, useEffect, useCallback } from "react";
+
+
 
 const TARIF_UNITAIRE = 10;
 const STATUTS_LIVRES = ["Livrée", "Facturée"];
@@ -52,7 +55,7 @@ function ModalNouveauReleve({ onClose, onCreated }) {
     try {
       const { data, error } = await supabase
         .from("commandes")
-        .select("id, reference, montant_total, date_livraison, statut, conseillere")
+        .select("id, client_nom, prix, date_livraison, statut, conseillere")
         .eq("conseillere", conseillere)
         .in("statut", STATUTS_LIVRES)
         .gte("date_livraison", periode_debut)
@@ -106,8 +109,8 @@ function ModalNouveauReleve({ onClose, onCreated }) {
         const liens = preview.commandes.map((c) => ({
           paiement_id: releve.id,
           commande_id: c.id,
-          commande_ref: c.reference,
-          montant_cmd: c.montant_total,
+          commande_ref: c.client_nom,
+          montant_cmd: c.prix,
         }));
         const { error: e2 } = await supabase.from("paiements_commandes").insert(liens);
         if (e2) throw e2;
@@ -212,12 +215,12 @@ function ModalNouveauReleve({ onClose, onCreated }) {
                   {preview.commandes.map((c) => (
                     <div key={c.id} style={S.cmdRow}>
                       <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12 }}>
-                        {c.reference || c.id.slice(0, 8)}
+                        {c.client_nom || c.id.slice(0, 8)}
                       </span>
                       <span style={{ fontSize: 12 }}>{fmtDate(c.date_livraison)}</span>
                       <span style={{ fontSize: 11, color: "#059669" }}>{c.statut}</span>
                       <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12, textAlign: "right" }}>
-                        {fmt(c.montant_total)}
+                        {fmt(c.prix)}
                       </span>
                     </div>
                   ))}
