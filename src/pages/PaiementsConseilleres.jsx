@@ -293,13 +293,13 @@ function ModalDetailReleve({ releve, onClose, onUpdated }) {
           .from("releve_bancaire")
           .insert({
             date: new Date().toISOString().split("T")[0],
-            libelle: `Paiement conseillère ${releve.conseillere} — ${fmtDate(releve.periode_debut)} au ${fmtDate(releve.periode_fin)}`,
-            debit: releve.montant_total,
-            credit: 0,
-            reference: refVirement.trim(),
-            categorie: "Paiement conseillère",
-            notes: `Relevé #${releve.id.slice(0, 8)} — ${releve.nb_commandes} commandes livrées`,
-          })
+intitule: `Paiement conseillère ${releve.conseillere} — ${fmtDate(releve.periode_debut)} au ${fmtDate(releve.periode_fin)}`,
+debit: releve.montant_total,
+credit: 0,
+categorie: "Paiement conseillère",
+observation: `Relevé #${releve.id.slice(0, 8)} — ${releve.nb_commandes} commandes livrées · Réf: ${refVirement.trim()}`,
+type: "DEPENSE_OPS",
+est_bancaire: true,
           .select()
           .single();
 
