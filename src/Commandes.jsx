@@ -110,11 +110,13 @@ export default function Commandes() {
     return () => supabase.removeChannel(ch);
   }, []);
 
-  async function fetchCommandes() {
-    const { data, error } = await supabase.from("commandes").select("*").order("created_at", { ascending: false });
-    if (!error) setCommandes(data);
-    setLoading(false);
-  }
+async function fetchCommandes() {
+  let q = supabase.from("commandes").select("*").order("created_at", { ascending: false });
+  if (role !== "admin") q = q.eq("conseillere", nom);
+  const { data, error } = await q;
+  if (!error) setCommandes(data);
+  setLoading(false);
+}
 
   // Sync panneau droit quand on change de commande
 async function selectCommande(c) {
