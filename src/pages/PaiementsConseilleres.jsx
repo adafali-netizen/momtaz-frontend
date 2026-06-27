@@ -212,7 +212,7 @@ function ModalNouveauReleve({ onClose, onCreated }) {
                   {preview.commandes.map((c) => (
                     <div key={c.id} style={S.cmdRow}>
                       <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12 }}>
-                        {c.client_nom || c.id.slice(0, 8)}
+                        {c.id.slice(0, 8)}
                       </span>
                       <span style={{ fontSize: 12 }}>{fmtDate(c.date_livraison)}</span>
                       <span style={{ fontSize: 11, color: "#059669" }}>{c.statut}</span>
