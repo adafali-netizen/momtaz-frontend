@@ -116,9 +116,10 @@ async function fetchCommandes() {
     const { data, error } = await q;
     if (!error) setCommandes(data);
     setLoading(false);
+  }
 
   // Sync panneau droit quand on change de commande
-async function selectCommande(c) {
+  async function selectCommande(c) {{
   setSelected(c);
   setNewStatut(c.statut);
   setTransporteur(c.transporteur || "Sendit");
