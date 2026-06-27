@@ -1,8 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../supabaseClient";
-import { useState, useEffect, useCallback } from "react";
-
-
 
 const TARIF_UNITAIRE = 10;
 const STATUTS_LIVRES = ["Livrée", "Facturée"];
