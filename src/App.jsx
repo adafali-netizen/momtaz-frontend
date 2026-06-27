@@ -10,9 +10,10 @@ import Ads from "./Ads";
 import StockHistorique from "./StockHistorique";
 import DashboardAnalytique from "./DashboardAnalytique";
 import ReleveBancaire from "./Finances";
+import PaiementsConseilleres from "./pages/PaiementsConseilleres";
 import "./App.css";
 
-const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "finances", "releve-bancaire", "dashboard-analytique"];
+const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "finances", "releve-bancaire", "dashboard-analytique", "paiements-conseilleres"];
 
 function getModuleFromHash() {
   const hash = window.location.hash.replace("#", "");
@@ -59,15 +60,16 @@ export default function App() {
   if (!session)    return <Login />;
 
   const MODULES = {
-    dashboard:              Dashboard,
-    leads:                  Leads,
-    commandes:              Commandes,
-    produits:               Produits,
-    ads:                    Ads,
-    "stock-historique":     StockHistorique,
-    "finances":             ReleveBancaire,
-    "releve-bancaire":      ReleveBancaire,
-    "dashboard-analytique": DashboardAnalytique,
+    dashboard:                  Dashboard,
+    leads:                      Leads,
+    commandes:                  Commandes,
+    produits:                   Produits,
+    ads:                        Ads,
+    "stock-historique":         StockHistorique,
+    "finances":                 ReleveBancaire,
+    "releve-bancaire":          ReleveBancaire,
+    "dashboard-analytique":     DashboardAnalytique,
+    "paiements-conseilleres":   PaiementsConseilleres,
   };
 
   const Active = MODULES[module] || Dashboard;
