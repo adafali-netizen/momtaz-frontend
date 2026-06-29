@@ -102,13 +102,14 @@ export default function Commandes({ role, nom, navigate }) {
   const [errors, setErrors] = useState({});
   const [events, setEvents] = useState([]);
 
-  useEffect(() => {
+useEffect(() => {
+    if (!role) return;
     fetchCommandes();
     const ch = supabase.channel("commandes-rt4")
       .on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, fetchCommandes)
       .subscribe();
     return () => supabase.removeChannel(ch);
-  }, []);
+  }, [role, nom]);
 
 async function fetchCommandes() {
     let q = supabase.from("commandes").select("*").order("created_at", { ascending: false });
