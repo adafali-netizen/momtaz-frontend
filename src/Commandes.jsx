@@ -183,6 +183,8 @@ async function handleEnregistrer() {
       mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
       mode_paiement: transporteur || "—", categorie: "Logistique",
       intitule: "Frais livraison", debit: +fraisLivr,
+type: "FRAIS_LIVRAISON",
+est_bancaire: false,
       commande_id: selected.id, produit: selected.produit || null,
       observation: `CMD ${selected.id.slice(0, 8)}`
     }]);
