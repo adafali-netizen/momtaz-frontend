@@ -112,9 +112,11 @@ useEffect(() => {
   }, [role, nom]);
 
 async function fetchCommandes() {
+    console.log("fetchCommandes role:", role, "nom:", nom);
     let q = supabase.from("commandes").select("*").order("created_at", { ascending: false });
     if (role !== "admin") q = q.eq("conseillere", nom);
     const { data, error } = await q;
+    console.log("data length:", data?.length, "error:", error);
     if (!error) setCommandes(data);
     setLoading(false);
   }
