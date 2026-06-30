@@ -93,7 +93,7 @@ function calcMarge(row, prodMap) {
   const prix      = parseFloat(row.prix) || 0;
   const cout      = parseFloat(prodMap[row.produit]?.cout_achat) || 0;
   const fraisLivr = parseFloat(row.frais_livraison) || 0;
-  return prix - cout - fraisLivr - FRAIS_EMBALLAGE - FRAIS_CONFIRMATION;
+  return prix - cout - fraisLivr;
 }
 
 function decisionBadge(leads, livrees, marge) {
