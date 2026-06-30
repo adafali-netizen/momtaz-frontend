@@ -45,7 +45,7 @@ const RADIUS = "10px";
 const BORDER = `1px solid ${CLR.borderLight}`;
 
 // ─── Constantes métier ────────────────────────────────────────────────────────
-const FRAIS_EMBALLAGE    = 4;
+const FRAIS_EMBALLAGE    = 0;
 const FRAIS_CONFIRMATION = 10;
 const SEUIL_CONF = 35;
 const SEUIL_LIVR = 55;
