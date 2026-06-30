@@ -158,9 +158,8 @@ function validate() {
   if (needsExpedition && !trackingVal.trim()) e.tracking = true;
   if (STATUTS_LIVRAISON.includes(newStatut) && !fraisLivr) e.fraisLivr = true;
   if (STATUTS_LIVRAISON.includes(newStatut) && !dateStatut) e.dateStatut = true;
-  setErrors(e);
+setErrors(e);
   return Object.keys(e).length === 0;
-}ject.keys(e).length === 0;
 }
 
 async function handleEnregistrer() {
