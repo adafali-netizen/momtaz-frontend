@@ -157,8 +157,10 @@ function validate() {
   if (needsExpedition && !transporteur) e.transporteur = true;
   if (needsExpedition && !trackingVal.trim()) e.tracking = true;
   if (STATUTS_LIVRAISON.includes(newStatut) && !fraisLivr) e.fraisLivr = true;
+  if (STATUTS_LIVRAISON.includes(newStatut) && !dateStatut) e.dateStatut = true;
   setErrors(e);
   return Object.keys(e).length === 0;
+}ject.keys(e).length === 0;
 }
 
 async function handleEnregistrer() {
@@ -190,17 +192,18 @@ est_bancaire: false,
     }]);
   }
 
-  // Relevé bancaire frais retour
-  if (STATUTS_RETOUR.includes(newStatut) && fraisRet) {
-    await supabase.from("releve_bancaire").insert([{
-      date: new Date().toISOString().split("T")[0],
-      mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
-      mode_paiement: transporteur || "—", categorie: "Logistique",
-      intitule: "Frais retour", debit: +fraisRet,
-      commande_id: selected.id, produit: selected.produit || null,
-      observation: `CMD ${selected.id.slice(0, 8)}`
-    }]);
-  }
+// Relevé bancaire frais retour
+if (STATUTS_RETOUR.includes(newStatut) && fraisRet) {
+  await supabase.from("releve_bancaire").insert([{
+    date: new Date().toISOString().split("T")[0],
+    mois: new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+    mode_paiement: transporteur || "—", categorie: "Logistique",
+    intitule: "Frais retour", debit: +fraisRet,
+    type: "FRAIS_LIVRAISON", est_bancaire: false,
+    commande_id: selected.id, produit: selected.produit || null,
+    observation: `CMD ${selected.id.slice(0, 8)}`
+  }]);
+}
 
   // Log historique
   const evtPayload = {
