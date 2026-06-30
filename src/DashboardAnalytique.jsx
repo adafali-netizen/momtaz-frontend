@@ -46,7 +46,7 @@ const BORDER = `1px solid ${CLR.borderLight}`;
 
 // ─── Constantes métier ────────────────────────────────────────────────────────
 const FRAIS_EMBALLAGE    = 0;
-const FRAIS_CONFIRMATION = 10;
+const FRAIS_CONFIRMATION = 0;
 const SEUIL_CONF = 35;
 const SEUIL_LIVR = 55;
 const STATUTS_LIVRES   = ["Livrée", "Facturée"];
