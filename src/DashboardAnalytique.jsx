@@ -418,16 +418,18 @@ export default function DashboardAnalytique() {
                grade: tl >= 60 ? "A1" : tl >= 45 ? "A2" : tl >= 40 ? "B2" : "STOP" };
     }).sort((a, b) => b.taux_livr - a.taux_livr);
 
-    const revenues = releve.filter(r => getMontant(r) > 0);
-    const expenses = releve.filter(r => getMontant(r) < 0);
-    const totalRev = revenues.reduce((s, r) => s + getMontant(r), 0);
-    const totalExp = expenses.reduce((s, r) => s + getMontant(r), 0);
-    const solde    = totalRev + totalExp;
-    const catMap   = {};
-    expenses.forEach(r => {
-      const cat = r.categorie || "Autre";
-      catMap[cat] = (catMap[cat] || 0) + Math.abs(getMontant(r));
-    });
+const revenues = releve.filter(r => getMontant(r) > 0);
+const expenses = releve.filter(r => getMontant(r) < 0);
+const totalRev = revenues.reduce((s, r) => s + getMontant(r), 0);
+const totalExp = expenses.reduce((s, r) => s + getMontant(r), 0);
+const solde    = totalRev + totalExp;
+const catMap   = {};
+expenses.forEach(r => {
+  console.log("EXPENSE:", r.intitule, "debit:", r.debit, "credit:", r.credit, "getMontant:", getMontant(r));
+  const cat = r.categorie || "Autre";
+  catMap[cat] = (catMap[cat] || 0) + Math.abs(getMontant(r));
+});
+console.log("totalExp:", totalExp, "totalRev:", totalRev, "solde:", solde);
 
     return {
       heroLabels, heroValues, heroAvg, heroPoints,
