@@ -913,7 +913,7 @@ console.log("totalExp:", totalExp, "totalRev:", totalRev, "solde:", solde);
               />
             </div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
+            <table key={releve.map(r=>r.id).join()} style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
               <thead>
                 <tr>
                   {["Date", "Libellé", "Catégorie", "Type", "Montant"].map(h => (
