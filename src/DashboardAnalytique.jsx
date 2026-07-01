@@ -924,6 +924,7 @@ console.log("totalExp:", totalExp, "totalRev:", totalRev, "solde:", solde);
               <tbody>
                 {releve.slice(0, 20).map((r, i) => {
                   const mont = getMontant(r);
+              console.log("RENDER mont:", r.intitule, r.debit, r.credit, r.montant, mont);
                   const isIn = mont > 0;
                   return (
                     <tr key={r.id || i} style={{ background: i % 2 === 0 ? CLR.cardBg : "#F9FAFB" }}>
