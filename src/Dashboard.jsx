@@ -164,8 +164,8 @@ export default function Dashboard({ role, nom, setModule }) {
       supabase.from("leads")
         .select("id, statut, conseillere, produit, created_at")
         .gte("created_at", start).lte("created_at", endFull),
-      supabase.from("ads_spend")
-        .select("date, plateforme, spend_mad, budget_mad, leads_count, produit_id")
+supabase.from("ads_spend")
+  .select("date, plateforme, budget_mad, leads, produit_id")
         .gte("date", start).lte("date", end),
       supabase.from("produits")
         .select("id, nom, cout_achat, stock_disponible, frais_emballage_stockage"),
@@ -237,8 +237,8 @@ export default function Dashboard({ role, nom, setModule }) {
       .sort((a, b) => b.tauxConf - a.tauxConf);
 
     // ── ADS ───────────────────────────────────────────────────────────────
-    const totalSpend    = sum(adsSpend.map(a => parseFloat(a.spend_mad || a.budget_mad) || 0));
-    const totalLeadsAds = sum(adsSpend.map(a => parseInt(a.leads_count) || 0));
+const totalSpend    = sum(adsSpend.map(a => parseFloat(a.budget_mad) || 0));
+const totalLeadsAds = sum(adsSpend.map(a => parseInt(a.leads) || 0));
     const hasAds        = totalSpend > 0;
     const cplMoyen      = hasAds && totalLeadsAds > 0 ? totalSpend / totalLeadsAds : null;
     const cplLivre      = hasAds && cmdLivrees.length > 0 ? totalSpend / cmdLivrees.length : null;
@@ -257,10 +257,10 @@ export default function Dashboard({ role, nom, setModule }) {
 
     // Ads par produit
     const adsByProduit = {};
-    adsSpend.forEach(a => {
-      if (!a.produit_id) return;
-      adsByProduit[a.produit_id] = (adsByProduit[a.produit_id] || 0) + (parseFloat(a.spend_mad || a.budget_mad) || 0);
-    });
+adsSpend.forEach(a => {
+  if (!a.produit_id) return;
+  adsByProduit[a.produit_id] = (adsByProduit[a.produit_id] || 0) + (parseFloat(a.budget_mad) || 0);
+});
 
     // Stats par produit
     const PS = {};
