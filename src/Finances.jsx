@@ -289,7 +289,7 @@ function FormulaireFactureTransporteur({ onSaved, onCancel }) {
           montant_recu: montantRecu,
           ecart: ecart,
           frais_ramassage: fraisRamassage,
-          statut: "validé",
+          statut: "brouillon",
           statut_rapprochement: Math.abs(ecart) < 1 ? "reconcilie" : "ecart",
           notes: form.notes || null,
         }])
