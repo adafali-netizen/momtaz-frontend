@@ -26,6 +26,7 @@ function ModalAjout({ produits, onClose }) {
   const [variante,      setVariante]      = useState("");
   const [titreShopify,  setTitreShopify]  = useState("");
   const [varianteMode,  setVarianteMode]  = useState("preset");
+  const [fraisEmb,      setFraisEmb]      = useState("");
 
   const nomFinal      = nomMode   === "existant" ? nomSelect  : nomNouveau;
   const fournFinal    = fournMode === "existant" ? fournSel   : fournNouv;
@@ -41,9 +42,10 @@ function ModalAjout({ produits, onClose }) {
       const ajout = +stock || 0;
       if (ajout > 0) {
         await supabase.from("produits").update({ stock_disponible: (existant.stock_disponible || 0) + ajout }).eq("id", existant.id);
-        await supabase.from("stock_movements").insert([{ produit_id: existant.id, type: "entree", quantite: ajout, source: "ajout_manuel" }]);
+        await supabase.from("stock_movements").insert([{ produit_id: existant.id, type: "entree", quantite: ajout, source: "ajout_manuel", prix_achat_unitaire: +cout || existant.cout_achat || 0 }]);
       }
       if (fournFinal) await supabase.from("produits").update({ fournisseur: fournFinal }).eq("id", existant.id);
+      if (fraisEmb) await supabase.from("produits").update({ frais_emballage_stockage: +fraisEmb }).eq("id", existant.id);
     } else {
       const { error } = await supabase.from("produits").insert([{
         nom: nomFinal,
@@ -54,8 +56,14 @@ function ModalAjout({ produits, onClose }) {
         decision: "OPTIMISER",
         variante: varianteFinal,
         titre_shopify: titreShopify || null,
+        frais_emballage_stockage: +fraisEmb || 0,
       }]);
       if (error) { console.error("INSERT_ERROR", error.message); return; }
+      // Log stock initial
+      if (+stock > 0) {
+        const { data: newProd } = await supabase.from("produits").select("id").eq("nom", nomFinal).single();
+        if (newProd) await supabase.from("stock_movements").insert([{ produit_id: newProd.id, type: "entree", quantite: +stock, source: "ajout_manuel", prix_achat_unitaire: +cout || 0 }]);
+      }
     }
     onClose();
   };
@@ -129,16 +137,21 @@ function ModalAjout({ produits, onClose }) {
             </div>
           )}
 
-          {!existant && (
-            <div className="form-group">
-              <label className="form-label">Prix achat (MAD)</label>
-              <input className="form-input" type="number" value={cout} onChange={e => setCout(e.target.value)} placeholder="80" />
-            </div>
-          )}
+          <div className="form-group">
+            <label className="form-label">{existant ? "Prix achat unitaire ce lot (MAD)" : "Prix achat (MAD)"}</label>
+            <input className="form-input" type="number" value={cout} onChange={e => setCout(e.target.value)} placeholder={existant ? String(existant.cout_achat || "") : "80"} />
+            {existant && <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4 }}>Dernier prix : {existant.cout_achat || "—"} MAD — laisser vide pour conserver</div>}
+          </div>
 
           <div className="form-group">
             <label className="form-label">{existant ? "Quantité à ajouter" : "Stock initial"}</label>
             <input className="form-input" type="number" value={stock} onChange={e => setStock(e.target.value)} placeholder="50" />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Frais emballage / stockage (MAD/livraison)</label>
+            <input className="form-input" type="number" value={fraisEmb} onChange={e => setFraisEmb(e.target.value)} placeholder={existant ? String(existant.frais_emballage_stockage || "5") : "5"} />
+            <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4 }}>Coût fixe déduit par unité livrée (emballage + stockage transporteur)</div>
           </div>
 
           {existant && (
@@ -158,11 +171,12 @@ function ModalAjout({ produits, onClose }) {
 
 function ModalEdit({ produit, fourns, onClose }) {
   const [form, setForm] = useState({
-    nom:           produit.nom           || "",
-    cout_achat:    produit.cout_achat    || "",
-    fournisseur:   produit.fournisseur   || "",
-    variante:      produit.variante      || "",
-    titre_shopify: produit.titre_shopify || "",
+    nom:                    produit.nom                    || "",
+    cout_achat:             produit.cout_achat             || "",
+    fournisseur:            produit.fournisseur            || "",
+    variante:               produit.variante               || "",
+    titre_shopify:          produit.titre_shopify          || "",
+    frais_emballage_stockage: produit.frais_emballage_stockage || "",
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const [fournMode,    setFournMode]    = useState(fourns.includes(produit.fournisseur) ? "existant" : "nouveau");
@@ -172,11 +186,12 @@ function ModalEdit({ produit, fourns, onClose }) {
 
   const submit = async () => {
     await supabase.from("produits").update({
-      nom:           form.nom,
-      cout_achat:    +form.cout_achat || 0,
-      fournisseur:   form.fournisseur || null,
-      variante:      varianteMode === "aucune" ? null : form.variante || null,
-      titre_shopify: form.titre_shopify || null,
+      nom:                    form.nom,
+      cout_achat:             +form.cout_achat || 0,
+      fournisseur:            form.fournisseur || null,
+      variante:               varianteMode === "aucune" ? null : form.variante || null,
+      titre_shopify:          form.titre_shopify || null,
+      frais_emballage_stockage: +form.frais_emballage_stockage || 0,
     }).eq("id", produit.id);
     onClose();
   };
@@ -225,6 +240,12 @@ function ModalEdit({ produit, fourns, onClose }) {
           </div>
 
           <div className="form-group">
+            <label className="form-label">Frais emballage / stockage (MAD/livraison)</label>
+            <input className="form-input" type="number" value={form.frais_emballage_stockage} onChange={e => set("frais_emballage_stockage", e.target.value)} placeholder="5" />
+            <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4 }}>Coût fixe déduit par unité livrée</div>
+          </div>
+
+          <div className="form-group">
             <label className="form-label">Titre Shopify</label>
             <input className="form-input" value={form.titre_shopify} onChange={e => set("titre_shopify", e.target.value)} placeholder="Titre exact de la page produit Shopify..." />
           </div>
@@ -262,6 +283,8 @@ export default function Produits({ navigate }) {
   const [seuilVal,     setSeuilVal]     = useState("");
   const [stockRapide,  setStockRapide]  = useState(null);
   const [stockQte,     setStockQte]     = useState("");
+  const [stockPrix,    setStockPrix]    = useState("");
+  const [stockFraisEmb,setStockFraisEmb]= useState("");
 
   useEffect(() => {
     fetchAll();
@@ -364,10 +387,27 @@ export default function Produits({ navigate }) {
   async function addStockRapide() {
     const qte = +stockQte;
     if (!stockRapide || qte <= 0) return;
-    await supabase.from("produits").update({ stock_disponible: stockRapide.stock_disponible + qte }).eq("id", stockRapide.id);
-    await supabase.from("stock_movements").insert([{ produit_id: stockRapide.id, type: "entree", quantite: qte, source: "ajout_manuel" }]);
+    const prix = +stockPrix || stockRapide.cout_achat || 0;
+    const fraisEmb = +stockFraisEmb;
+
+    await supabase.from("produits").update({
+      stock_disponible: stockRapide.stock_disponible + qte,
+      cout_achat: prix,
+      ...(fraisEmb > 0 ? { frais_emballage_stockage: fraisEmb } : {}),
+    }).eq("id", stockRapide.id);
+
+    await supabase.from("stock_movements").insert([{
+      produit_id: stockRapide.id,
+      type: "entree",
+      quantite: qte,
+      source: "ajout_manuel",
+      prix_achat_unitaire: prix,
+    }]);
+
     setStockRapide(null);
     setStockQte("");
+    setStockPrix("");
+    setStockFraisEmb("");
   }
 
   function fmtDate(iso) {
@@ -528,26 +568,39 @@ export default function Produits({ navigate }) {
       {editProduit && <ModalEdit  produit={editProduit} fourns={fourns} onClose={() => setEditProduit(null)} />}
 
       {stockRapide && (
-        <div className="modal-overlay" onClick={() => setStockRapide(null)}>
+        <div className="modal-overlay" onClick={() => { setStockRapide(null); setStockQte(""); setStockPrix(""); setStockFraisEmb(""); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">+ Stock — {stockRapide.nom}{stockRapide.variante ? ` (${stockRapide.variante})` : ""}</span>
-              <button className="btn-close" onClick={() => setStockRapide(null)}>×</button>
+              <button className="btn-close" onClick={() => { setStockRapide(null); setStockQte(""); setStockPrix(""); setStockFraisEmb(""); }}>×</button>
             </div>
             <div className="modal-body">
               <div style={{ padding: "8px 12px", background: "var(--blue-lt)", borderRadius: 8, fontSize: 12, color: "var(--blue)", marginBottom: 12 }}>
-                Stock actuel : <strong>{stockRapide.stock_disponible} u</strong>
+                Stock actuel : <strong>{stockRapide.stock_disponible} u</strong> · Prix achat actuel : <strong>{stockRapide.cout_achat || "—"} MAD</strong>
               </div>
               <div className="form-group">
                 <label className="form-label">Quantité à ajouter *</label>
                 <input className="form-input" type="number" min="1" autoFocus
                   value={stockQte} onChange={e => setStockQte(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && addStockRapide()}
                   placeholder="ex: 20" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Prix achat unitaire ce lot (MAD) *</label>
+                <input className="form-input" type="number" min="0"
+                  value={stockPrix} onChange={e => setStockPrix(e.target.value)}
+                  placeholder={String(stockRapide.cout_achat || "")} />
+                <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4 }}>Mettra à jour le prix achat du produit</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Frais emballage / stockage (MAD/livraison)</label>
+                <input className="form-input" type="number" min="0"
+                  value={stockFraisEmb} onChange={e => setStockFraisEmb(e.target.value)}
+                  placeholder={String(stockRapide.frais_emballage_stockage || "5")} />
+                <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4 }}>Laisser vide pour conserver la valeur actuelle ({stockRapide.frais_emballage_stockage || 0} MAD)</div>
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setStockRapide(null)}>Annuler</button>
+              <button className="btn btn-secondary" onClick={() => { setStockRapide(null); setStockQte(""); setStockPrix(""); setStockFraisEmb(""); }}>Annuler</button>
               <button className="btn btn-primary" onClick={addStockRapide}>Ajouter</button>
             </div>
           </div>
