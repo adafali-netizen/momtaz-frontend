@@ -313,7 +313,7 @@ export default function Dashboard({ role, nom, setModule }) {
     const cmdRetours  = commandes.filter(c => STATUTS_RETOURS.includes(c.statut));
     const cmdTransit  = commandes.filter(c => STATUTS_TRANSIT.includes(c.statut));
 
-    const tauxLivr   = pct(cmdLivrees.length, cmdActives.length);
+    const tauxLivr   = pct(cmdLivrees.length, commandes.length);
     const tauxRetour = pct(cmdRetours.length, cmdActives.length);
     const capitalEncaisse = sum(cmdLivrees.map(c => parseFloat(c.prix)||0));
     const capitalTransit  = sum(cmdTransit.map(c => parseFloat(c.prix)||0));
@@ -390,7 +390,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
       const margeNette   = margesNettes.length > 0 ? sum(margesNettes) - p.ads : null;
       const margeUnitaire= margeNette !== null && livrées > 0 ? margeNette / livrées : null;
       const tauxConf     = pct(p.conf, p.leads);
-      const tauxLivrProd = pct(livrées, p.leads);
+      const tauxLivrProd = pct(livrées, p.conf + livrées + p.retours + p.transit);
       const tauxRet      = pct(p.retours, livrées + p.retours);
       const prodInfo     = prodMap[p.nom];
       const stockRest    = prodInfo?.stock_disponible || 0;
