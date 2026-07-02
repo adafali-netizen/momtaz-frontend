@@ -278,7 +278,7 @@ function FormulaireFactureTransporteur({ onSaved, onCancel }) {
     setSaving(true);
     try {
       // 1. Créer le règlement transporteur
-      const { data: reglement, error: errReg } = await supabase
+const { data: reglement, error: errReg } = await supabase
         .from("reglements_transporteur")
         .insert([{
           date: form.date,
@@ -287,7 +287,6 @@ function FormulaireFactureTransporteur({ onSaved, onCancel }) {
           nb_commandes: commandesFacturees.length,
           montant_attendu: netCalcule,
           montant_recu: montantRecu,
-          ecart: ecart,
           frais_ramassage: fraisRamassage,
           statut: "brouillon",
           statut_rapprochement: Math.abs(ecart) < 1 ? "reconcilie" : "ecart",
