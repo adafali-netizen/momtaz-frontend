@@ -360,7 +360,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
     const PS = {};
     leads.forEach(l => {
       if (!l.produit) return;
-      if (!PS[l.produit]) PS[l.produit] = { nom: l.produit, leads: 0, conf: 0, livr: [], retours: 0, transit: 0, ads: 0, caTransit: 0 };
+      if (!PS[l.produit]) PS[l.produit] = { nom: l.produit, leads: 0, conf: 0, livr: [], retours: 0, transit: 0, refusees: 0, ads: 0, caTransit: 0 };
       PS[l.produit].leads++;
       if (STATUTS_CONFIRMS.includes(l.statut)) PS[l.produit].conf++;
     });
@@ -390,7 +390,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
       const margeNette   = margesNettes.length > 0 ? sum(margesNettes) - p.ads : null;
       const margeUnitaire= margeNette !== null && livrées > 0 ? margeNette / livrées : null;
       const tauxConf     = pct(p.conf, p.leads);
-      const tauxLivrProd = pct(livrées, p.conf + livrées + p.retours + p.transit);
+      const tauxLivrProd = pct(livrées, livrées + p.retours + p.transit + p.refusees);
       const tauxRet      = pct(p.retours, livrées + p.retours);
       const prodInfo     = prodMap[p.nom];
       const stockRest    = prodInfo?.stock_disponible || 0;
