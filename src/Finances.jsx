@@ -289,7 +289,7 @@ const { data: reglement, error: errReg } = await supabase
           montant_recu: montantRecu,
           frais_ramassage: fraisRamassage,
           statut: "brouillon",
-          statut_rapprochement: Math.abs(ecart) < 1 ? "reconcilie" : "ecart",
+          statut_rapprochement: Math.abs(ecart) < 1 ? "rapproche" : "a_verifier",
           notes: form.notes || null,
         }])
         .select()
