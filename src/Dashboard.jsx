@@ -320,7 +320,7 @@ export default function Dashboard({ role, nom, setModule }) {
     const livrSignal = signal(tauxLivr, SEUIL_LIVR, SEUIL_LIVR * 0.75);
 
     const totalLeads = leads.length;
-    const confirmes  = leads.filter(l => STATUTS_CONFIRMS.includes(l.statut)).length;
+    const confirmes  = leads.filter(l => l.statut === "Confirmé").length;
     const enAttente  = leads.filter(l => l.statut === "Nouveau" || l.statut === "À appeler").length;
     const tauxConf   = pct(confirmes, totalLeads);
     const confSignal = signal(tauxConf, SEUIL_CONF, SEUIL_CONF * 0.7);
@@ -330,7 +330,7 @@ export default function Dashboard({ role, nom, setModule }) {
       const c = l.conseillere; if (!c) return;
       if (!consMap[c]) consMap[c] = { nom: c, total: 0, conf: 0, livr: 0 };
       consMap[c].total++;
-      if (STATUTS_CONFIRMS.includes(l.statut)) consMap[c].conf++;
+if (l.statut === "Confirmé") consMap[c].conf++;
     });
     cmdLivrees.forEach(c => { if (c.conseillere && consMap[c.conseillere]) consMap[c.conseillere].livr++; });
     const consStats = Object.values(consMap).map(c => ({ ...c, tauxConf: pct(c.conf, c.total), tauxLivr: pct(c.livr, c.total) })).sort((a,b) => b.tauxConf - a.tauxConf);
