@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-function getStatut(p, entrees, sorties) {
+function getStatut(p, entrees, sorties, mvts) {
   const dispo = entrees - sorties;
+
   if (dispo <= 0) return { label: "RUPTURE", color: "#DC2626", bg: "#FEF2F2" };
-  if (entrees > 0 && sorties / entrees > 0.8) return { label: "LIQUIDER", color: "#DC2626", bg: "#FEF2F2" };
-  if (dispo <= (p.stock_minimum || 5)) return { label: "SURVEILLER", color: "#D97706", bg: "#FFFBEB" };
+
+  if (sorties === 0 && dispo > 0) return { label: "LIQUIDER", color: "#7C3AED", bg: "#F5F3FF" };
+
+  // Calcul moyenne sorties/jour
+  const sortiesMvts = mvts.filter(m => m.type === "sortie");
+  if (sortiesMvts.length > 0) {
+    const dates = sortiesMvts.map(m => new Date(m.created_at).toDateString());
+    const joursActifs = new Set(dates).size;
+    const moyParJour = sorties / Math.max(joursActifs, 1);
+    const seuil2j = moyParJour * 2;
+    if (dispo < seuil2j) return { label: "SURVEILLER", color: "#D97706", bg: "#FFFBEB" };
+  }
+
   return { label: "OK", color: "#16A34A", bg: "#F0FDF4" };
 }
 
@@ -349,7 +361,7 @@ export default function Produits({ navigate }) {
             <tbody>
               {produits.map(p => {
                 const stats  = getStockStats(p.id);
-                const statut = getStatut(p, stats.entrees, stats.sorties);
+                const statut = getStatut(p, stats.entrees, stats.sorties, stockMvts.filter(m => m.produit_id === p.id));
                 const valeur = stats.disponible * (p.cout_achat || 0);
                 return (
                   <tr key={p.id}>
