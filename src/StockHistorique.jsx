@@ -47,7 +47,7 @@ export default function StockHistorique({ params = {}, navigate }) {
 
   const count = t => t === "tous" ? searched.length : searched.filter(m => m.type === t).length;
 
-  const valeurMvt = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire ?? m.produits?.cout_achat ?? 0);
+  const valeurMvt = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire || m.produits?.cout_achat || 0);
   const entreesQte    = searched.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
   const sortiesQte    = searched.filter(m => m.type === "sortie").reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
   const retoursQte    = searched.filter(m => m.type === "retour").reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
