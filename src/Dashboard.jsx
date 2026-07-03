@@ -387,7 +387,8 @@ const stockAcheteMap = {};
       initPS(c.produit);
       PS[c.produit].livr.push({ prix: parseFloat(c.prix)||0 });
       PS[c.produit].fraisLivrTotal += parseFloat(c.frais_livraison)||0;
-      PS[c.produit].fraisEmbTotal  += parseFloat(c.frais_emballage_stockage)||0;
+      const prod_ = prodMap[c.produit];
+PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.frais_emballage_stockage || 0;
     });
 
     cmdRetours.forEach(c => { if (c.produit && PS[c.produit]) PS[c.produit].retours++; });
