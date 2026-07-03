@@ -271,7 +271,7 @@ export default function Produits({ navigate }) {
   async function fetchAll() {
     const [{ data: p }, { data: mvts }] = await Promise.all([
       supabase.from("produits").select("*").order("nom"),
-      supabase.from("stock_movements").select("produit_id, type, quantite, created_at"),
+      supabase.from("stock_movements").select("produit_id, type, quantite, created_at, prix_achat_unitaire"),
     ]);
     if (p)    setProduits(p);
     if (mvts) setStockMvts(mvts);
@@ -304,39 +304,30 @@ export default function Produits({ navigate }) {
   }
 
 const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
+const nbRuptures  = produits.filter(p => (p.stock_disponible || 0) <= 0).length;
+const coutProduit = id => produits.find(p => p.id === id)?.cout_achat || 0;
+const valeurMvt   = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire ?? coutProduit(m.produit_id) ?? 0);
+const totalEntrees       = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
+const totalSorties       = stockMvts.filter(m => m.type === "sortie").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
+const valeurEntrees      = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + valeurMvt(m), 0);
+const valeurSorties      = stockMvts.filter(m => m.type === "sortie").reduce((s, m) => s + valeurMvt(m), 0);
 const stockTotal  = produits.reduce((s, p) => s + (p.stock_disponible || 0), 0);
 const valeurImmo  = produits.reduce((s, p) => s + (p.stock_disponible || 0) * (p.cout_achat || 0), 0);
-const nbRuptures  = produits.filter(p => (p.stock_disponible || 0) <= 0).length;
-const totalEntrees = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
-const totalSorties = stockMvts.filter(m => m.type === "sortie").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
-const rotations = produits.map(p => {
-  const s = getStockStats(p.id);
-  return s.entrees > 0 ? (s.sorties / s.entrees) * 100 : null;
-}).filter(r => r !== null);
-const tauxRotationMoy = rotations.length > 0 ? Math.round(rotations.reduce((a, b) => a + b, 0) / rotations.length) : 0;
 return (
     <>
       {/* ── KPI héros ── */}
       <div className="kpi-row" style={{ padding: "16px 24px 12px" }}>
-  <div className="kpi-card">
-    <div className="kpi-value">{stockTotal}</div>
-    <div className="kpi-label">Stock total (u)</div>
-  </div>
-  <div className="kpi-card">
-    <div className="kpi-value">{valeurImmo.toLocaleString()} MAD</div>
-    <div className="kpi-label">Valeur immobilisée</div>
-  </div>
-  <div className="kpi-card">
+  <div className="kpi-card kpi-success">
     <div className="kpi-value" style={{ color: "#16A34A" }}>+{totalEntrees} u</div>
-    <div className="kpi-label">Entrées totales</div>
+    <div className="kpi-label">Entrées — {valeurEntrees.toLocaleString()} MAD</div>
   </div>
-  <div className="kpi-card">
+  <div className="kpi-card kpi-alert">
     <div className="kpi-value" style={{ color: "#DC2626" }}>−{totalSorties} u</div>
-    <div className="kpi-label">Sorties totales</div>
+    <div className="kpi-label">Sorties — {valeurSorties.toLocaleString()} MAD</div>
   </div>
   <div className="kpi-card">
-    <div className="kpi-value">{tauxRotationMoy}%</div>
-    <div className="kpi-label">Rotation moy.</div>
+    <div className="kpi-value" style={{ color: stockTotal <= 0 ? "#DC2626" : "#16A34A" }}>{stockTotal} u</div>
+    <div className="kpi-label">Disponible — {valeurImmo.toLocaleString()} MAD</div>
   </div>
   <div className={`kpi-card${nbRuptures > 0 ? " kpi-alert" : ""}`}>
     <div className="kpi-value">{nbRuptures}</div>
