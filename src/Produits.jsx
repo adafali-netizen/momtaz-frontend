@@ -338,11 +338,10 @@ export default function Produits({ navigate }) {
                 <th>Variante</th>
                 <th>Prix achat</th>
                 <th>Fournisseur</th>
-                <th>Entrées</th>
+<th>Entrées</th>
                 <th>Sorties</th>
                 <th>Disponible</th>
                 <th>Valeur stock</th>
-                <th>Frais emb./stockage</th>
                 <th>Statut</th>
                 <th></th>
               </tr>
@@ -380,9 +379,7 @@ export default function Produits({ navigate }) {
                     <td className="col-mono" style={{ color: valeur > 0 ? "#0F172A" : "var(--muted2)" }}>
                       {valeur > 0 ? `${valeur.toLocaleString()} MAD` : "—"}
                     </td>
-                    <td className="col-mono col-muted">
-                      {p.frais_emballage_stockage > 0 ? `${p.frais_emballage_stockage} MAD` : <span style={{ color: "var(--muted2)" }}>—</span>}
-                    </td>
+
                     <td>
                       <span className="decision-badge" style={{ color: statut.color, background: statut.bg }}>
                         {statut.label}
