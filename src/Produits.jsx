@@ -303,29 +303,46 @@ export default function Produits({ navigate }) {
     setStockRapide(null); setStockQte(""); setStockPrix(""); setStockFraisEmb("");
   }
 
-  const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
-
-  const stockTotal  = produits.reduce((s, p) => s + (p.stock_disponible || 0), 0);
-  const valeurImmo  = produits.reduce((s, p) => s + (p.stock_disponible || 0) * (p.cout_achat || 0), 0);
-  const nbRuptures  = produits.filter(p => (p.stock_disponible || 0) <= 0).length;
-
-  return (
+const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
+const stockTotal  = produits.reduce((s, p) => s + (p.stock_disponible || 0), 0);
+const valeurImmo  = produits.reduce((s, p) => s + (p.stock_disponible || 0) * (p.cout_achat || 0), 0);
+const nbRuptures  = produits.filter(p => (p.stock_disponible || 0) <= 0).length;
+const totalEntrees = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
+const totalSorties = stockMvts.filter(m => m.type === "sortie").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
+const rotations = produits.map(p => {
+  const s = getStockStats(p.id);
+  return s.entrees > 0 ? (s.sorties / s.entrees) * 100 : null;
+}).filter(r => r !== null);
+const tauxRotationMoy = rotations.length > 0 ? Math.round(rotations.reduce((a, b) => a + b, 0) / rotations.length) : 0;
+return (
     <>
       {/* ── KPI héros ── */}
       <div className="kpi-row" style={{ padding: "16px 24px 12px" }}>
-        <div className="kpi-card">
-          <div className="kpi-value">{stockTotal}</div>
-          <div className="kpi-label">Stock total (u)</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-value">{valeurImmo.toLocaleString()} MAD</div>
-          <div className="kpi-label">Valeur immobilisée</div>
-        </div>
-        <div className={`kpi-card${nbRuptures > 0 ? " kpi-alert" : ""}`}>
-          <div className="kpi-value">{nbRuptures}</div>
-          <div className="kpi-label">Produits en rupture</div>
-        </div>
-      </div>
+  <div className="kpi-card">
+    <div className="kpi-value">{stockTotal}</div>
+    <div className="kpi-label">Stock total (u)</div>
+  </div>
+  <div className="kpi-card">
+    <div className="kpi-value">{valeurImmo.toLocaleString()} MAD</div>
+    <div className="kpi-label">Valeur immobilisée</div>
+  </div>
+  <div className="kpi-card">
+    <div className="kpi-value" style={{ color: "#16A34A" }}>+{totalEntrees} u</div>
+    <div className="kpi-label">Entrées totales</div>
+  </div>
+  <div className="kpi-card">
+    <div className="kpi-value" style={{ color: "#DC2626" }}>−{totalSorties} u</div>
+    <div className="kpi-label">Sorties totales</div>
+  </div>
+  <div className="kpi-card">
+    <div className="kpi-value">{tauxRotationMoy}%</div>
+    <div className="kpi-label">Rotation moy.</div>
+  </div>
+  <div className={`kpi-card${nbRuptures > 0 ? " kpi-alert" : ""}`}>
+    <div className="kpi-value">{nbRuptures}</div>
+    <div className="kpi-label">Produits en rupture</div>
+  </div>
+</div>
 
       {/* ── Toolbar ── */}
       <div className="toolbar" style={{ justifyContent: "flex-end" }}>
