@@ -218,27 +218,29 @@ export default function Dashboard({ role, nom, setModule }) {
     const w7        = last7Days();
     const w7EndFull = w7.end + "T23:59:59";
 
-    const [
-      { data: releve },
-      { data: commandes },
-      { data: leads },
-      { data: adsSpend },
-      { data: produits },
-      { data: cmd7 },
-      { data: ads7 },
-      { data: parametres },
-      { data: reglements },
-    ] = await Promise.all([
-      supabase.from("releve_bancaire").select("date,debit,credit,type,est_bancaire").gte("date", start).lte("date", end),
-      supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,transporteur,conseillere,produit,created_at,date_livraison").gte("created_at", start).lte("created_at", endFull),
-      supabase.from("leads").select("id,statut,conseillere,produit,created_at").gte("created_at", start).lte("created_at", endFull),
-      supabase.from("ads_spend").select("date,plateforme,budget_mad,leads,produit_id").gte("date", start).lte("date", end),
-      supabase.from("produits").select("id,nom,cout_achat,stock_disponible,frais_emballage_stockage"),
-      supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,produit,date_livraison,created_at").gte("created_at", w7.start + "T00:00:00").lte("created_at", w7EndFull),
-      supabase.from("ads_spend").select("date,budget_mad,produit_id").gte("date", w7.start).lte("date", w7.end),
-      supabase.from("parametres").select("cle,valeur"),
-      supabase.from("reglements_transporteur").select("frais_ramassage,created_at").gte("created_at", start).lte("created_at", endFull),
-    ]);
+const [
+  { data: releve },
+  { data: commandes },
+  { data: leads },
+  { data: adsSpend },
+  { data: produits },
+  { data: cmd7 },
+  { data: ads7 },
+  { data: parametres },
+  { data: reglements },
+  { data: stockMvts },
+] = await Promise.all([
+  supabase.from("releve_bancaire").select("date,debit,credit,type,est_bancaire").gte("date", start).lte("date", end),
+  supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,transporteur,conseillere,produit,created_at,date_livraison").gte("created_at", start).lte("created_at", endFull),
+  supabase.from("leads").select("id,statut,conseillere,produit,created_at").gte("created_at", start).lte("created_at", endFull),
+  supabase.from("ads_spend").select("date,plateforme,budget_mad,leads,produit_id").gte("date", start).lte("date", end),
+  supabase.from("produits").select("id,nom,cout_achat,stock_disponible,frais_emballage_stockage"),
+  supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,produit,date_livraison,created_at").gte("created_at", w7.start + "T00:00:00").lte("created_at", w7EndFull),
+  supabase.from("ads_spend").select("date,budget_mad,produit_id").gte("date", w7.start).lte("date", w7.end),
+  supabase.from("parametres").select("cle,valeur"),
+  supabase.from("reglements_transporteur").select("frais_ramassage,created_at").gte("created_at", start).lte("created_at", endFull),
+  supabase.from("stock_movements").select("produit_id,type,quantite,prix_achat_unitaire"),
+]);
 
     // Paramètres
     const params = {};
@@ -295,16 +297,25 @@ export default function Dashboard({ role, nom, setModule }) {
     setCurveData(curve);
 
     setData(compute({
-      releve: releve||[], commandes: commandes||[], leads: leads||[],
-      adsSpend: adsSpend||[], produits: produits||[], prodMap,
-      fraisConfirmation, totalRamassage,
-    }));
+setData(compute({
+  releve: releve||[], commandes: commandes||[], leads: leads||[],
+  adsSpend: adsSpend||[], produits: produits||[], prodMap,
+  fraisConfirmation, totalRamassage, stockMvts: stockMvts||[],
+}));
     setLoading(false);
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
 
-  function compute({ releve, commandes, leads, adsSpend, produits, prodMap, fraisConfirmation, totalRamassage }) {
+  function compute({ releve, commandes, leads, adsSpend, produits, prodMap, fraisConfirmation, totalRamassage, stockMvts }) {
+    // Stock total acheté par produit
+const stockAcheteMap = {};
+(stockMvts || []).forEach(m => {
+  if (m.type !== "entree") return;
+  const nom = prodMap[m.produit_id]?.nom;
+  if (!nom) return;
+  stockAcheteMap[nom] = (stockAcheteMap[nom] || 0) + (parseInt(m.quantite) || 0);
+});
     // ── FINANCES ──────────────────────────────────────────────────────────────
     const mvtsBanc = releve.filter(r => r.est_bancaire !== false);
     const recettes = sum(mvtsBanc.filter(r => getMontant(r) > 0).map(r => getMontant(r)));
@@ -405,7 +416,7 @@ export default function Dashboard({ role, nom, setModule }) {
       const coutAchat  = prod?.cout_achat || 0;
 
       // Stock total acheté = stock dispo + livrées + en cours + retours
-      const stockTotalAchete = (prod?.stock_disponible || 0) + livrées + p.transit + p.retours;
+      const stockTotalAchete = stockAcheteMap[p.nom] || ((prod?.stock_disponible || 0) + livrées + p.transit + p.retours);
       const coutStockTotal   = stockTotalAchete * coutAchat;
 
       // Frais ramassage prorata
