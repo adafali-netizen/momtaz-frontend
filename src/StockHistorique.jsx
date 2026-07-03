@@ -29,23 +29,33 @@ export default function StockHistorique({ params = {}, navigate }) {
   async function fetchMouvements() {
     const { data, error } = await supabase
       .from("stock_movements")
-      .select("*, produits(nom)")
+      .select("*, produits(nom, cout_achat)")
       .order("created_at", { ascending: false });
     if (!error) setMouvements(data || []);
     setLoading(false);
   }
 
-  // Filtres
-  const filtered = mouvements.filter(m => {
+  // "searched" = base filtrée uniquement par la recherche (produit/source) — sert aux KPIs
+  const searched = mouvements.filter(m => {
     const nom = m.produits?.nom || "";
-    const matchSearch = search === "" ||
+    return search === "" ||
       nom.toLowerCase().includes(search.toLowerCase()) ||
       (m.source || "").toLowerCase().includes(search.toLowerCase());
-    const matchType = typeFiltre === "tous" || m.type === typeFiltre;
-    return matchSearch && matchType;
   });
+  // "filtered" = searched + filtre par type — sert à la table
+  const filtered = searched.filter(m => typeFiltre === "tous" || m.type === typeFiltre);
 
-  const count = t => t === "tous" ? mouvements.length : mouvements.filter(m => m.type === t).length;
+  const count = t => t === "tous" ? searched.length : searched.filter(m => m.type === t).length;
+
+  const valeurMvt = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire ?? m.produits?.cout_achat ?? 0);
+  const entreesQte    = searched.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
+  const sortiesQte    = searched.filter(m => m.type === "sortie").reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
+  const retoursQte    = searched.filter(m => m.type === "retour").reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
+  const entreesValeur = searched.filter(m => m.type === "entree").reduce((s, m) => s + valeurMvt(m), 0);
+  const sortiesValeur = searched.filter(m => m.type === "sortie").reduce((s, m) => s + valeurMvt(m), 0);
+  const retoursValeur = searched.filter(m => m.type === "retour").reduce((s, m) => s + valeurMvt(m), 0);
+  const dispoQte    = entreesQte + retoursQte - sortiesQte;
+  const dispoValeur = entreesValeur + retoursValeur - sortiesValeur;
 
   return (
     <>
@@ -71,20 +81,16 @@ export default function StockHistorique({ params = {}, navigate }) {
       {/* ── KPIs rapides ── */}
       <div className="kpi-row" style={{ padding: "12px 24px 8px" }}>
         <div className="kpi-card kpi-success">
-          <div className="kpi-value">{count("entree")}</div>
-          <div className="kpi-label">Entrées</div>
+          <div className="kpi-value">+{entreesQte} u</div>
+          <div className="kpi-label">Entrées — {entreesValeur.toLocaleString()} MAD</div>
         </div>
         <div className="kpi-card kpi-alert">
-          <div className="kpi-value">{count("sortie")}</div>
-          <div className="kpi-label">Sorties</div>
+          <div className="kpi-value">−{sortiesQte} u</div>
+          <div className="kpi-label">Sorties — {sortiesValeur.toLocaleString()} MAD</div>
         </div>
         <div className="kpi-card">
-          <div className="kpi-value">{count("retour")}</div>
-          <div className="kpi-label">Retours</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-value">{mouvements.length}</div>
-          <div className="kpi-label">Total mouvements</div>
+          <div className="kpi-value" style={{ color: dispoQte <= 0 ? "#DC2626" : "#16A34A" }}>{dispoQte} u</div>
+          <div className="kpi-label">Disponible — {dispoValeur.toLocaleString()} MAD</div>
         </div>
       </div>
 
