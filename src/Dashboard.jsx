@@ -295,8 +295,6 @@ const [
       });
     });
     setCurveData(curve);
-
-    setData(compute({
 setData(compute({
   releve: releve||[], commandes: commandes||[], leads: leads||[],
   adsSpend: adsSpend||[], produits: produits||[], prodMap,
