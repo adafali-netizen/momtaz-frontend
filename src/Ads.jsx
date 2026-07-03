@@ -296,7 +296,8 @@ export default function Ads() {
             </thead>
             <tbody>
               {filtered.map(c => {
-                const cplHigh = (c.cpl || 0) > CPL_SEUIL;
+                const cplRow = c.leads > 0 ? +(c.budget_mad / c.leads).toFixed(1) : 0;
+                const cplHigh = cplRow > CPL_SEUIL;
                 return (
                   <tr key={c.id}>
                     <td className="col-muted">{fmtDate(c.date)}</td>
@@ -309,8 +310,8 @@ export default function Ads() {
                     <td className="col-mono">{c.visites || <span style={{ color: "var(--muted2)" }}>—</span>}</td>
                     <td className="col-mono" style={{ fontWeight: 700 }}>{c.leads || <span style={{ color: "var(--muted2)" }}>—</span>}</td>
                     <td>
-                      {c.cpl > 0
-                        ? <span className="col-mono" style={{ fontWeight: 700, color: cplHigh ? "var(--red)" : "var(--green)" }}>{c.cpl} MAD{cplHigh ? " ⚠️" : ""}</span>
+                      {cplRow > 0
+                        ? <span className="col-mono" style={{ fontWeight: 700, color: cplHigh ? "var(--red)" : "var(--green)" }}>{cplRow} MAD{cplHigh ? " ⚠️" : ""}</span>
                         : <span style={{ color: "var(--muted2)" }}>—</span>}
                     </td>
                     <td className="col-mono">{c.conv_site ? `${c.conv_site}%` : <span style={{ color: "var(--muted2)" }}>—</span>}</td>
