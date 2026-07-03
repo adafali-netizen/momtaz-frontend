@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
-const STATUTS_CONFIRMS  = ["Confirmé", "Livrée", "Expédiée", "Facturée", "En cours de livraison", "Retour en cours", "Retour reçu", "Refusée", "Demande de retour", "Reportée", "Injoignable", "Changement de dest"];
 const STATUTS_LIVRES    = ["Livrée", "Facturée"];
 const STATUTS_RETOURS   = ["Retour reçu", "Retour en cours"];
 const STATUTS_TRANSIT   = ["Expédiée", "En cours de livraison"];
@@ -17,9 +16,9 @@ const CLR = {
   slate:  { bg: "#F8FAFC", border: "#E2E8F0", text: "#64748B", dark: "#1E293B" },
 };
 
-const pct   = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
-const sum   = arr => arr.reduce((s, v) => s + v, 0);
-const fmt   = n => n == null ? "—" : Math.round(n).toLocaleString("fr");
+const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
+const sum = arr => arr.reduce((s, v) => s + v, 0);
+const fmt = n => n == null ? "—" : Math.round(n).toLocaleString("fr");
 
 function startOfMonth() {
   const d = new Date();
@@ -56,7 +55,6 @@ function getDaysBetween(start, end) {
   }
   return days;
 }
-
 function getMontant(r) {
   if (r.credit && +r.credit > 0) return +r.credit;
   if (r.debit  && +r.debit  > 0) return -Math.abs(+r.debit);
@@ -70,25 +68,25 @@ function signal(val, seuilVert, seuilAmbre) {
 }
 
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
-function Sparkline({ data, color = "#534AB7", width = 280, height = 80 }) {
-  if (!data || data.length < 2) {
+function Sparkline({ data, color = "#534AB7", width = 680, height = 100 }) {
+  const validData = (data || []).filter(d => d.val !== null);
+  if (!validData || validData.length < 2) {
     return (
       <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", background: "#F8FAFC", borderRadius: 8, border: "1px dashed #E2E8F0" }}>
-        <span style={{ fontSize: 11, color: "#94A3B8" }}>Données insuffisantes</span>
+        <span style={{ fontSize: 11, color: "#94A3B8" }}>Données insuffisantes — aucune livraison sur les 7 derniers jours</span>
       </div>
     );
   }
-
-  const vals   = data.map(d => d.val);
+  const vals   = validData.map(d => d.val);
   const minVal = Math.min(...vals);
   const maxVal = Math.max(...vals);
   const range  = maxVal - minVal || 1;
-  const pad    = 12;
+  const pad    = 16;
   const W      = width  - pad * 2;
   const H      = height - pad * 2;
 
-  const points = data.map((d, i) => ({
-    x: pad + (i / (data.length - 1)) * W,
+  const points = validData.map((d, i) => ({
+    x: pad + (i / (validData.length - 1)) * W,
     y: pad + H - ((d.val - minVal) / range) * H,
     val: d.val,
     label: d.label,
@@ -96,48 +94,39 @@ function Sparkline({ data, color = "#534AB7", width = 280, height = 80 }) {
 
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   const areaD = `${pathD} L ${points[points.length-1].x} ${pad + H} L ${points[0].x} ${pad + H} Z`;
+  const zero  = minVal < 0 && maxVal > 0 ? pad + H - ((0 - minVal) / range) * H : null;
 
-  const zero = minVal < 0 && maxVal > 0
-    ? pad + H - ((0 - minVal) / range) * H
-    : null;
-
-  const lastVal  = vals[vals.length - 1];
-  const prevVal  = vals[vals.length - 2];
-  const trend    = lastVal > prevVal ? "↗" : lastVal < prevVal ? "↘" : "→";
-  const trendClr = lastVal > prevVal ? CLR.green.text : lastVal < prevVal ? CLR.red.text : CLR.slate.text;
+  const lastVal = vals[vals.length - 1];
+  const prevVal = vals[vals.length - 2];
+  const diff    = lastVal - prevVal;
+  const trend   = diff > 0 ? "↗" : diff < 0 ? "↘" : "→";
+  const trendC  = diff > 0 ? CLR.green.text : diff < 0 ? CLR.red.text : CLR.slate.text;
 
   return (
     <div style={{ position: "relative" }}>
+      <div style={{ position: "absolute", top: 0, right: 0, textAlign: "right" }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: trendC, fontFamily: "monospace" }}>
+          {trend} {diff >= 0 ? "+" : ""}{Math.round(diff)} MAD
+        </div>
+        <div style={{ fontSize: 10, color: "#94A3B8" }}>vs avant-hier</div>
+      </div>
       <svg width={width} height={height} style={{ overflow: "visible" }}>
-        {/* Zone de référence zéro */}
-        {zero && (
-          <line x1={pad} y1={zero} x2={pad + W} y2={zero}
-            stroke="#E2E8F0" strokeWidth={1} strokeDasharray="3,3" />
-        )}
-        {/* Aire */}
+        {zero && <line x1={pad} y1={zero} x2={pad + W} y2={zero} stroke="#E2E8F0" strokeWidth={1} strokeDasharray="3,3" />}
         <path d={areaD} fill={color} opacity={0.08} />
-        {/* Ligne */}
-        <path d={pathD} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        {/* Points */}
+        <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={p.x} cy={p.y} r={3} fill={p.val >= 0 ? CLR.green.text : CLR.red.text} stroke="#fff" strokeWidth={1.5} />
-            {/* Tooltip valeur */}
-            <text x={p.x} y={p.y - 7} textAnchor="middle" fontSize={9} fill={p.val >= 0 ? CLR.green.text : CLR.red.text} fontWeight={600}>
+            <circle cx={p.x} cy={p.y} r={4} fill={p.val >= 0 ? CLR.green.text : CLR.red.text} stroke="#fff" strokeWidth={2} />
+            <text x={p.x} y={p.y - 9} textAnchor="middle" fontSize={10} fill={p.val >= 0 ? CLR.green.text : CLR.red.text} fontWeight={700}>
               {p.val >= 0 ? "+" : ""}{Math.round(p.val)}
             </text>
           </g>
         ))}
       </svg>
-      {/* Labels dates */}
-      <div style={{ display: "flex", justifyContent: "space-between", padding: `0 ${pad}px`, marginTop: -4 }}>
-        {data.map((d, i) => (
+      <div style={{ display: "flex", justifyContent: "space-between", padding: `0 ${pad}px`, marginTop: 2 }}>
+        {validData.map((d, i) => (
           <span key={i} style={{ fontSize: 9, color: "#94A3B8" }}>{d.label}</span>
         ))}
-      </div>
-      {/* Tendance */}
-      <div style={{ position: "absolute", top: 4, right: 4, fontSize: 12, fontWeight: 700, color: trendClr }}>
-        {trend}
       </div>
     </div>
   );
@@ -216,18 +205,18 @@ function PeriodSelector({ start, end, onChange }) {
 
 export default function Dashboard({ role, nom, setModule }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [period,     setPeriod]     = useState({ start: startOfMonth(), end: today });
-  const [loading,    setLoading]    = useState(true);
-  const [data,       setData]       = useState(null);
-  const [drill,      setDrill]      = useState(null);
-  const [curveData,  setCurveData]  = useState({});
+  const [period,    setPeriod]    = useState({ start: startOfMonth(), end: today });
+  const [loading,   setLoading]   = useState(true);
+  const [data,      setData]      = useState(null);
+  const [drill,     setDrill]     = useState(null);
+  const [curveData, setCurveData] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
     const { start, end } = period;
-    const endFull  = end + "T23:59:59";
-    const w7       = last7Days();
-    const w7EndFull= w7.end + "T23:59:59";
+    const endFull   = end + "T23:59:59";
+    const w7        = last7Days();
+    const w7EndFull = w7.end + "T23:59:59";
 
     const [
       { data: releve },
@@ -237,26 +226,33 @@ export default function Dashboard({ role, nom, setModule }) {
       { data: produits },
       { data: cmd7 },
       { data: ads7 },
-      { data: leadsAll },
+      { data: parametres },
+      { data: reglements },
     ] = await Promise.all([
       supabase.from("releve_bancaire").select("date,debit,credit,type,est_bancaire").gte("date", start).lte("date", end),
       supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,transporteur,conseillere,produit,created_at,date_livraison").gte("created_at", start).lte("created_at", endFull),
       supabase.from("leads").select("id,statut,conseillere,produit,created_at").gte("created_at", start).lte("created_at", endFull),
       supabase.from("ads_spend").select("date,plateforme,budget_mad,leads,produit_id").gte("date", start).lte("date", end),
       supabase.from("produits").select("id,nom,cout_achat,stock_disponible,frais_emballage_stockage"),
-      // 7 derniers jours pour la courbe
       supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,produit,date_livraison,created_at").gte("created_at", w7.start + "T00:00:00").lte("created_at", w7EndFull),
       supabase.from("ads_spend").select("date,budget_mad,produit_id").gte("date", w7.start).lte("date", w7.end),
-      supabase.from("leads").select("id,statut,produit,created_at").gte("created_at", w7.start + "T00:00:00").lte("created_at", w7EndFull),
+      supabase.from("parametres").select("cle,valeur"),
+      supabase.from("reglements_transporteur").select("frais_ramassage,created_at").gte("created_at", start).lte("created_at", endFull),
     ]);
+
+    // Paramètres
+    const params = {};
+    (parametres || []).forEach(p => { params[p.cle] = parseFloat(p.valeur) || 0; });
+    const fraisConfirmation = params["frais_confirmation_par_livraison"] || 10;
+
+    // Frais ramassage total période
+    const totalRamassage = sum((reglements || []).map(r => parseFloat(r.frais_ramassage) || 0));
 
     const prodMap = {};
     (produits || []).forEach(p => { prodMap[p.id] = p; prodMap[p.nom] = p; });
 
-    // Courbe 7 jours par produit
+    // ── Courbe 7 jours ────────────────────────────────────────────────────────
     const days7 = getDaysBetween(w7.start, w7.end);
-    const curve = {};
-
     const adsByProduitDay = {};
     (ads7 || []).forEach(a => {
       if (!a.produit_id) return;
@@ -264,7 +260,6 @@ export default function Dashboard({ role, nom, setModule }) {
       adsByProduitDay[key] = (adsByProduitDay[key] || 0) + (parseFloat(a.budget_mad) || 0);
     });
 
-    // Grouper commandes livrées par produit+jour
     const cmdByProduitDay = {};
     (cmd7 || []).filter(c => STATUTS_LIVRES.includes(c.statut)).forEach(c => {
       const dateStr = (c.date_livraison || c.created_at || "").slice(0, 10);
@@ -273,7 +268,7 @@ export default function Dashboard({ role, nom, setModule }) {
       cmdByProduitDay[key].push(c);
     });
 
-    // Calculer marge unitaire par produit par jour
+    const curve = {};
     const prodNoms = [...new Set((cmd7 || []).map(c => c.produit).filter(Boolean))];
     prodNoms.forEach(nomProd => {
       const prod = prodMap[nomProd];
@@ -282,43 +277,51 @@ export default function Dashboard({ role, nom, setModule }) {
         const cmds = cmdByProduitDay[`${nomProd}_${day}`] || [];
         const ads  = pid ? (adsByProduitDay[`${pid}_${day}`] || 0) : 0;
         if (cmds.length === 0) return { label: day.slice(5), val: null };
-        const margeTotale = sum(cmds.map(c => {
-          const prix  = parseFloat(c.prix) || 0;
-          const cout  = prod?.cout_achat || 0;
-          const livr  = parseFloat(c.frais_livraison) || 0;
-          const emb   = parseFloat(c.frais_emballage_stockage) || prod?.frais_emballage_stockage || 0;
-          return prix - cout - livr - emb;
-        })) - ads;
-        return { label: day.slice(5), val: cmds.length > 0 ? margeTotale / cmds.length : null };
+
+        const stockTotal = (prod?.stock_disponible || 0) + cmds.length;
+        const coutStockTotal = stockTotal * (prod?.cout_achat || 0);
+
+        const margeBrute = sum(cmds.map(c => {
+          const prix = parseFloat(c.prix) || 0;
+          const livr = parseFloat(c.frais_livraison) || 0;
+          const emb  = parseFloat(c.frais_emballage_stockage) || prod?.frais_emballage_stockage || 0;
+          return prix - livr - emb;
+        }));
+
+        const margeNette = margeBrute - coutStockTotal - ads - (cmds.length * fraisConfirmation);
+        return { label: day.slice(5), val: cmds.length > 0 ? margeNette / cmds.length : null };
       });
     });
     setCurveData(curve);
 
-    setData(compute({ releve: releve||[], commandes: commandes||[], leads: leads||[], adsSpend: adsSpend||[], produits: produits||[], prodMap }));
+    setData(compute({
+      releve: releve||[], commandes: commandes||[], leads: leads||[],
+      adsSpend: adsSpend||[], produits: produits||[], prodMap,
+      fraisConfirmation, totalRamassage,
+    }));
     setLoading(false);
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
 
-  function compute({ releve, commandes, leads, adsSpend, produits, prodMap }) {
+  function compute({ releve, commandes, leads, adsSpend, produits, prodMap, fraisConfirmation, totalRamassage }) {
+    // ── FINANCES ──────────────────────────────────────────────────────────────
     const mvtsBanc = releve.filter(r => r.est_bancaire !== false);
     const recettes = sum(mvtsBanc.filter(r => getMontant(r) > 0).map(r => getMontant(r)));
     const depenses = sum(mvtsBanc.filter(r => getMontant(r) < 0).map(r => Math.abs(getMontant(r))));
     const solde    = recettes - depenses;
+    const capitalImmobilise = produits.filter(p => (p.stock_disponible||0) > 0 && p.cout_achat > 0).reduce((s, p) => s + p.stock_disponible * p.cout_achat, 0);
 
-    const capitalImmobilise = produits.filter(p => (p.stock_disponible||0) > 0 && p.cout_achat > 0).reduce((s,p) => s + p.stock_disponible * p.cout_achat, 0);
-
-    const cmdActives  = commandes.filter(c => !STATUTS_EXCLUS.includes(c.statut));
-    const cmdLivrees  = commandes.filter(c => STATUTS_LIVRES.includes(c.statut));
-    const cmdRetours  = commandes.filter(c => STATUTS_RETOURS.includes(c.statut));
-    const cmdTransit  = commandes.filter(c => STATUTS_TRANSIT.includes(c.statut));
-
+    // ── COMMANDES ─────────────────────────────────────────────────────────────
+    const cmdLivrees = commandes.filter(c => STATUTS_LIVRES.includes(c.statut));
+    const cmdRetours = commandes.filter(c => STATUTS_RETOURS.includes(c.statut));
+    const cmdTransit = commandes.filter(c => STATUTS_TRANSIT.includes(c.statut));
     const tauxLivr   = pct(cmdLivrees.length, commandes.length);
-    const tauxRetour = pct(cmdRetours.length, cmdActives.length);
-    const capitalEncaisse = sum(cmdLivrees.map(c => parseFloat(c.prix)||0));
-    const capitalTransit  = sum(cmdTransit.map(c => parseFloat(c.prix)||0));
+    const tauxRetour = pct(cmdRetours.length, commandes.length);
+    const capitalTransit = sum(cmdTransit.map(c => parseFloat(c.prix)||0));
     const livrSignal = signal(tauxLivr, SEUIL_LIVR, SEUIL_LIVR * 0.75);
 
+    // ── LEADS ─────────────────────────────────────────────────────────────────
     const totalLeads = leads.length;
     const confirmes  = leads.filter(l => l.statut === "Confirmé").length;
     const enAttente  = leads.filter(l => l.statut === "Nouveau" || l.statut === "À appeler").length;
@@ -330,11 +333,14 @@ export default function Dashboard({ role, nom, setModule }) {
       const c = l.conseillere; if (!c) return;
       if (!consMap[c]) consMap[c] = { nom: c, total: 0, conf: 0, livr: 0 };
       consMap[c].total++;
-if (l.statut === "Confirmé") consMap[c].conf++;
+      if (l.statut === "Confirmé") consMap[c].conf++;
     });
     cmdLivrees.forEach(c => { if (c.conseillere && consMap[c.conseillere]) consMap[c.conseillere].livr++; });
-    const consStats = Object.values(consMap).map(c => ({ ...c, tauxConf: pct(c.conf, c.total), tauxLivr: pct(c.livr, c.total) })).sort((a,b) => b.tauxConf - a.tauxConf);
+    const consStats = Object.values(consMap)
+      .map(c => ({ ...c, tauxConf: pct(c.conf, c.total), tauxLivr: pct(c.livr, c.total) }))
+      .sort((a, b) => b.tauxConf - a.tauxConf);
 
+    // ── ADS ───────────────────────────────────────────────────────────────────
     const totalSpend    = sum(adsSpend.map(a => parseFloat(a.budget_mad)||0));
     const totalLeadsAds = sum(adsSpend.map(a => parseInt(a.leads)||0));
     const hasAds        = totalSpend > 0;
@@ -347,35 +353,41 @@ if (l.statut === "Confirmé") consMap[c].conf++;
       adsByProduit[a.produit_id] = (adsByProduit[a.produit_id]||0) + (parseFloat(a.budget_mad)||0);
     });
 
-    function calcMarge(c) {
-      const prix  = parseFloat(c.prix)||0;
-      const prod  = prodMap[c.produit];
-      const cout  = prod?.cout_achat||0;
-      const livr  = parseFloat(c.frais_livraison)||0;
-      const emb   = parseFloat(c.frais_emballage_stockage)||prod?.frais_emballage_stockage||0;
-      if (!prix||!cout) return null;
-      return prix - cout - livr - emb;
-    }
-
+    // ── PRODUITS — MARGE RÉELLE ───────────────────────────────────────────────
     const PS = {};
+
+    const initPS = (nom) => {
+      if (!PS[nom]) PS[nom] = {
+        nom, leads: 0, conf: 0, livr: [], retours: 0,
+        transit: 0, refusees: 0, ads: 0, caTransit: 0,
+        fraisLivrTotal: 0, fraisEmbTotal: 0,
+      };
+    };
+
     leads.forEach(l => {
       if (!l.produit) return;
-      if (!PS[l.produit]) PS[l.produit] = { nom: l.produit, leads: 0, conf: 0, livr: [], retours: 0, transit: 0, refusees: 0, ads: 0, caTransit: 0 };
+      initPS(l.produit);
       PS[l.produit].leads++;
-      if (STATUTS_CONFIRMS.includes(l.statut)) PS[l.produit].conf++;
+      if (l.statut === "Confirmé") PS[l.produit].conf++;
     });
+
     cmdLivrees.forEach(c => {
       if (!c.produit) return;
-      if (!PS[c.produit]) PS[c.produit] = { nom: c.produit, leads: 0, conf: 0, livr: [], retours: 0, transit: 0, ads: 0, caTransit: 0 };
-      const m = calcMarge(c);
-      PS[c.produit].livr.push({ marge: m, prix: parseFloat(c.prix)||0 });
+      initPS(c.produit);
+      PS[c.produit].livr.push({ prix: parseFloat(c.prix)||0 });
+      PS[c.produit].fraisLivrTotal += parseFloat(c.frais_livraison)||0;
+      PS[c.produit].fraisEmbTotal  += parseFloat(c.frais_emballage_stockage)||0;
     });
+
     cmdRetours.forEach(c => { if (c.produit && PS[c.produit]) PS[c.produit].retours++; });
     cmdTransit.forEach(c => {
-      if (c.produit && PS[c.produit]) {
-        PS[c.produit].transit++;
-        PS[c.produit].caTransit += parseFloat(c.prix)||0;
-      }
+      if (!c.produit) return;
+      initPS(c.produit);
+      PS[c.produit].transit++;
+      PS[c.produit].caTransit += parseFloat(c.prix)||0;
+    });
+    commandes.filter(c => c.statut === "Refusée").forEach(c => {
+      if (c.produit && PS[c.produit]) PS[c.produit].refusees++;
     });
 
     Object.entries(adsByProduit).forEach(([pid, spend]) => {
@@ -383,44 +395,87 @@ if (l.statut === "Confirmé") consMap[c].conf++;
       if (nom && PS[nom]) PS[nom].ads = spend;
     });
 
+    // Frais ramassage répartis au prorata des livrées par produit
+    const totalLivreesGlobal = cmdLivrees.length;
+
     const prodList = Object.values(PS).map(p => {
-      const livrées      = p.livr.length;
-      const margesNettes = p.livr.map(l => l.marge).filter(m => m !== null);
-      const caTotal      = sum(p.livr.map(l => l.prix));
-      const margeNette   = margesNettes.length > 0 ? sum(margesNettes) - p.ads : null;
-      const margeUnitaire= margeNette !== null && livrées > 0 ? margeNette / livrées : null;
+      const livrées    = p.livr.length;
+      const caTotal    = sum(p.livr.map(l => l.prix));
+      const prod       = prodMap[p.nom];
+      const coutAchat  = prod?.cout_achat || 0;
+
+      // Stock total acheté = stock dispo + livrées + en cours + retours
+      const stockTotalAchete = (prod?.stock_disponible || 0) + livrées + p.transit + p.retours;
+      const coutStockTotal   = stockTotalAchete * coutAchat;
+
+      // Frais ramassage prorata
+      const fraisRamassageProduit = totalLivreesGlobal > 0 && livrées > 0
+        ? (livrées / totalLivreesGlobal) * totalRamassage
+        : 0;
+
+      // Frais confirmation
+      const fraisConfirmationTotal = livrées * fraisConfirmation;
+
+      // Marge nette réelle
+      const margeNette = livrées > 0
+        ? caTotal
+          - coutStockTotal
+          - p.ads
+          - p.fraisLivrTotal
+          - p.fraisEmbTotal
+          - fraisConfirmationTotal
+          - fraisRamassageProduit
+        : null;
+
+      const margeUnitaire = margeNette !== null && livrées > 0
+        ? margeNette / livrées
+        : null;
+
       const tauxConf     = pct(p.conf, p.leads);
       const tauxLivrProd = pct(livrées, livrées + p.retours + p.transit + p.refusees);
       const tauxRet      = pct(p.retours, livrées + p.retours);
-      const prodInfo     = prodMap[p.nom];
-      const stockRest    = prodInfo?.stock_disponible || 0;
-      const valeurStock  = stockRest * (prodInfo?.cout_achat || 0);
+      const stockRest    = prod?.stock_disponible || 0;
+      const valeurStock  = stockRest * coutAchat;
       const cplLivreProd = p.ads > 0 && livrées > 0 ? p.ads / livrées : null;
 
+      // Cause dominante
       let cause = null;
       if (tauxRet > 25)       cause = "Retours élevés";
       else if (tauxConf < 50) cause = "Confirmation faible";
-      else if (p.ads > 0 && margeNette !== null && margeNette < 0) cause = "Ads coûteuses";
+      else if (margeNette !== null && margeNette < 0 && p.ads > 0) cause = "Ads coûteuses";
+      else if (margeNette !== null && margeNette < 0 && stockRest > 10) cause = "Stock invendu élevé";
 
+      // Verdict
       let verdict = "EN TEST";
       if (margeUnitaire !== null) {
-        if (margeUnitaire > 15)      verdict = "CONTINUER";
-        else if (margeUnitaire > 0)  verdict = "SURVEILLER";
-        else                         verdict = "ANALYSER";
+        if (margeUnitaire > 15)     verdict = "CONTINUER";
+        else if (margeUnitaire > 0) verdict = "SURVEILLER";
+        else                        verdict = "ANALYSER";
       }
-      const verdictColor = { "CONTINUER": CLR.green, "SURVEILLER": CLR.amber, "ANALYSER": CLR.red, "EN TEST": CLR.indigo };
+      const verdictColor = {
+        "CONTINUER":  CLR.green,
+        "SURVEILLER": CLR.amber,
+        "ANALYSER":   CLR.red,
+        "EN TEST":    CLR.indigo,
+      };
 
       return {
-        nom: p.nom, leads: p.leads, conf: p.conf, livrées, retours: p.retours,
-        transit: p.transit, caTransit: p.caTransit,
+        nom: p.nom, leads: p.leads, conf: p.conf, livrées,
+        retours: p.retours, transit: p.transit, refusees: p.refusees,
         caTotal, margeNette, margeUnitaire, ads: p.ads,
+        caTransit: p.caTransit,
         tauxConf, tauxLivrProd, tauxRet,
-        stockRest, valeurStock,
+        stockRest, valeurStock, stockTotalAchete, coutStockTotal,
+        fraisLivrTotal: p.fraisLivrTotal,
+        fraisEmbTotal: p.fraisEmbTotal,
+        fraisConfirmationTotal,
+        fraisRamassageProduit,
         cplLivreProd,
         cause, verdict, verdictColor: verdictColor[verdict],
       };
-    }).sort((a,b) => (a.margeUnitaire??999) - (b.margeUnitaire??999));
+    }).sort((a, b) => (a.margeUnitaire ?? 999) - (b.margeUnitaire ?? 999));
 
+    // ── TRANSPORTEURS ─────────────────────────────────────────────────────────
     const tMap = {};
     commandes.forEach(c => {
       if (!c.transporteur) return;
@@ -434,7 +489,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
       tauxLivr:   pct(t.livr, t.total),
       tauxRetour: pct(t.ret, t.total),
       grade: pct(t.livr, t.total) >= 60 ? "A1" : pct(t.livr, t.total) >= 45 ? "A2" : pct(t.livr, t.total) >= 40 ? "B2" : "STOP",
-    })).sort((a,b) => b.total - a.total);
+    })).sort((a, b) => b.total - a.total);
 
     return {
       releve_ok: releve.length > 0, recettes, depenses, solde, capitalImmobilise,
@@ -445,6 +500,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
       totalLeads, confirmes, enAttente, tauxConf, confSignal, consStats,
       hasAds, totalSpend, cplMoyen, cplLivre,
       prodList, transStats,
+      fraisConfirmation,
     };
   }
 
@@ -471,7 +527,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
 
       {/* ══ NIVEAU 1 — TABLEAU PRODUITS ══ */}
       <SectionCard style={{ marginBottom: 20 }}>
-        <SectionHeader title="Rentabilité produits" onAnalyse={() => setModule("dashboard-analytique")} />
+        <SectionHeader title="Rentabilité produits — marge réelle (stock inclus)" onAnalyse={() => setModule("dashboard-analytique")} />
         {d.prodList.length === 0 ? (
           <div style={{ padding: "20px 0", color: "#94A3B8", fontSize: 13, textAlign: "center" }}>
             Aucune donnée produit sur la période
@@ -481,7 +537,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["Produit","Leads","Livrées","Taux livr.","Marge nette","Marge unitaire","Cause","Verdict"].map(h => (
+                  {["Produit","Leads","Livrées","Taux livr.","CA livré","Marge nette réelle","Marge unitaire réelle","Cause","Verdict"].map(h => (
                     <th key={h} style={{ padding: "8px 12px", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", borderBottom: "1px solid #E2E8F0", textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -490,14 +546,17 @@ if (l.statut === "Confirmé") consMap[c].conf++;
                 {d.prodList.map((p, i) => (
                   <>
                     <tr key={p.nom} onClick={() => setDrill(drill === p.nom ? null : p.nom)}
-                      style={{ borderBottom: drill === p.nom ? "none" : "1px solid #F1F5F9", background: drill === p.nom ? "#FAFBFF" : i%2===0 ? "#fff" : "#F9FAFB", cursor: "pointer", transition: "background .15s" }}>
-                      <td style={{ padding: "10px 12px", fontWeight: 600, fontSize: 13, color: "#0F172A", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nom}>
+                      style={{ borderBottom: drill === p.nom ? "none" : "1px solid #F1F5F9", background: drill === p.nom ? "#FAFBFF" : i%2===0 ? "#fff" : "#F9FAFB", cursor: "pointer" }}>
+                      <td style={{ padding: "10px 12px", fontWeight: 600, fontSize: 13, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nom}>
                         <span style={{ marginRight: 6, fontSize: 10 }}>{drill === p.nom ? "▾" : "▸"}</span>{p.nom}
                       </td>
                       <td style={{ padding: "10px 12px", fontSize: 12, color: "#64748B" }}>{p.leads}</td>
                       <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>{p.livrées}</td>
                       <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: p.tauxLivrProd >= SEUIL_LIVR ? CLR.green.text : p.tauxLivrProd >= SEUIL_LIVR*0.75 ? CLR.amber.text : CLR.red.text }}>
                         {p.tauxLivrProd != null ? `${p.tauxLivrProd}%` : "—"}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontSize: 12, color: "#64748B", fontFamily: "monospace" }}>
+                        {fmt(p.caTotal)} MAD
                       </td>
                       <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 700, color: p.margeNette != null ? (p.margeNette>=0?CLR.green.text:CLR.red.text) : "#94A3B8", fontFamily: "monospace" }}>
                         {p.margeNette != null ? `${p.margeNette>=0?"+":""}${fmt(p.margeNette)} MAD` : "—"}
@@ -516,51 +575,84 @@ if (l.statut === "Confirmé") consMap[c].conf++;
                     {/* ── DRILL-DOWN ── */}
                     {drill === p.nom && (
                       <tr key={`${p.nom}-drill`}>
-                        <td colSpan={8} style={{ padding: "0 8px 20px", background: "#FAFBFF", borderBottom: "1px solid #E2E8F0" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, paddingTop: 12, marginBottom: 16 }}>
+                        <td colSpan={9} style={{ padding: "0 8px 20px", background: "#FAFBFF", borderBottom: "1px solid #E2E8F0" }}>
 
-                            {/* 📞 Call center */}
+                          {/* Décomposition marge */}
+                          <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 20px", margin: "12px 0 12px" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Décomposition marge réelle</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, fontSize: 12 }}>
+                              {[
+                                { label: "CA livré",           val: p.caTotal,               color: CLR.green, sign: "+" },
+                                { label: "− Coût stock total", val: p.coutStockTotal,         color: CLR.red,   sign: "−", sub: `${p.stockTotalAchete}u × ${fmt(p.coutStockTotal/Math.max(p.stockTotalAchete,1))} MAD` },
+                                { label: "− Ads",              val: p.ads,                   color: CLR.red,   sign: "−" },
+                                { label: "− Livraison",        val: p.fraisLivrTotal,         color: CLR.red,   sign: "−" },
+                                { label: "− Emballage",        val: p.fraisEmbTotal,          color: CLR.red,   sign: "−" },
+                                { label: "− Confirmation",     val: p.fraisConfirmationTotal, color: CLR.red,   sign: "−", sub: `${p.livrées} × ${d.fraisConfirmation} MAD` },
+                                { label: "− Ramassage",        val: p.fraisRamassageProduit,  color: CLR.red,   sign: "−", sub: "prorata" },
+                              ].map(row => (
+                                <div key={row.label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                                  <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>{row.label}</div>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: row.color.text, fontFamily: "monospace" }}>
+                                    {row.sign}{fmt(row.val)} MAD
+                                  </div>
+                                  {row.sub && <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 2 }}>{row.sub}</div>}
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ marginTop: 12, padding: "10px 14px", background: p.margeNette >= 0 ? CLR.green.bg : CLR.red.bg, border: `1px solid ${p.margeNette >= 0 ? CLR.green.border : CLR.red.border}`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>= Marge nette réelle</span>
+                              <span style={{ fontSize: 18, fontWeight: 800, color: p.margeNette >= 0 ? CLR.green.dark : CLR.red.dark, fontFamily: "monospace" }}>
+                                {p.margeNette >= 0 ? "+" : ""}{fmt(p.margeNette)} MAD
+                                <span style={{ fontSize: 12, marginLeft: 8 }}>({p.margeUnitaire >= 0 ? "+" : ""}{fmt(p.margeUnitaire)} MAD/u)</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* 5 mini-cartes */}
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 12 }}>
+
+                            {/* Call center */}
                             <div style={{ background: "#fff", border: `1px solid ${p.tauxConf>=SEUIL_CONF?CLR.green.border:CLR.red.border}`, borderRadius: 10, padding: "12px 14px" }}>
                               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 8 }}>📞 Call center</div>
                               <KpiRow label="Confirmation" value={p.tauxConf!=null?`${p.tauxConf}%`:"—"} color={p.tauxConf>=SEUIL_CONF?CLR.green:CLR.red} sub={`Seuil > ${SEUIL_CONF}%`} />
                               <Bar value={p.tauxConf} color={p.tauxConf>=SEUIL_CONF?CLR.green:CLR.red} />
-                              <div style={{ marginTop: 8 }}>
+                              <div style={{ marginTop: 6 }}>
                                 <KpiRow label="Livr. / leads" value={p.tauxLivrProd!=null?`${p.tauxLivrProd}%`:"—"} color={p.tauxLivrProd>=SEUIL_LIVR?CLR.green:CLR.red} />
                                 <KpiRow label="Leads en attente" value={d.enAttente} color={d.enAttente>5?CLR.amber:CLR.green} />
                               </div>
-                              <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 6 }}>
+                              <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 4 }}>
                                 {p.tauxConf<SEUIL_CONF ? "→ Retravailler script / qualité lead" : "✓ OK"}
                               </div>
                             </div>
 
-                            {/* 📣 Media buying */}
+                            {/* Media buying */}
                             <div style={{ background: "#fff", border: `1px solid ${p.ads>0?CLR.indigo.border:CLR.slate.border}`, borderRadius: 10, padding: "12px 14px" }}>
                               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 8 }}>📣 Media buying</div>
                               <KpiRow label="Dépense ads" value={p.ads>0?`${fmt(p.ads)} MAD`:"—"} color={CLR.indigo} />
                               <KpiRow label="CPL" value={p.ads>0&&p.leads>0?`${fmt(p.ads/p.leads)} MAD`:"—"} color={CLR.slate} />
                               <KpiRow label="CPL/livré" value={p.cplLivreProd!=null?`${fmt(p.cplLivreProd)} MAD`:"—"} color={p.cplLivreProd!=null&&p.cplLivreProd>100?CLR.red:CLR.slate} />
-                              {p.ads===0 && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 6 }}>→ Aucune dépense ads allouée</div>}
+                              {p.ads===0 && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 4 }}>→ Aucune dépense ads allouée</div>}
                             </div>
 
-                            {/* 📦 Stock */}
+                            {/* Stock */}
                             <div style={{ background: "#fff", border: `1px solid ${p.stockRest<=0?CLR.red.border:CLR.slate.border}`, borderRadius: 10, padding: "12px 14px" }}>
                               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 8 }}>📦 Stock</div>
                               <KpiRow label="Stock restant" value={`${p.stockRest} u`} color={p.stockRest<=0?CLR.red:p.stockRest<=5?CLR.amber:CLR.green} />
                               <KpiRow label="Valeur stock" value={`${fmt(p.valeurStock)} MAD`} color={CLR.slate} />
-                              <KpiRow label="Livrées période" value={p.livrées} color={CLR.slate} />
-                              {p.stockRest <= 0 && <div style={{ fontSize: 10, color: CLR.red.text, marginTop: 6, fontWeight: 600 }}>⚠ Rupture — réappro urgent</div>}
+                              <KpiRow label="Stock total acheté" value={`${p.stockTotalAchete} u`} color={CLR.slate} sub={`Coût : ${fmt(p.coutStockTotal)} MAD`} />
+                              {p.stockRest <= 0 && <div style={{ fontSize: 10, color: CLR.red.text, marginTop: 4, fontWeight: 600 }}>⚠ Rupture — réappro urgent</div>}
                             </div>
 
-                            {/* 🚚 Livraison */}
-                            <div style={{ background: "#fff", border: `1px solid ${p.tauxRet>25?CLR.red.border:p.tauxLivrProd>=SEUIL_LIVR?CLR.green.border:CLR.amber.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                            {/* Livraison */}
+                            <div style={{ background: "#fff", border: `1px solid ${p.tauxRet>25?CLR.red.border:CLR.amber.border}`, borderRadius: 10, padding: "12px 14px" }}>
                               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 8 }}>🚚 Livraison</div>
                               <KpiRow label="En cours" value={`${p.transit} cmd`} color={CLR.slate} sub={p.caTransit>0?`${fmt(p.caTransit)} MAD en transit`:null} />
                               <KpiRow label="% Retours" value={p.tauxRet!=null?`${p.tauxRet}%`:"0%"} color={p.tauxRet>25?CLR.red:p.tauxRet>15?CLR.amber:CLR.green} sub="Seuil < 15%" />
                               <KpiRow label="Capital transit" value={`${fmt(p.caTransit)} MAD`} color={CLR.slate} />
-                              {p.tauxRet>25 && <div style={{ fontSize: 10, color: CLR.red.text, marginTop: 6 }}>→ Vérifier produit / destination / transporteur</div>}
+                              {p.tauxRet>25 && <div style={{ fontSize: 10, color: CLR.red.text, marginTop: 4 }}>→ Vérifier produit / destination</div>}
                             </div>
 
-                            {/* 💰 Finance */}
+                            {/* Finance */}
                             <div style={{ background: "#fff", border: `1px solid ${p.margeNette!=null?(p.margeNette>=0?CLR.green.border:CLR.red.border):CLR.slate.border}`, borderRadius: 10, padding: "12px 14px" }}>
                               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 8 }}>💰 Finance</div>
                               <KpiRow label="Marge nette" value={p.margeNette!=null?`${p.margeNette>=0?"+":""}${fmt(p.margeNette)} MAD`:"—"} color={p.margeNette!=null?(p.margeNette>=0?CLR.green:CLR.red):CLR.slate} />
@@ -569,46 +661,22 @@ if (l.statut === "Confirmé") consMap[c].conf++;
                             </div>
                           </div>
 
-                          {/* ── COURBE MARGE UNITAIRE 7 JOURS ── */}
+                          {/* Courbe 7 jours */}
                           <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 20px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                              <div>
-                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8" }}>
-                                  Marge unitaire nette — 7 derniers jours
-                                </div>
-                                <div style={{ fontSize: 10, color: "#CBD5E1", marginTop: 2 }}>
-                                  Chaque point = marge unitaire nette du jour (prix − coût − livraison − emballage − ads)
-                                </div>
-                              </div>
-                              {curveData[p.nom] && (() => {
-                                const vals = curveData[p.nom].filter(d => d.val !== null);
-                                if (vals.length < 2) return null;
-                                const last = vals[vals.length-1].val;
-                                const prev = vals[vals.length-2].val;
-                                const diff = last - prev;
-                                return (
-                                  <div style={{ textAlign: "right" }}>
-                                    <div style={{ fontSize: 18, fontWeight: 800, color: diff>=0?CLR.green.text:CLR.red.text, fontFamily: "monospace" }}>
-                                      {diff>=0?"+":""}{Math.round(diff)} MAD
-                                    </div>
-                                    <div style={{ fontSize: 10, color: "#94A3B8" }}>vs avant-hier</div>
-                                  </div>
-                                );
-                              })()}
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: "#94A3B8", marginBottom: 4 }}>
+                              Marge unitaire réelle — 7 derniers jours
                             </div>
-                            {curveData[p.nom] ? (
-                              <Sparkline
-                                data={curveData[p.nom].filter(d => d.val !== null)}
-                                color={p.margeUnitaire!=null&&p.margeUnitaire>=0?CLR.green.text:CLR.red.text}
-                                width={700}
-                                height={100}
-                              />
-                            ) : (
-                              <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: "20px 0" }}>
-                                Aucune livraison sur les 7 derniers jours pour ce produit
-                              </div>
-                            )}
+                            <div style={{ fontSize: 10, color: "#CBD5E1", marginBottom: 12 }}>
+                              Chaque point = marge unitaire du jour (CA − stock total − ads − livraison − emballage − confirmation)
+                            </div>
+                            <Sparkline
+                              data={curveData[p.nom] || []}
+                              color={p.margeUnitaire!=null&&p.margeUnitaire>=0?CLR.green.text:CLR.red.text}
+                              width={900}
+                              height={110}
+                            />
                           </div>
+
                         </td>
                       </tr>
                     )}
@@ -639,7 +707,7 @@ if (l.statut === "Confirmé") consMap[c].conf++;
           <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux livraison</div>
           <Bar value={d.tauxLivr} color={d.livrSignal} />
           <div style={{ marginTop: 8, fontSize: 11 }}>
-            <div style={{ color: CLR.red.text }}>Retours : {d.tauxRetour??"—"}{d.tauxRetour!=null?"%":""}</div>
+            <div style={{ color: CLR.red.text }}>Retours : {d.tauxRetour??"0"}{d.tauxRetour!=null?"%":""}</div>
             <div style={{ color: "#64748B" }}>En transit : {d.cmdTransit} cmd · {fmt(d.capitalTransit)} MAD</div>
           </div>
         </SectionCard>
