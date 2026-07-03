@@ -304,7 +304,16 @@ export default function Produits({ navigate }) {
   }
 
 const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
-const nbRuptures  = produits.filter(p => (p.stock_disponible || 0) <= 0).length;
+function besoinReappro48h(produitId, dispo, mvts) {
+  const sortiesMvts = mvts.filter(m => m.produit_id === produitId && m.type === "sortie");
+  if (sortiesMvts.length === 0) return 0;
+  const jours = new Set(sortiesMvts.map(m => new Date(m.created_at).toDateString())).size;
+  const totalSorties = sortiesMvts.reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
+  const moyParJour = totalSorties / Math.max(jours, 1);
+  const besoin48h = moyParJour * 2;
+  return Math.max(0, Math.round(besoin48h - dispo));
+}
+const aApprovisionner = produits.reduce((s, p) => s + besoinReappro48h(p.id, p.stock_disponible || 0, stockMvts), 0);
 const coutProduit = id => produits.find(p => p.id === id)?.cout_achat || 0;
 const valeurMvt   = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire || coutProduit(m.produit_id) || 0);
 const totalEntrees       = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
@@ -334,9 +343,9 @@ return (
     <div className="kpi-value">{tauxRotation}%</div>
     <div className="kpi-label">Rotation stock</div>
   </div>
-  <div className={`kpi-card${nbRuptures > 0 ? " kpi-alert" : ""}`}>
-    <div className="kpi-value">{nbRuptures}</div>
-    <div className="kpi-label">Produits en rupture</div>
+  <div className={`kpi-card${aApprovisionner > 0 ? " kpi-alert" : ""}`}>
+    <div className="kpi-value">{aApprovisionner} u</div>
+    <div className="kpi-label">À approvisionner</div>
   </div>
 </div>
 
