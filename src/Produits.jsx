@@ -306,13 +306,14 @@ export default function Produits({ navigate }) {
 const fourns = [...new Set(produits.map(p => p.fournisseur).filter(Boolean))].sort();
 const nbRuptures  = produits.filter(p => (p.stock_disponible || 0) <= 0).length;
 const coutProduit = id => produits.find(p => p.id === id)?.cout_achat || 0;
-const valeurMvt   = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire ?? coutProduit(m.produit_id) ?? 0);
+const valeurMvt   = m => (parseInt(m.quantite) || 0) * (m.prix_achat_unitaire || coutProduit(m.produit_id) || 0);
 const totalEntrees       = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
 const totalSorties       = stockMvts.filter(m => m.type === "sortie").reduce((s, m) => s + (parseInt(m.quantite)||0), 0);
 const valeurEntrees      = stockMvts.filter(m => m.type === "entree").reduce((s, m) => s + valeurMvt(m), 0);
 const valeurSorties      = stockMvts.filter(m => m.type === "sortie").reduce((s, m) => s + valeurMvt(m), 0);
 const stockTotal  = produits.reduce((s, p) => s + (p.stock_disponible || 0), 0);
 const valeurImmo  = produits.reduce((s, p) => s + (p.stock_disponible || 0) * (p.cout_achat || 0), 0);
+const tauxRotation = totalEntrees > 0 ? Math.round((totalSorties / totalEntrees) * 100) : 0;
 return (
     <>
       {/* ── KPI héros ── */}
@@ -328,6 +329,10 @@ return (
   <div className="kpi-card">
     <div className="kpi-value" style={{ color: stockTotal <= 0 ? "#DC2626" : "#16A34A" }}>{stockTotal} u</div>
     <div className="kpi-label">Disponible — {valeurImmo.toLocaleString()} MAD</div>
+  </div>
+  <div className="kpi-card">
+    <div className="kpi-value">{tauxRotation}%</div>
+    <div className="kpi-label">Rotation stock</div>
   </div>
   <div className={`kpi-card${nbRuptures > 0 ? " kpi-alert" : ""}`}>
     <div className="kpi-value">{nbRuptures}</div>
