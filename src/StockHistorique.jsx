@@ -56,6 +56,21 @@ export default function StockHistorique({ params = {}, navigate }) {
   const retoursValeur = searched.filter(m => m.type === "retour").reduce((s, m) => s + valeurMvt(m), 0);
   const dispoQte    = entreesQte + retoursQte - sortiesQte;
   const dispoValeur = entreesValeur + retoursValeur - sortiesValeur;
+  const tauxRotation = entreesQte > 0 ? Math.round((sortiesQte / entreesQte) * 100) : 0;
+
+  // À approvisionner : par produit, besoin de couverture 48h (vélocité moyenne sorties/jour × 2) vs disponible réel
+  const produitIds = [...new Set(searched.map(m => m.produit_id))];
+  const aApprovisionner = produitIds.reduce((total, pid) => {
+    const mvtsProduit  = searched.filter(m => m.produit_id === pid);
+    const sortiesP     = mvtsProduit.filter(m => m.type === "sortie");
+    if (sortiesP.length === 0) return total;
+    const jours        = new Set(sortiesP.map(m => new Date(m.created_at).toDateString())).size;
+    const totalSortiesP = sortiesP.reduce((s, m) => s + (parseInt(m.quantite) || 0), 0);
+    const moyParJour   = totalSortiesP / Math.max(jours, 1);
+    const dispoP = mvtsProduit.reduce((s, m) => s + (parseInt(m.quantite) || 0) * (m.type === "sortie" ? -1 : 1), 0);
+    const besoin48h = moyParJour * 2;
+    return total + Math.max(0, Math.round(besoin48h - dispoP));
+  }, 0);
 
   return (
     <>
@@ -91,6 +106,14 @@ export default function StockHistorique({ params = {}, navigate }) {
         <div className="kpi-card">
           <div className="kpi-value" style={{ color: dispoQte <= 0 ? "#DC2626" : "#16A34A" }}>{dispoQte} u</div>
           <div className="kpi-label">Disponible — {dispoValeur.toLocaleString()} MAD</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-value">{tauxRotation}%</div>
+          <div className="kpi-label">Rotation stock</div>
+        </div>
+        <div className={`kpi-card${aApprovisionner > 0 ? " kpi-alert" : ""}`}>
+          <div className="kpi-value">{aApprovisionner} u</div>
+          <div className="kpi-label">À approvisionner</div>
         </div>
       </div>
 
