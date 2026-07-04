@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "./supabaseClient";
 
 const PLATEFORMES = ["Facebook", "TikTok", "Google", "Autre"];
@@ -294,14 +295,7 @@ export default function Ads() {
     };
   }).sort((a, b) => b.budget - a.budget);
 
-  const STATUT_META = {
-    scale:      { label: "SCALE",      color: "var(--green)",  bg: "#F0FDF4" },
-    rentable:   { label: "RENTABLE",   color: "var(--green)",  bg: "#F0FDF4" },
-    optimiser:  { label: "OPTIMISER",  color: "var(--orange)", bg: "#FFFBEB" },
-    stop:       { label: "STOP",       color: "var(--red)",    bg: "#FEF2F2" },
-    sans_vente: { label: "SANS VENTE", color: "var(--red)",    bg: "#FEF2F2" },
-    test:       { label: "EN TEST",    color: "#1D4ED8",       bg: "#F0F7FF" },
-  };
+  // (statutAds conservé pour les alertes ci-dessous, plus affiché en tableau)
 
   // ── KPIs globaux (niveau exécutif) ──
   const totalBudget    = campagnes.reduce((s, c) => s + (parseFloat(c.budget_mad) || 0), 0);
@@ -318,6 +312,25 @@ export default function Ads() {
   const txConfGlobal   = totalLeadsCRM > 0 ? Math.round((totalConfirmes / totalLeadsCRM) * 100) : 0;
   const txLivrGlobal   = totalConfirmes > 0 ? Math.round((totalLivrees / totalConfirmes) * 100) : 0;
   const partAdsCA      = caLivre > 0 ? Math.round((totalBudget / caLivre) * 100) : 0;
+  const totalLeadsAdsG = campagnes.reduce((s, c) => s + (parseInt(c.leads) || 0), 0);
+  const cplMoyenGlobal = totalLeadsAdsG > 0 ? totalBudget / totalLeadsAdsG : null;
+
+  // ── Tendance CPL 7 derniers jours, par produit ──
+  const last7Dates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  function cplTrend(nom) {
+    return last7Dates.map(date => {
+      const rows   = campagnes.filter(c => c.produit === nom && c.date === date);
+      const budget = rows.reduce((s, c) => s + (parseFloat(c.budget_mad) || 0), 0);
+      const ldsD   = rows.reduce((s, c) => s + (parseInt(c.leads) || 0), 0);
+      return {
+        jour: new Date(date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+        cpl: ldsD > 0 ? +(budget / ldsD).toFixed(1) : null,
+      };
+    });
+  }
 
   // ── Alertes prioritaires ──
   const produitsStop      = produitsAds.filter(p => p.statutAds === "stop");
@@ -358,24 +371,12 @@ export default function Ads() {
           <div className="kpi-value">{fmtMAD(totalBudget)}</div>
           <div className="kpi-label">Budget dépensé</div>
         </div>
-        <div className="kpi-card">
-          <div className="kpi-value">{cacLivre !== null ? fmtMAD(cacLivre) : "—"}</div>
-          <div className="kpi-label">CAC livré (coût/commande livrée)</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-value" style={{ color: margeApresAdsG >= 0 ? "var(--green)" : "var(--red)" }}>
-            {fmtMAD(margeApresAdsG)}
+        <div className={`kpi-card${cplMoyenGlobal !== null && cplMoyenGlobal > CPL_SEUIL ? " kpi-warn" : ""}`}>
+          <div className="kpi-value" style={{ color: cplMoyenGlobal === null ? undefined : cplMoyenGlobal > CPL_SEUIL ? "var(--red)" : "var(--green)" }}>
+            {cplMoyenGlobal !== null ? `${cplMoyenGlobal.toFixed(1)} MAD` : "—"}
           </div>
-          <div className="kpi-label">Marge nette après ads</div>
+          <div className="kpi-label">CPL moyen</div>
         </div>
-        <div className="kpi-card">
-          <div className="kpi-value" style={{ color: ratioMargeAdsG === null ? undefined : ratioMargeAdsG >= 1 ? "var(--green)" : "var(--red)" }}>
-            {ratioMargeAdsG !== null ? ratioMargeAdsG.toFixed(2) : "—"}
-          </div>
-          <div className="kpi-label">Ratio marge/ads (&gt;1 = rentable)</div>
-        </div>
-      </div>
-      <div className="kpi-row" style={{ padding: "0 24px 12px" }}>
         <div className="kpi-card">
           <div className="kpi-value">{totalLeadsCRM}</div>
           <div className="kpi-label">Leads générés</div>
@@ -384,6 +385,8 @@ export default function Ads() {
           <div className="kpi-value">{txConfGlobal}%</div>
           <div className="kpi-label">Taux confirmation</div>
         </div>
+      </div>
+      <div className="kpi-row" style={{ padding: "0 24px 12px" }}>
         <div className="kpi-card">
           <div className="kpi-value">{txLivrGlobal}%</div>
           <div className="kpi-label">Taux livraison</div>
@@ -394,59 +397,35 @@ export default function Ads() {
         </div>
       </div>
 
-      {/* ── Performance par produit (rentabilité réelle) ── */}
-      {produitsAds.length > 0 && (
-        <div className="table-wrap" style={{ margin: "0 24px 24px" }}>
-          <div style={{ padding: "12px 16px", fontWeight: 700, fontSize: 13, borderBottom: "1px solid var(--border)" }}>
-            Performance par produit
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Produit</th>
-                <th>Budget</th>
-                <th>Leads</th>
-                <th>CPL</th>
-                <th>Confirmées</th>
-                <th>Coût/conf.</th>
-                <th>Livrées</th>
-                <th>Coût/livrée</th>
-                <th>Marge/u</th>
-                <th>Marge après ads</th>
-                <th>Ratio</th>
-                <th>Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              {produitsAds.map(p => {
-                const meta = STATUT_META[p.statutAds];
-                return (
-                  <tr key={p.nom}>
-                    <td style={{ fontWeight: 600 }}>{p.nom}</td>
-                    <td className="col-mono">{fmtMAD(p.budget)}</td>
-                    <td className="col-mono">{p.leadsAds || "—"}</td>
-                    <td className="col-mono">{p.cpl !== null ? `${p.cpl.toFixed(1)} MAD` : "—"}</td>
-                    <td className="col-mono">{p.confirmees}</td>
-                    <td className="col-mono">{p.coutParConfirmee !== null ? fmtMAD(p.coutParConfirmee) : "—"}</td>
-                    <td className="col-mono" style={{ fontWeight: 700 }}>{p.livrees}</td>
-                    <td className="col-mono">{p.coutParLivree !== null ? fmtMAD(p.coutParLivree) : "—"}</td>
-                    <td className="col-mono">{p.margeUnitMoy !== null ? fmtMAD(p.margeUnitMoy) : "—"}</td>
-                    <td className="col-mono" style={{ fontWeight: 700, color: p.margeApresAds >= 0 ? "var(--green)" : "var(--red)" }}>
-                      {fmtMAD(p.margeApresAds)}
-                    </td>
-                    <td className="col-mono">{p.ratioMargeAds !== null ? p.ratioMargeAds.toFixed(2) : "—"}</td>
-                    <td>
-                      <span style={{ display: "inline-block", padding: "3px 9px", borderRadius: 5, fontSize: 11, fontWeight: 600, background: meta.bg, color: meta.color }}>
-                        {meta.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)" }}>
-            💡 SCALE = ratio marge/ads ≥ 1.5 · RENTABLE = ratio ≥ 1 · OPTIMISER = rentable mais &lt;1 · STOP = marge après ads négative · SANS VENTE = budget dépensé, 0 livrée
+      {/* ── Tendance CPL 7 jours, par produit ── */}
+      {nomsAvecAds.length > 0 && (
+        <div style={{ margin: "0 24px 24px" }}>
+          <div style={{ fontWeight: 700, fontSize: 13, margin: "0 0 10px" }}>Tendance CPL — 7 derniers jours</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+            {nomsAvecAds.map(nom => {
+              const data = cplTrend(nom);
+              const vals = data.map(d => d.cpl).filter(v => v !== null);
+              const dernier = vals.length ? vals[vals.length - 1] : null;
+              return (
+                <div key={nom} className="table-wrap" style={{ flex: "1 1 380px", minWidth: 320, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{nom}</span>
+                    <span className="col-mono" style={{ fontSize: 13, fontWeight: 700, color: dernier === null ? "var(--muted2)" : dernier > CPL_SEUIL ? "var(--red)" : "var(--green)" }}>
+                      {dernier !== null ? `${dernier} MAD` : "—"}
+                    </span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <LineChart data={data} margin={{ top: 5, right: 8, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="jour" tick={{ fontSize: 10, fill: "var(--muted2)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--muted2)" }} axisLine={false} tickLine={false} width={40} />
+                      <Tooltip formatter={v => v !== null ? [`${v} MAD`, "CPL"] : ["—", "CPL"]} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Line type="monotone" dataKey="cpl" stroke="#2563EB" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
