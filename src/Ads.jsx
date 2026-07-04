@@ -23,15 +23,32 @@ function calcMarge(cmd, prodMap) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-function Modal({ onClose, onCreate }) {
+function Modal({ onClose, onSave, initial }) {
   const today = new Date().toISOString().split("T")[0];
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(initial ? {
+    date: initial.date || today,
+    produit: initial.produit || "",
+    plateforme: initial.plateforme || "Facebook",
+    budget_mad: initial.budget_mad ?? "",
+    budget_usd: initial.budget_usd ?? "",
+    impressions: initial.impressions ?? "",
+    clics: initial.clics ?? "",
+    cpm: initial.cpm ?? "",
+    ctr: initial.ctr ?? "",
+    cpc: initial.cpc ?? "",
+    visites: initial.visites ?? "",
+    pct_arrivee: initial.pct_arrivee ?? "",
+    leads: initial.leads ?? "",
+    cout_visite: initial.cout_visite ?? "",
+    conv_site: initial.conv_site ?? "",
+    creatives: initial.creatives || "",
+  } : {
     date: today, produit: "", plateforme: "Facebook",
     budget_mad: "", budget_usd: "", impressions: "", clics: "",
     cpm: "", ctr: "", cpc: "", visites: "", pct_arrivee: "",
     leads: "", cout_visite: "", conv_site: "", creatives: "",
   });
-  const [avance,   setAvance]   = useState(false);
+  const [avance,   setAvance]   = useState(!!initial);
   const [nomsProd, setNomsProd] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -46,7 +63,7 @@ function Modal({ onClose, onCreate }) {
 
   const submit = async () => {
     if (!form.date || !form.budget_mad) return;
-    await onCreate({ ...form, cpl: cpl ? +cpl : 0 });
+    await onSave({ ...form, cpl: cpl ? +cpl : 0 }, initial?.id || null);
     onClose();
   };
 
@@ -54,7 +71,7 @@ function Modal({ onClose, onCreate }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">+ Dépense publicitaire</span>
+          <span className="modal-title">{initial ? "✏️ Modifier la dépense" : "+ Dépense publicitaire"}</span>
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
@@ -177,7 +194,7 @@ export default function Ads() {
   const [produits,  setProduits]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [filtre,    setFiltre]    = useState("tous");
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(null); // null | "new" | objet campagne
 
   useEffect(() => {
     fetchAll();
@@ -203,8 +220,8 @@ export default function Ads() {
     setLoading(false);
   }
 
-  async function create(form) {
-    await supabase.from("ads_spend").insert([{
+  async function save(form, id) {
+    const payload = {
       date:        form.date,
       produit:     form.produit     || null,
       plateforme:  form.plateforme,
@@ -222,7 +239,12 @@ export default function Ads() {
       cpl:         +form.cpl        || 0,
       conv_site:   +form.conv_site  || 0,
       creatives:   form.creatives   || null,
-    }]);
+    };
+    if (id) {
+      await supabase.from("ads_spend").update(payload).eq("id", id);
+    } else {
+      await supabase.from("ads_spend").insert([payload]);
+    }
   }
 
   async function deleteCampagne(id) {
@@ -438,7 +460,7 @@ export default function Ads() {
             </button>
           ) : null)}
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ Dépense</button>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowModal("new")}>+ Dépense</button>
       </div>
 
       {loading ? (
@@ -448,7 +470,7 @@ export default function Ads() {
           <div className="empty-icon">📣</div>
           <div className="empty-title">Aucune campagne</div>
           <div className="empty-sub">Enregistre tes dépenses publicitaires pour suivre la rentabilité</div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Ajouter une dépense</button>
+          <button className="btn btn-primary" onClick={() => setShowModal("new")}>+ Ajouter une dépense</button>
         </div>
       ) : (
         <div className="table-wrap">
@@ -493,7 +515,10 @@ export default function Ads() {
                     <td className="col-mono">{c.conv_site ? `${c.conv_site}%` : <span style={{ color: "var(--muted2)" }}>—</span>}</td>
                     <td className="col-muted" style={{ fontSize: 11 }}>{c.creatives || <span style={{ color: "var(--muted2)" }}>—</span>}</td>
                     <td>
-                      <button className="btn btn-secondary btn-sm" style={{ color: "var(--red)" }} onClick={() => deleteCampagne(c.id)}>🗑</button>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setShowModal(c)}>✏️</button>
+                        <button className="btn btn-secondary btn-sm" style={{ color: "var(--red)" }} onClick={() => deleteCampagne(c.id)}>🗑</button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -518,7 +543,13 @@ export default function Ads() {
         </div>
       )}
 
-      {showModal && <Modal onClose={() => setShowModal(false)} onCreate={create} />}
+      {showModal && (
+        <Modal
+          onClose={() => setShowModal(null)}
+          onSave={save}
+          initial={showModal === "new" ? null : showModal}
+        />
+      )}
     </>
   );
 }
