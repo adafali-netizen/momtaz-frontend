@@ -196,6 +196,7 @@ export default function Ads() {
   const [loading,   setLoading]   = useState(true);
   const [filtre,    setFiltre]    = useState("tous");
   const [showModal, setShowModal] = useState(null); // null | "new" | objet campagne
+  const [showJournal, setShowJournal] = useState(false);
 
   useEffect(() => {
     fetchAll();
@@ -342,6 +343,64 @@ export default function Ads() {
   if (produitsStop.length) alertes.push({ level: "critical", text: `${produitsStop.length} produit(s) en perte nette après ads : ${produitsStop.map(p => p.nom).join(", ")}.` });
   if (produitsScale.length) alertes.push({ level: "success", text: `${produitsScale.length} produit(s) rentable(s) (ratio marge/ads ≥ 1.5) à scaler : ${produitsScale.map(p => p.nom).join(", ")}.` });
 
+  // ── Analyse & recommandations (style agence media buying) ──
+  function trendDirection(nom) {
+    const pts = cplTrend(nom).map(d => d.cpl).filter(v => v !== null);
+    if (pts.length < 2) return null;
+    const first = pts[0], last = pts[pts.length - 1];
+    if (!first) return null;
+    const delta = ((last - first) / first) * 100;
+    if (delta > 15)  return { dir: "hausse", pct: Math.round(delta) };
+    if (delta < -15) return { dir: "baisse", pct: Math.round(Math.abs(delta)) };
+    return { dir: "stable", pct: Math.round(Math.abs(delta)) };
+  }
+
+  const recommandations = [];
+  if (partAdsCA >= 100) {
+    recommandations.push({ level: "critical", title: "Structure économique intenable",
+      text: `Le budget ads (${fmtMAD(totalBudget)}) dépasse le chiffre d'affaires livré (${partAdsCA}% du CA). Chaque MAD investi coûte plus qu'il ne rapporte au global. Priorité : geler toute augmentation de budget et corriger la rentabilité produit par produit avant de réinjecter du cash.` });
+  } else if (partAdsCA > 30) {
+    recommandations.push({ level: "warning", title: "Dépendance élevée au paid",
+      text: `${partAdsCA}% du CA livré part dans la pub. Marge de sécurité réduite si le CPL continue de grimper — vérifier que la marge produit peut absorber une hausse de 10-15% du CPL sans devenir négative.` });
+  } else {
+    recommandations.push({ level: "success", title: "Poids du marketing sous contrôle",
+      text: `${partAdsCA}% du CA livré consacré à l'acquisition — niveau sain, marge de manœuvre pour tester de nouvelles créatives sans mettre la rentabilité en danger.` });
+  }
+
+  produitsAds.forEach(p => {
+    const trend = trendDirection(p.nom);
+    let level = "info", text = "";
+    if (p.statutAds === "scale") {
+      level = "success";
+      text = `Rentable (ratio marge/ads ${p.ratioMargeAds.toFixed(2)}). Augmenter le budget progressivement (+20-30%/jour) tant que le CPL reste stable et que le stock suit.`;
+    } else if (p.statutAds === "rentable") {
+      level = "success";
+      text = `Rentable mais marge de manœuvre limitée (ratio ${p.ratioMargeAds.toFixed(2)}). Stabiliser avant de scaler — surveiller le CPL de près.`;
+    } else if (p.statutAds === "optimiser") {
+      level = "warning";
+      text = `Des ventes réelles mais l'équation économique reste fragile. Tester une nouvelle créative ou resserrer le ciblage avant d'augmenter le budget.`;
+    } else if (p.statutAds === "stop") {
+      level = "critical";
+      text = `Perte nette de ${fmtMAD(Math.abs(p.margeApresAds))} après ads. Couper le budget ou revoir le prix/coût produit — ne pas laisser tourner en l'état.`;
+    } else if (p.statutAds === "sans_vente") {
+      level = "critical";
+      text = `${fmtMAD(p.budget)} dépensés sans aucune vente livrée. Vérifier la landing page, l'offre affichée dans la pub, ou la réactivité du call center avant de continuer à dépenser.`;
+    } else {
+      level = "info";
+      text = `Volume encore trop faible (${p.leadsCRM} leads) pour trancher. Laisser tourner en test avant toute décision de scale ou de coupe.`;
+    }
+    if (trend?.dir === "hausse")  text += ` ⚠️ CPL en hausse de ${trend.pct}% sur la période observée — signal de fatigue créative ou de saturation d'audience à surveiller de près.`;
+    if (trend?.dir === "baisse") text += ` 📉 CPL en baisse de ${trend.pct}% — bon signe, la créative/audience actuelle performe mieux qu'en début de période.`;
+    recommandations.push({ level, title: p.nom, text });
+  });
+
+  const RECO_STYLE = {
+    critical: { border: "var(--red)",    bg: "var(--red-lt)" },
+    warning:  { border: "var(--orange)", bg: "var(--orange-lt)" },
+    success:  { border: "var(--green)",  bg: "var(--green-lt)" },
+    info:     { border: "var(--blue)",   bg: "var(--blue-lt)" },
+  };
+
   // ── Filtres tableau brut (plateforme) ──
   const FILTRES  = ["tous", ...PLATEFORMES];
   const count    = f => f === "tous" ? campagnes.length : campagnes.filter(c => c.plateforme === f).length;
@@ -397,6 +456,22 @@ export default function Ads() {
         </div>
       </div>
 
+      {/* ── Analyse & Recommandations ── */}
+      <div style={{ margin: "0 24px 24px" }}>
+        <div style={{ fontWeight: 700, fontSize: 13, margin: "0 0 10px" }}>📊 Analyse & Recommandations</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {recommandations.map((r, i) => {
+            const s = RECO_STYLE[r.level];
+            return (
+              <div key={i} style={{ padding: "10px 14px", borderRadius: 8, background: s.bg, borderLeft: `3px solid ${s.border}` }}>
+                {r.title && <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 3, color: s.border }}>{r.title}</div>}
+                <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>{r.text}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ── Tendance CPL 7 jours, par produit ── */}
       {nomsAvecAds.length > 0 && (
         <div style={{ margin: "0 24px 24px" }}>
@@ -430,18 +505,7 @@ export default function Ads() {
         </div>
       )}
 
-      {/* ── Toolbar tableau brut ── */}
-      <div className="toolbar">
-        <div className="filter-tabs">
-          {FILTRES.map(f => count(f) > 0 || f === "tous" ? (
-            <button key={f} className={`filter-tab${filtre === f ? " active" : ""}`} onClick={() => setFiltre(f)}>
-              {f} <span className="filter-count">{count(f)}</span>
-            </button>
-          ) : null)}
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowModal("new")}>+ Dépense</button>
-      </div>
-
+      {/* ── Journal des dépenses (détail, replié par défaut) ── */}
       {loading ? (
         <div className="state-wrap"><div className="spinner" /> Chargement...</div>
       ) : campagnes.length === 0 ? (
@@ -452,12 +516,32 @@ export default function Ads() {
           <button className="btn btn-primary" onClick={() => setShowModal("new")}>+ Ajouter une dépense</button>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Produit</th>
+        <div style={{ margin: "0 24px 24px" }}>
+          <div
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "var(--surface2)", borderRadius: 8, cursor: "pointer" }}
+            onClick={() => setShowJournal(v => !v)}
+          >
+            <span style={{ fontWeight: 700, fontSize: 13 }}>{showJournal ? "▾" : "▸"} Journal des dépenses ({campagnes.length})</span>
+            <button className="btn btn-primary btn-sm" onClick={e => { e.stopPropagation(); setShowModal("new"); }}>+ Dépense</button>
+          </div>
+
+          {showJournal && (
+            <div style={{ marginTop: 12 }}>
+              <div className="toolbar">
+                <div className="filter-tabs">
+                  {FILTRES.map(f => count(f) > 0 || f === "tous" ? (
+                    <button key={f} className={`filter-tab${filtre === f ? " active" : ""}`} onClick={() => setFiltre(f)}>
+                      {f} <span className="filter-count">{count(f)}</span>
+                    </button>
+                  ) : null)}
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Produit</th>
                 <th>Plateforme</th>
                 <th>Budget MAD</th>
                 <th>Impressions</th>
@@ -516,9 +600,12 @@ export default function Ads() {
               </tfoot>
             )}
           </table>
-          <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)" }}>
-            💡 CPL seuil indicatif : {CPL_SEUIL} MAD · CPL = Budget ÷ Leads · Voir tableau "Performance par produit" ci-dessus pour la rentabilité réelle
-          </div>
+                <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)" }}>
+                  💡 CPL seuil indicatif : {CPL_SEUIL} MAD · CPL = Budget ÷ Leads · Voir "Analyse & Recommandations" en haut de page pour la rentabilité réelle
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
