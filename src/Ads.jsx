@@ -23,6 +23,75 @@ function calcMarge(cmd, prodMap) {
   return prix - cout - fraisLivr;
 }
 
+// ── Palette états sémantiques (hex — nécessaire pour le SVG, les var() CSS ne sont pas fiables en attribut) ──
+const STATE_HEX = {
+  good:    "#16A34A",
+  warn:    "#D97706",
+  bad:     "#DC2626",
+  test:    "#94A3B8",
+  neutral: "#0F172A",
+};
+
+// ── Sparkline SVG minimaliste (pas de lib, cockpit sobre) ──
+function Sparkline({ data, color = "#0F172A", width = 72, height = 26 }) {
+  const valid = data.map((v, i) => ({ v, i })).filter(p => p.v !== null && p.v !== undefined && !isNaN(p.v));
+  if (valid.length < 2) {
+    return <div style={{ width, height, display: "flex", alignItems: "center", fontSize: 10, color: "#94A3B8" }}>—</div>;
+  }
+  const vals  = valid.map(p => p.v);
+  const min   = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 1;
+  const step  = width / (data.length - 1);
+  const points = valid.map(p => `${p.i * step},${height - ((p.v - min) / range) * (height - 4) - 2}`).join(" ");
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ── KPI card (bloc 1) ──
+function KPICard({ label, value, sousTexte, variationPct, data, state }) {
+  const color = STATE_HEX[state] || STATE_HEX.neutral;
+  const varLabel = variationPct === null
+    ? "—"
+    : `${variationPct > 0 ? "↑" : variationPct < 0 ? "↓" : "→"} ${Math.abs(variationPct)}% vs 7j`;
+  return (
+    <div className="kpi-card" style={{ borderTop: `3px solid ${color}`, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div>
+          <div className="kpi-value" style={{ color: state === "neutral" ? undefined : color }}>{value}</div>
+          <div className="kpi-label">{label}</div>
+        </div>
+        <Sparkline data={data} color={color} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+        <span style={{ color: "var(--muted2)" }}>{sousTexte}</span>
+        <span style={{ fontWeight: 600, color: state === "test" ? "var(--muted2)" : color }}>{varLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Verdict global (bloc 1) ──
+const VERDICT_META = {
+  scaler:     { label: "SCALER",     color: "#16A34A", bg: "#F0FDF4", icon: "🟢" },
+  surveiller: { label: "SURVEILLER", color: "#2563EB", bg: "#EFF6FF", icon: "🔵" },
+  analyser:   { label: "ANALYSER",   color: "#D97706", bg: "#FFFBEB", icon: "🟠" },
+  couper:     { label: "COUPER",     color: "#DC2626", bg: "#FEF2F2", icon: "🔴" },
+  test:       { label: "EN TEST",    color: "#64748B", bg: "#F1F5F9", icon: "⚪" },
+};
+function VerdictBanner({ verdict, reason }) {
+  const m = VERDICT_META[verdict] || VERDICT_META.test;
+  return (
+    <div style={{ margin: "16px 24px 0", padding: "12px 16px", borderRadius: 8, background: m.bg, display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ fontSize: 18, lineHeight: 1 }}>{m.icon}</span>
+      <span style={{ fontWeight: 700, fontSize: 13, color: m.color, letterSpacing: "0.02em" }}>{m.label}</span>
+      <span style={{ fontSize: 13, color: "var(--text)" }}>— {reason}</span>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 function Modal({ onClose, onSave, initial }) {
   const today = new Date().toISOString().split("T")[0];
@@ -211,8 +280,8 @@ export default function Ads() {
   async function fetchAll() {
     const [{ data: ads }, { data: cmds }, { data: lds }, { data: prods }] = await Promise.all([
       supabase.from("ads_spend").select("*").order("date", { ascending: false }),
-      supabase.from("commandes").select("statut, prix, frais_livraison, produit"),
-      supabase.from("leads").select("statut, produit"),
+      supabase.from("commandes").select("statut, prix, frais_livraison, produit, created_at"),
+      supabase.from("leads").select("statut, produit, created_at"),
       supabase.from("produits").select("nom, cout_achat"),
     ]);
     setCampagnes(ads   || []);
@@ -315,6 +384,82 @@ export default function Ads() {
   const partAdsCA      = caLivre > 0 ? Math.round((totalBudget / caLivre) * 100) : 0;
   const totalLeadsAdsG = campagnes.reduce((s, c) => s + (parseInt(c.leads) || 0), 0);
   const cplMoyenGlobal = totalLeadsAdsG > 0 ? totalBudget / totalLeadsAdsG : null;
+  const totalImpressionsG = campagnes.reduce((s, c) => s + (parseInt(c.impressions) || 0), 0);
+  const totalClicsG       = campagnes.reduce((s, c) => s + (parseInt(c.clics) || 0), 0);
+  const totalVisitesG     = campagnes.reduce((s, c) => s + (parseInt(c.visites) || 0), 0);
+  const ctrGlobal = totalImpressionsG > 0 ? (totalClicsG / totalImpressionsG) * 100 : null;
+  const cvrGlobal = totalVisitesG > 0 ? (totalLeadsAdsG / totalVisitesG) * 100
+                   : totalClicsG > 0   ? (totalLeadsAdsG / totalClicsG) * 100 : null;
+  const coutLeadConfirmeGlobal = totalConfirmes > 0 ? totalBudget / totalConfirmes : null;
+
+  // ── Séries journalières 7 jours (base des sparklines + variations bloc 1) ──
+  const last7DatesG = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  function dailyGlobal(dateStr) {
+    const rowsAds = campagnes.filter(c => c.date === dateStr);
+    const budget      = rowsAds.reduce((s, c) => s + (parseFloat(c.budget_mad) || 0), 0);
+    const leadsAdsD   = rowsAds.reduce((s, c) => s + (parseInt(c.leads) || 0), 0);
+    const impressions = rowsAds.reduce((s, c) => s + (parseInt(c.impressions) || 0), 0);
+    const clics       = rowsAds.reduce((s, c) => s + (parseInt(c.clics) || 0), 0);
+    const visites     = rowsAds.reduce((s, c) => s + (parseInt(c.visites) || 0), 0);
+
+    const leadsDuJour     = leads.filter(l => (l.created_at || "").slice(0, 10) === dateStr);
+    const confirmesDuJour = leadsDuJour.filter(l => STATUTS_CONFIRMS.includes(l.statut)).length;
+    const livreesDuJour   = commandes.filter(c => (c.created_at || "").slice(0, 10) === dateStr && STATUTS_LIVRES.includes(c.statut));
+    const margeDuJour     = livreesDuJour.reduce((s, c) => s + calcMarge(c, prodMap), 0);
+
+    return {
+      cpl:               leadsAdsD > 0 ? budget / leadsAdsD : null,
+      ctr:               impressions > 0 ? (clics / impressions) * 100 : null,
+      cvr:               visites > 0 ? (leadsAdsD / visites) * 100 : (clics > 0 ? (leadsAdsD / clics) * 100 : null),
+      coutLeadConfirme:  confirmesDuJour > 0 ? budget / confirmesDuJour : null,
+      margeApresAds:     margeDuJour - budget,
+    };
+  }
+  const serieGlobale = last7DatesG.map(dailyGlobal);
+  function serie(key) { return serieGlobale.map(d => d[key]); }
+  function variationVs7j(key) {
+    const vals = serieGlobale.map(d => d[key]).filter(v => v !== null && v !== undefined && !isNaN(v));
+    if (vals.length < 3) return null;
+    const today    = vals[vals.length - 1];
+    const prevAvg  = vals.slice(0, -1).reduce((a, b) => a + b, 0) / (vals.length - 1);
+    if (!prevAvg) return null;
+    return Math.round(((today - prevAvg) / prevAvg) * 100);
+  }
+
+  // ── États des 5 KPI ──
+  const volumeOk = totalLeadsAdsG >= 5;
+  const cplVar = variationVs7j("cpl");
+  const ctrVar = variationVs7j("ctr");
+  const cvrVar = variationVs7j("cvr");
+  const coutConfVar  = variationVs7j("coutLeadConfirme");
+  const margeVar     = variationVs7j("margeApresAds");
+
+  const cplState = !volumeOk ? "test" : cplMoyenGlobal === null ? "neutral" : cplMoyenGlobal <= CPL_SEUIL ? "good" : "bad";
+  const ctrState = !volumeOk || totalImpressionsG < 100 ? "test" : ctrVar === null ? "neutral" : ctrVar >= 0 ? "good" : ctrVar >= -20 ? "warn" : "bad";
+  const cvrState = !volumeOk ? "test" : cvrVar === null ? "neutral" : cvrVar >= 0 ? "good" : cvrVar >= -20 ? "warn" : "bad";
+  const ratioCoutConfCPL = (coutLeadConfirmeGlobal !== null && cplMoyenGlobal) ? coutLeadConfirmeGlobal / cplMoyenGlobal : null;
+  const coutConfState = totalConfirmes < 3 ? "test" : ratioCoutConfCPL === null ? "neutral" : ratioCoutConfCPL <= 1.3 ? "good" : ratioCoutConfCPL <= 2 ? "warn" : "bad";
+  const margeState = totalLivrees < 3 ? "test" : margeApresAdsG >= 0 ? "good" : "bad";
+
+  // ── Verdict global (4 niveaux + EN TEST) ──
+  function computeVerdictGlobal() {
+    if (!volumeOk) return { verdict: "test", reason: "Volume de leads insuffisant sur la période pour trancher." };
+    if (margeApresAdsG < 0) {
+      if (ratioCoutConfCPL !== null && ratioCoutConfCPL > 2) {
+        return { verdict: "couper", reason: "Marge négative et coût par lead confirmé plus de 2x le CPL — leads de mauvaise qualité, non viable en l'état." };
+      }
+      return { verdict: "analyser", reason: "Marge après ads négative — identifier la cause précise avant d'agir sur le budget." };
+    }
+    const degradation = (ctrVar !== null && ctrVar < -20) || (cvrVar !== null && cvrVar < -20) || (cplVar !== null && cplVar > 20);
+    if (degradation) {
+      return { verdict: "surveiller", reason: "Marge positive mais un signal se dégrade (CTR, CVR ou CPL) — observer avant de scaler." };
+    }
+    return { verdict: "scaler", reason: "Tous les signaux sont sains — candidat à l'augmentation de budget." };
+  }
+  const verdictGlobal = computeVerdictGlobal();
 
   // ── Tendance CPL 7 derniers jours, par produit ──
   const last7Dates = Array.from({ length: 7 }, (_, i) => {
@@ -411,49 +556,49 @@ export default function Ads() {
 
   return (
     <>
-      {/* ── Alertes ── */}
+      {/* ── BLOC 1 : Verdict global ── */}
+      <VerdictBanner verdict={verdictGlobal.verdict} reason={verdictGlobal.reason} />
+
+      {/* ── BLOC 1 : Alertes actives ── */}
       {alertes.map((a, i) => (
         a.level === "critical" ? (
-          <div key={i} className="alert-banner danger" style={{ margin: i === 0 ? "16px 24px 0" : "8px 24px 0" }}>
+          <div key={i} className="alert-banner danger" style={{ margin: "8px 24px 0" }}>
             🔴 {a.text}
           </div>
         ) : (
-          <div key={i} style={{ margin: i === 0 ? "16px 24px 0" : "8px 24px 0", padding: "10px 14px", borderRadius: "var(--radius)", background: "var(--green-lt)", border: "1px solid #BBF7D0", color: "var(--green)" }}>
+          <div key={i} style={{ margin: "8px 24px 0", padding: "10px 14px", borderRadius: "var(--radius)", background: "var(--green-lt)", border: "1px solid #BBF7D0", color: "var(--green)" }}>
             🟢 {a.text}
           </div>
         )
       ))}
 
-      {/* ── KPIs niveau exécutif ── */}
-      <div className="kpi-row" style={{ padding: "16px 24px 8px" }}>
-        <div className="kpi-card">
-          <div className="kpi-value">{fmtMAD(totalBudget)}</div>
-          <div className="kpi-label">Budget dépensé</div>
-        </div>
-        <div className={`kpi-card${cplMoyenGlobal !== null && cplMoyenGlobal > CPL_SEUIL ? " kpi-warn" : ""}`}>
-          <div className="kpi-value" style={{ color: cplMoyenGlobal === null ? undefined : cplMoyenGlobal > CPL_SEUIL ? "var(--red)" : "var(--green)" }}>
-            {cplMoyenGlobal !== null ? `${cplMoyenGlobal.toFixed(1)} MAD` : "—"}
-          </div>
-          <div className="kpi-label">CPL moyen</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-value">{totalLeadsCRM}</div>
-          <div className="kpi-label">Leads générés</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-value">{txConfGlobal}%</div>
-          <div className="kpi-label">Taux confirmation</div>
-        </div>
-      </div>
-      <div className="kpi-row" style={{ padding: "0 24px 12px" }}>
-        <div className="kpi-card">
-          <div className="kpi-value">{txLivrGlobal}%</div>
-          <div className="kpi-label">Taux livraison</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-value" style={{ color: partAdsCA > 30 ? "var(--orange)" : undefined }}>{partAdsCA}%</div>
-          <div className="kpi-label">Part ads dans CA livré</div>
-        </div>
+      {/* ── BLOC 1 : 5 KPI cards (CPL · CTR · CVR · Coût/lead confirmé · Marge après ads) ── */}
+      <div className="kpi-row" style={{ padding: "16px 24px 12px", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        <KPICard
+          label="CPL" state={cplState} data={serie("cpl")} variationPct={cplVar}
+          value={cplMoyenGlobal !== null ? `${cplMoyenGlobal.toFixed(1)} MAD` : "—"}
+          sousTexte="Coût pour 1 lead"
+        />
+        <KPICard
+          label="CTR" state={ctrState} data={serie("ctr")} variationPct={ctrVar}
+          value={ctrGlobal !== null ? `${ctrGlobal.toFixed(1)}%` : "—"}
+          sousTexte="% qui cliquent sur la pub"
+        />
+        <KPICard
+          label="CVR" state={cvrState} data={serie("cvr")} variationPct={cvrVar}
+          value={cvrGlobal !== null ? `${cvrGlobal.toFixed(1)}%` : "—"}
+          sousTexte="% qui deviennent lead"
+        />
+        <KPICard
+          label="Coût / lead confirmé" state={coutConfState} data={serie("coutLeadConfirme")} variationPct={coutConfVar}
+          value={coutLeadConfirmeGlobal !== null ? `${coutLeadConfirmeGlobal.toFixed(0)} MAD` : "—"}
+          sousTexte="Coût réel après filtre qualité"
+        />
+        <KPICard
+          label="Marge après ads" state={margeState} data={serie("margeApresAds")} variationPct={margeVar}
+          value={fmtMAD(margeApresAdsG)}
+          sousTexte="Profit réel, spend déduit"
+        />
       </div>
 
       {/* ── Analyse & Recommandations ── */}
