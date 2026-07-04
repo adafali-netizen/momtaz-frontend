@@ -266,6 +266,8 @@ export default function Ads() {
   const [filtre,    setFiltre]    = useState("tous");
   const [showModal, setShowModal] = useState(null); // null | "new" | objet campagne
   const [showJournal, setShowJournal] = useState(false);
+  const [sortKey, setSortKey] = useState("margeApresAds");
+  const [sortDir, setSortDir] = useState("desc");
 
   useEffect(() => {
     fetchAll();
@@ -333,6 +335,9 @@ export default function Ads() {
     const adsP     = campagnes.filter(c => c.produit === nom);
     const budget   = adsP.reduce((s, c) => s + (parseFloat(c.budget_mad) || 0), 0);
     const leadsAds = adsP.reduce((s, c) => s + (parseInt(c.leads) || 0), 0);
+    const impressions = adsP.reduce((s, c) => s + (parseInt(c.impressions) || 0), 0);
+    const clics       = adsP.reduce((s, c) => s + (parseInt(c.clics) || 0), 0);
+    const visites     = adsP.reduce((s, c) => s + (parseInt(c.visites) || 0), 0);
 
     const leadsP     = leads.filter(l => l.produit === nom);
     const leadsCRM   = leadsP.length;
@@ -346,24 +351,80 @@ export default function Ads() {
     const margeTotale  = margesUnit.reduce((a, b) => a + b, 0);
 
     const cpl              = leadsAds > 0 ? budget / leadsAds : null;
+    const ctr               = impressions > 0 ? (clics / impressions) * 100 : null;
+    const cvr               = visites > 0 ? (leadsAds / visites) * 100 : (clics > 0 ? (leadsAds / clics) * 100 : null);
     const coutParConfirmee = confirmees > 0 ? budget / confirmees : null;
     const coutParLivree    = livrees > 0 ? budget / livrees : null;
     const margeApresAds    = margeTotale - budget;
     const ratioMargeAds    = budget > 0 ? margeTotale / budget : null;
+    const ratioCoutConfCPL = (coutParConfirmee !== null && cpl) ? coutParConfirmee / cpl : null;
 
-    let statutAds = "test";
-    if (budget > 0 && livrees === 0 && leadsCRM >= 5)          statutAds = "sans_vente";
-    else if (margeApresAds < 0 && livrees > 0)                  statutAds = "stop";
-    else if (ratioMargeAds !== null && ratioMargeAds >= 1.5)    statutAds = "scale";
-    else if (ratioMargeAds !== null && ratioMargeAds >= 1)      statutAds = "rentable";
-    else if (livrees > 0)                                       statutAds = "optimiser";
+    // États cellule par cellule (mêmes seuils que le bloc 1)
+    const volumeOk   = leadsCRM >= 5;
+    const cplState   = !volumeOk ? "test" : cpl === null ? "neutral" : cpl <= CPL_SEUIL ? "good" : "bad";
+    const ctrState   = !volumeOk || impressions < 100 ? "test" : ctr === null ? "neutral" : ctr >= 2 ? "good" : ctr >= 1 ? "warn" : "bad";
+    const cvrState   = !volumeOk ? "test" : cvr === null ? "neutral" : cvr >= 5 ? "good" : cvr >= 2 ? "warn" : "bad";
+    const coutConfState = confirmees < 3 ? "test" : ratioCoutConfCPL === null ? "neutral" : ratioCoutConfCPL <= 1.3 ? "good" : ratioCoutConfCPL <= 2 ? "warn" : "bad";
+    const margeState = livrees < 3 ? "test" : margeApresAds >= 0 ? "good" : "bad";
+
+    // Verdict 4 niveaux (+ EN TEST) — mêmes règles que le bloc 1, au niveau produit
+    let verdict = "test", action = "Laisser tourner en test";
+    if (volumeOk) {
+      if (margeApresAds < 0) {
+        if ((ratioCoutConfCPL !== null && ratioCoutConfCPL > 2) || (livrees === 0 && budget > 0)) {
+          verdict = "couper"; action = "Couper le budget";
+        } else {
+          verdict = "analyser"; action = "Diagnostiquer avant d'agir";
+        }
+      } else if (ratioMargeAds !== null && ratioMargeAds >= 1.5 && (ratioCoutConfCPL === null || ratioCoutConfCPL <= 1.5)) {
+        verdict = "scaler"; action = "Augmenter budget +20-30%";
+      } else {
+        verdict = "surveiller"; action = "Maintenir, observer 2-3j";
+      }
+    }
+
+    // Micro-insight (1 seul, par ordre de priorité)
+    let insight = "Volume insuffisant pour trancher";
+    if (budget > 0 && livrees === 0 && volumeOk)               insight = "Budget dépensé, aucune vente livrée";
+    else if (ctrState === "bad")                                insight = "Créative faible (CTR bas)";
+    else if (verdict === "couper")                              insight = "Marge négative — budget à couper";
+    else if (coutConfState === "bad")                           insight = "Bon trafic, qualité de lead à vérifier";
+    else if (verdict === "surveiller" && ratioMargeAds !== null && ratioMargeAds < 1.2) insight = "Marge sous pression";
+    else if (coutConfState !== "good" && margeApresAds >= 0)    insight = "Lead cher mais rentable";
+    else if (verdict === "scaler")                              insight = "Sain — candidat au scale";
 
     return {
       nom, budget, leadsAds, leadsCRM, confirmees, livrees,
-      margeUnitMoy, margeTotale, cpl, coutParConfirmee, coutParLivree,
-      margeApresAds, ratioMargeAds, statutAds,
+      cpl, ctr, cvr, coutParConfirmee, coutParLivree,
+      margeUnitMoy, margeTotale, margeApresAds, ratioMargeAds, ratioCoutConfCPL,
+      cplState, ctrState, cvrState, coutConfState, margeState,
+      verdict, action, insight,
+      statutAds: verdict === "couper" ? "stop" : verdict === "scaler" ? "scale" : verdict === "test" ? "test"
+               : (budget > 0 && livrees === 0 && volumeOk) ? "sans_vente" : "optimiser",
     };
-  }).sort((a, b) => b.budget - a.budget);
+  });
+
+  const sortableCols = { nom: "text", leadsCRM: "num", confirmees: "num", livrees: "num", cpl: "num", ctr: "num", cvr: "num", coutParConfirmee: "num", margeApresAds: "num" };
+  const produitsAdsTries = [...produitsAds].sort((a, b) => {
+    const type = sortableCols[sortKey] || "num";
+    const av = a[sortKey], bv = b[sortKey];
+    if (type === "text") return sortDir === "asc" ? (a.nom || "").localeCompare(b.nom) : (b.nom || "").localeCompare(a.nom);
+    const an = av === null || av === undefined ? -Infinity : av;
+    const bn = bv === null || bv === undefined ? -Infinity : bv;
+    return sortDir === "asc" ? an - bn : bn - an;
+  });
+  function requestSort(key) {
+    if (key === sortKey) setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("desc"); }
+  }
+  function SortTh({ label, k, align }) {
+    const active = sortKey === k;
+    return (
+      <th onClick={() => requestSort(k)} style={{ cursor: "pointer", userSelect: "none", textAlign: align || "left", whiteSpace: "nowrap" }}>
+        {label} <span style={{ fontSize: 9, opacity: active ? 1 : 0.3 }}>{active ? (sortDir === "asc" ? "▲" : "▼") : "▲▼"}</span>
+      </th>
+    );
+  }
 
   // (statutAds conservé pour les alertes ci-dessous, plus affiché en tableau)
 
@@ -600,6 +661,76 @@ export default function Ads() {
           sousTexte="Profit réel, spend déduit"
         />
       </div>
+
+      {/* ── Performance par produit / campagne ── */}
+      <style>{`
+        @media (max-width: 900px) {
+          .ads-perf-table .hide-mobile { display: none; }
+        }
+        .ads-perf-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+        .ads-perf-table tbody tr:hover { background: var(--surface2); }
+      `}</style>
+      {produitsAdsTries.length > 0 && (
+        <div className="ads-perf-table table-wrap" style={{ margin: "0 24px 24px", maxHeight: 460, overflow: "auto" }}>
+          <div style={{ padding: "12px 16px", fontWeight: 700, fontSize: 13, borderBottom: "1px solid var(--border)" }}>
+            Performance par produit / campagne
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <SortTh label="Produit" k="nom" />
+                <SortTh label="Leads" k="leadsCRM" align="right" />
+                <th className="hide-mobile" style={{ textAlign: "right" }}>Confirmés</th>
+                <th style={{ textAlign: "right" }}>Livrés</th>
+                <SortTh label="CPL" k="cpl" align="right" />
+                <th className="hide-mobile" style={{ textAlign: "right" }}>CTR</th>
+                <th className="hide-mobile" style={{ textAlign: "right" }}>CVR</th>
+                <th style={{ textAlign: "right" }}>Coût/conf.</th>
+                <SortTh label="Marge après ads" k="margeApresAds" align="right" />
+                <th>Verdict</th>
+                <th>Action rapide</th>
+              </tr>
+            </thead>
+            <tbody>
+              {produitsAdsTries.map(p => {
+                const vMeta = VERDICT_META[p.verdict] || VERDICT_META.test;
+                return (
+                  <tr key={p.nom}>
+                    <td style={{ minWidth: 180 }}>
+                      <div style={{ fontWeight: 600 }}>{p.nom}</div>
+                      <div style={{ fontSize: 11, color: "var(--muted2)" }}>{p.insight}</div>
+                    </td>
+                    <td className="col-mono" style={{ textAlign: "right" }}>{p.leadsCRM}</td>
+                    <td className="col-mono hide-mobile" style={{ textAlign: "right" }}>{p.confirmees}</td>
+                    <td className="col-mono" style={{ textAlign: "right", fontWeight: 700 }}>{p.livrees}</td>
+                    <td className="col-mono" style={{ textAlign: "right", fontWeight: 600, color: STATE_HEX[p.cplState] }}>
+                      {p.cpl !== null ? `${p.cpl.toFixed(1)} MAD` : "—"}
+                    </td>
+                    <td className="col-mono hide-mobile" style={{ textAlign: "right", color: STATE_HEX[p.ctrState] }}>
+                      {p.ctr !== null ? `${p.ctr.toFixed(1)}%` : "—"}
+                    </td>
+                    <td className="col-mono hide-mobile" style={{ textAlign: "right", color: STATE_HEX[p.cvrState] }}>
+                      {p.cvr !== null ? `${p.cvr.toFixed(1)}%` : "—"}
+                    </td>
+                    <td className="col-mono" style={{ textAlign: "right", fontWeight: 600, color: STATE_HEX[p.coutConfState] }}>
+                      {p.coutParConfirmee !== null ? `${p.coutParConfirmee.toFixed(0)} MAD` : "—"}
+                    </td>
+                    <td className="col-mono" style={{ textAlign: "right", fontWeight: 700, color: STATE_HEX[p.margeState] }}>
+                      {fmtMAD(p.margeApresAds)}
+                    </td>
+                    <td>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 5, fontSize: 11, fontWeight: 700, background: vMeta.bg, color: vMeta.color }}>
+                        {vMeta.icon} {vMeta.label}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12, color: "var(--muted2)", whiteSpace: "nowrap" }}>{p.action}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ── Analyse & Recommandations ── */}
       <div style={{ margin: "0 24px 24px" }}>
