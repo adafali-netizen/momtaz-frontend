@@ -92,6 +92,35 @@ function VerdictBanner({ verdict, reason }) {
   );
 }
 
+// ── Entonnoir de déperdition (horizontal, % du volume de départ) ──
+function FunnelBar({ title, stages }) {
+  const base = stages[0]?.value || 0;
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 6 }}>{title}</div>
+      {stages.map((s, i) => {
+        const pct = base > 0 ? (s.value / base) * 100 : 0;
+        const prev = i > 0 ? stages[i - 1].value : null;
+        const perteEtape = (prev !== null && prev > 0) ? Math.round((1 - s.value / prev) * 100) : null;
+        return (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
+            <div style={{ width: 78, fontSize: 11, color: "var(--muted2)", textAlign: "right", flexShrink: 0 }}>{s.label}</div>
+            <div style={{ flex: 1, background: "var(--surface2)", borderRadius: 4, height: 22, position: "relative", overflow: "hidden" }}>
+              <div style={{ width: `${Math.max(pct, 2)}%`, background: i === stages.length - 1 ? "#16A34A" : "#2563EB", height: "100%", borderRadius: 4, transition: "width .3s" }} />
+              <span style={{ position: "absolute", left: 8, top: 0, height: "100%", display: "flex", alignItems: "center", fontSize: 11, fontWeight: 700, color: pct > 15 ? "#fff" : "var(--text)" }}>
+                {s.value} ({pct.toFixed(0)}%)
+              </span>
+            </div>
+            <div style={{ width: 90, fontSize: 11, color: perteEtape !== null && perteEtape > 50 ? "var(--red)" : "var(--muted2)", flexShrink: 0 }}>
+              {perteEtape !== null ? `↓ perte ${perteEtape}%` : ""}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 function Modal({ onClose, onSave, initial }) {
   const today = new Date().toISOString().split("T")[0];
@@ -731,6 +760,35 @@ export default function Ads() {
           </table>
         </div>
       )}
+
+      {/* ── Entonnoir de déperdition (Leads → Confirmés → Livrés) ── */}
+      <div style={{ margin: "0 24px 24px" }}>
+        <div style={{ fontWeight: 700, fontSize: 13, margin: "0 0 4px" }}>🔻 Entonnoir de déperdition</div>
+        <div style={{ fontSize: 11, color: "var(--muted2)", marginBottom: 12 }}>
+          ⚠️ Impressions/clics non renseignés sur la période — entonnoir limité à Leads → Confirmés → Livrés (le volet trafic/média n'est pas mesurable actuellement)
+        </div>
+        <div className="table-wrap" style={{ padding: "16px 20px" }}>
+          <FunnelBar
+            title={`Global (tous produits — ${totalLeadsCRM} leads)`}
+            stages={[
+              { label: "Leads",     value: totalLeadsCRM },
+              { label: "Confirmés", value: totalConfirmes },
+              { label: "Livrés",    value: totalLivrees },
+            ]}
+          />
+          {produitsAds.filter(p => p.leadsCRM >= 3).map(p => (
+            <FunnelBar
+              key={p.nom}
+              title={p.nom}
+              stages={[
+                { label: "Leads",     value: p.leadsCRM },
+                { label: "Confirmés", value: p.confirmees },
+                { label: "Livrés",    value: p.livrees },
+              ]}
+            />
+          ))}
+        </div>
+      </div>
 
       {/* ── Analyse & Recommandations ── */}
       <div style={{ margin: "0 24px 24px" }}>
