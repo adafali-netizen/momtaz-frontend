@@ -535,7 +535,68 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
         <PeriodSelector start={period.start} end={period.end} onChange={(s, e) => setPeriod({ start: s, end: e })} />
       </div>
 
-      {/* ══ NIVEAU 1 — TABLEAU PRODUITS ══ */}
+      {/* ══ NIVEAU 1 — VUE GLOBALE (5 blocs départementaux) ══ */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
+
+        <SectionCard borderColor={d.finSignal.border} style={{ padding: "16px 18px" }}>
+          <SectionHeader title="Finance" dot={d.finSignal} onAnalyse={() => setModule("finances")} />
+          <div style={{ fontSize: 22, fontWeight: 800, color: d.solde>=0?CLR.green.dark:CLR.red.dark, fontFamily: "monospace", marginBottom: 4 }}>
+            {d.solde>=0?"+":""}{fmt(d.solde)} MAD
+          </div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Solde net période</div>
+          <div style={{ fontSize: 12, color: CLR.green.text }}>+{fmt(d.recettes)} MAD</div>
+          <div style={{ fontSize: 12, color: CLR.red.text }}>−{fmt(d.depenses)} MAD</div>
+        </SectionCard>
+
+        <SectionCard borderColor={d.livrSignal.border} style={{ padding: "16px 18px" }}>
+          <SectionHeader title="Livraison" dot={d.livrSignal} onAnalyse={() => setModule("commandes")} />
+          <div style={{ fontSize: 22, fontWeight: 800, color: d.livrSignal.dark, marginBottom: 4 }}>{d.tauxLivr??"—"}{d.tauxLivr!=null?"%":""}</div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux livraison</div>
+          <Bar value={d.tauxLivr} color={d.livrSignal} />
+          <div style={{ marginTop: 8, fontSize: 11 }}>
+            <div style={{ color: CLR.red.text }}>Retours : {d.tauxRetour??"0"}{d.tauxRetour!=null?"%":""}</div>
+            <div style={{ color: "#64748B" }}>En transit : {d.cmdTransit} cmd · {fmt(d.capitalTransit)} MAD</div>
+          </div>
+        </SectionCard>
+
+        <SectionCard borderColor={d.confSignal.border} style={{ padding: "16px 18px" }}>
+          <SectionHeader title="Call center" dot={d.confSignal} onAnalyse={() => setModule("leads")} />
+          <div style={{ fontSize: 22, fontWeight: 800, color: d.confSignal.dark, marginBottom: 4 }}>{d.tauxConf??"—"}{d.tauxConf!=null?"%":""}</div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux confirmation</div>
+          <Bar value={d.tauxConf} color={d.confSignal} />
+          <div style={{ fontSize: 11, color: "#64748B", marginTop: 8 }}>
+            {d.totalLeads} leads · {d.enAttente} en attente
+          </div>
+        </SectionCard>
+
+        <SectionCard borderColor={d.hasAds?CLR.indigo.border:CLR.slate.border} style={{ padding: "16px 18px" }}>
+          <SectionHeader title="Media buying" dot={d.hasAds?CLR.indigo:CLR.slate} onAnalyse={() => setModule("ads")} />
+          {!d.hasAds ? (
+            <div style={{ fontSize: 12, color: "#94A3B8" }}>Aucune dépense ads</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 22, fontWeight: 800, color: CLR.indigo.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.totalSpend)} MAD</div>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Dépense ads</div>
+              <div style={{ fontSize: 12, color: "#64748B" }}>CPL : {d.cplMoyen!=null?`${fmt(d.cplMoyen)} MAD`:"—"}</div>
+              <div style={{ fontSize: 12, color: "#64748B" }}>CPL/livré : {d.cplLivre!=null?`${fmt(d.cplLivre)} MAD`:"—"}</div>
+            </>
+          )}
+        </SectionCard>
+
+        <SectionCard borderColor={CLR.slate.border} style={{ padding: "16px 18px" }}>
+          <SectionHeader title="Stock" dot={CLR.slate} onAnalyse={() => setModule("produits")} />
+          <div style={{ fontSize: 22, fontWeight: 800, color: CLR.slate.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.capitalImmobilise)} MAD</div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>Capital immobilisé</div>
+          {d.transStats.slice(0,2).map(t => (
+            <div key={t.nom} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+              <span style={{ color: "#64748B" }}>{t.nom}</span>
+              <Pill color={gradeClr[t.grade]}>{t.grade}</Pill>
+            </div>
+          ))}
+        </SectionCard>
+      </div>
+
+      {/* ══ NIVEAU 2 — DÉTAIL PAR PRODUIT (marge réelle, décomposition, drill-down) ══ */}
       <SectionCard style={{ marginBottom: 20 }}>
         <SectionHeader title="Rentabilité produits — marge réelle (stock inclus)" onAnalyse={() => setModule("dashboard-analytique")} />
         {d.prodList.length === 0 ? (
@@ -697,67 +758,6 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
           </div>
         )}
       </SectionCard>
-
-      {/* ══ BLOCS DÉPARTEMENTAUX ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
-
-        <SectionCard borderColor={d.finSignal.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Finance" dot={d.finSignal} onAnalyse={() => setModule("finances")} />
-          <div style={{ fontSize: 22, fontWeight: 800, color: d.solde>=0?CLR.green.dark:CLR.red.dark, fontFamily: "monospace", marginBottom: 4 }}>
-            {d.solde>=0?"+":""}{fmt(d.solde)} MAD
-          </div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Solde net période</div>
-          <div style={{ fontSize: 12, color: CLR.green.text }}>+{fmt(d.recettes)} MAD</div>
-          <div style={{ fontSize: 12, color: CLR.red.text }}>−{fmt(d.depenses)} MAD</div>
-        </SectionCard>
-
-        <SectionCard borderColor={d.livrSignal.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Livraison" dot={d.livrSignal} onAnalyse={() => setModule("commandes")} />
-          <div style={{ fontSize: 22, fontWeight: 800, color: d.livrSignal.dark, marginBottom: 4 }}>{d.tauxLivr??"—"}{d.tauxLivr!=null?"%":""}</div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux livraison</div>
-          <Bar value={d.tauxLivr} color={d.livrSignal} />
-          <div style={{ marginTop: 8, fontSize: 11 }}>
-            <div style={{ color: CLR.red.text }}>Retours : {d.tauxRetour??"0"}{d.tauxRetour!=null?"%":""}</div>
-            <div style={{ color: "#64748B" }}>En transit : {d.cmdTransit} cmd · {fmt(d.capitalTransit)} MAD</div>
-          </div>
-        </SectionCard>
-
-        <SectionCard borderColor={d.confSignal.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Call center" dot={d.confSignal} onAnalyse={() => setModule("leads")} />
-          <div style={{ fontSize: 22, fontWeight: 800, color: d.confSignal.dark, marginBottom: 4 }}>{d.tauxConf??"—"}{d.tauxConf!=null?"%":""}</div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux confirmation</div>
-          <Bar value={d.tauxConf} color={d.confSignal} />
-          <div style={{ fontSize: 11, color: "#64748B", marginTop: 8 }}>
-            {d.totalLeads} leads · {d.enAttente} en attente
-          </div>
-        </SectionCard>
-
-        <SectionCard borderColor={d.hasAds?CLR.indigo.border:CLR.slate.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Media buying" dot={d.hasAds?CLR.indigo:CLR.slate} onAnalyse={() => setModule("ads")} />
-          {!d.hasAds ? (
-            <div style={{ fontSize: 12, color: "#94A3B8" }}>Aucune dépense ads</div>
-          ) : (
-            <>
-              <div style={{ fontSize: 22, fontWeight: 800, color: CLR.indigo.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.totalSpend)} MAD</div>
-              <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Dépense ads</div>
-              <div style={{ fontSize: 12, color: "#64748B" }}>CPL : {d.cplMoyen!=null?`${fmt(d.cplMoyen)} MAD`:"—"}</div>
-              <div style={{ fontSize: 12, color: "#64748B" }}>CPL/livré : {d.cplLivre!=null?`${fmt(d.cplLivre)} MAD`:"—"}</div>
-            </>
-          )}
-        </SectionCard>
-
-        <SectionCard borderColor={CLR.slate.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Stock" dot={CLR.slate} onAnalyse={() => setModule("produits")} />
-          <div style={{ fontSize: 22, fontWeight: 800, color: CLR.slate.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.capitalImmobilise)} MAD</div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>Capital immobilisé</div>
-          {d.transStats.slice(0,2).map(t => (
-            <div key={t.nom} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-              <span style={{ color: "#64748B" }}>{t.nom}</span>
-              <Pill color={gradeClr[t.grade]}>{t.grade}</Pill>
-            </div>
-          ))}
-        </SectionCard>
-      </div>
 
       {/* ══ ÉVALUATIONS TRANSVERSALES ══ */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
