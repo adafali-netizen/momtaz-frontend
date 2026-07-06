@@ -295,6 +295,7 @@ export default function Ads() {
   const [filtre,    setFiltre]    = useState("tous");
   const [showModal, setShowModal] = useState(null); // null | "new" | objet campagne
   const [showJournal, setShowJournal] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   const [sortKey, setSortKey] = useState("margeApresAds");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -578,6 +579,17 @@ export default function Ads() {
   if (produitsStop.length) alertes.push({ level: "critical", text: `${produitsStop.length} produit(s) en perte nette après ads : ${produitsStop.map(p => p.nom).join(", ")}.` });
   if (produitsScale.length) alertes.push({ level: "success", text: `${produitsScale.length} produit(s) rentable(s) (ratio marge/ads ≥ 1.5) à scaler : ${produitsScale.map(p => p.nom).join(", ")}.` });
 
+  // ── Niveau A : 3 actions max, compactes (remplace les bannières redondantes avec le verdict) ──
+  const actionsTop = [];
+  if (produitsStop.length) actionsTop.push({ icon: "🔴", text: `Couper : ${produitsStop.map(p => p.nom).join(", ")}` });
+  const produitsAnalyser = produitsAds.filter(p => p.verdict === "analyser");
+  if (produitsAnalyser.length) actionsTop.push({ icon: "🟠", text: `Analyser en priorité : ${produitsAnalyser.map(p => p.nom).join(", ")}` });
+  if (produitsSansVente.length) actionsTop.push({ icon: "🔴", text: `Vérifier landing/offre : ${produitsSansVente.map(p => p.nom).join(", ")}` });
+  if (produitsScale.length) actionsTop.push({ icon: "🟢", text: `Scaler : ${produitsScale.map(p => p.nom).join(", ")}` });
+  const produitsTest = produitsAds.filter(p => p.verdict === "test");
+  if (actionsTop.length < 3 && produitsTest.length) actionsTop.push({ icon: "⚪", text: `Laisser tourner (volume insuffisant) : ${produitsTest.map(p => p.nom).join(", ")}` });
+  const actionsTop3 = actionsTop.slice(0, 3);
+
   // ── Analyse & recommandations (style agence media buying) ──
   function trendDirection(nom) {
     const pts = cplTrend(nom).map(d => d.cpl).filter(v => v !== null);
@@ -649,18 +661,16 @@ export default function Ads() {
       {/* ── BLOC 1 : Verdict global ── */}
       <VerdictBanner verdict={verdictGlobal.verdict} reason={verdictGlobal.reason} />
 
-      {/* ── BLOC 1 : Alertes actives ── */}
-      {alertes.map((a, i) => (
-        a.level === "critical" ? (
-          <div key={i} className="alert-banner danger" style={{ margin: "8px 24px 0" }}>
-            🔴 {a.text}
-          </div>
-        ) : (
-          <div key={i} style={{ margin: "8px 24px 0", padding: "10px 14px", borderRadius: "var(--radius)", background: "var(--green-lt)", border: "1px solid #BBF7D0", color: "var(--green)" }}>
-            🟢 {a.text}
-          </div>
-        )
-      ))}
+      {/* ── BLOC 1 : 3 actions prioritaires max (compact, pas de répétition avec le verdict) ── */}
+      {actionsTop3.length > 0 && (
+        <div style={{ margin: "10px 24px 0", display: "flex", flexDirection: "column", gap: 6 }}>
+          {actionsTop3.map((a, i) => (
+            <div key={i} style={{ fontSize: 13, padding: "6px 12px", background: "var(--surface2)", borderRadius: 6 }}>
+              {a.icon} {a.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── BLOC 1 : 5 KPI cards (CPL · CTR · CVR · Coût/lead confirmé · Marge après ads) ── */}
       <div className="kpi-row" style={{ padding: "16px 24px 12px", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
@@ -761,6 +771,18 @@ export default function Ads() {
         </div>
       )}
 
+      {/* ── NIVEAU 2 : diagnostic détaillé (replié par défaut) ── */}
+      <div style={{ margin: "0 24px 16px" }}>
+        <div
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "var(--surface2)", borderRadius: 8, cursor: "pointer" }}
+          onClick={() => setShowDetail(v => !v)}
+        >
+          <span style={{ fontWeight: 700, fontSize: 13 }}>{showDetail ? "▾" : "▸"} Diagnostic détaillé (entonnoir, tendance CPL, analyse complète)</span>
+        </div>
+      </div>
+
+      {showDetail && (
+      <>
       {/* ── Entonnoir de déperdition (Leads → Confirmés → Livrés) ── */}
       <div style={{ margin: "0 24px 24px" }}>
         <div style={{ fontWeight: 700, fontSize: 13, margin: "0 0 4px" }}>🔻 Entonnoir de déperdition</div>
@@ -837,6 +859,8 @@ export default function Ads() {
             })}
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* ── Journal des dépenses (détail, replié par défaut) ── */}
