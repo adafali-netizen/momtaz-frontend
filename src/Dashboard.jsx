@@ -2,9 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
 const STATUTS_LIVRES    = ["Livrée", "Facturée"];
-const STATUTS_RETOURS   = ["Retour reçu", "Retour en cours"];
-const STATUTS_TRANSIT   = ["Expédiée", "En cours de livraison"];
-const STATUTS_EXCLUS    = ["Annulée"];
+const STATUTS_A_EXPEDIER = ["À expédier"];
+const STATUTS_RETOURS   = ["Demande de retour", "Retour en cours", "Retour reçu"];
+// "En cours de livraison" = tout statut autre que : pas encore expédiée, livrée/facturée, ou en retour.
+// Calculé par exclusion (pas une liste figée) pour ne rien oublier si un nouveau statut apparaît.
+const STATUTS_EXCLUS_TRANSIT = [...STATUTS_A_EXPEDIER, ...STATUTS_LIVRES, ...STATUTS_RETOURS];
 const SEUIL_CONF        = 35;
 const SEUIL_LIVR        = 55;
 
@@ -330,7 +332,7 @@ const stockAcheteMap = {};
     // ── COMMANDES ─────────────────────────────────────────────────────────────
     const cmdLivrees = commandes.filter(c => STATUTS_LIVRES.includes(c.statut));
     const cmdRetours = commandes.filter(c => STATUTS_RETOURS.includes(c.statut));
-    const cmdTransit = commandes.filter(c => STATUTS_TRANSIT.includes(c.statut));
+    const cmdTransit = commandes.filter(c => !STATUTS_EXCLUS_TRANSIT.includes(c.statut));
     const tauxLivr   = pct(cmdLivrees.length, commandes.length);
     const tauxRetour = pct(cmdRetours.length, commandes.length);
     const capitalTransit = sum(cmdTransit.map(c => parseFloat(c.prix)||0));
