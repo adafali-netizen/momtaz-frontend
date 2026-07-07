@@ -15,6 +15,7 @@ const STATUTS = [
 const S = Object.fromEntries(STATUTS.map(s => [s.key, s]));
 
 const KPI_STATUTS_META = [
+  { key: "Confirmé",          label: "Confirmés",  color: "#16A34A" },
   { key: "À appeler",         label: "À appeler",   color: "#2563EB" },
   { key: "Injoignable",       label: "Injoignable", color: "#D97706" },
   { key: "Annulé",            label: "Annulé",      color: "#DC2626" },
