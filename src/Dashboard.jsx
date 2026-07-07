@@ -157,9 +157,14 @@ function KpiRow({ label, value, color, sub }) {
     </div>
   );
 }
-function SectionCard({ children, borderColor, style = {} }) {
+function SectionCard({ children, borderColor, style = {}, onClick }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${borderColor || "#E2E8F0"}`, borderRadius: 14, padding: "20px 24px", ...style }}>
+    <div
+      onClick={onClick}
+      style={{ background: "#fff", border: `1px solid ${borderColor || "#E2E8F0"}`, borderRadius: 14, padding: "20px 24px", cursor: onClick ? "pointer" : "default", transition: "box-shadow .15s", ...style }}
+      onMouseEnter={onClick ? e => e.currentTarget.style.boxShadow = "0 2px 10px rgba(15,23,42,.08)" : undefined}
+      onMouseLeave={onClick ? e => e.currentTarget.style.boxShadow = "none" : undefined}
+    >
       {children}
     </div>
   );
@@ -167,10 +172,7 @@ function SectionCard({ children, borderColor, style = {} }) {
 function SectionHeader({ title, dot, onAnalyse, expanded, onToggle }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 8, cursor: onToggle ? "pointer" : "default" }}
-        onClick={onToggle}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {dot && <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot.text }} />}
         <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: "#0F172A" }}>{title}</span>
         {onToggle && <span style={{ fontSize: 10, color: "#94A3B8" }}>{expanded ? "▾" : "▸"}</span>}
@@ -631,7 +633,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
       {/* ══ NIVEAU 1 — VUE GLOBALE (5 blocs départementaux) ══ */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: expandedCard ? 0 : 20 }}>
 
-        <SectionCard borderColor={d.margeSignal.border} style={{ padding: "16px 18px" }}>
+        <SectionCard borderColor={d.margeSignal.border} style={{ padding: "16px 18px" }} onClick={() => setExpandedCard(v => v === "finance" ? null : "finance")}>
           <SectionHeader title="Finance" dot={d.margeSignal} onAnalyse={() => setModule("finances")}
             expanded={expandedCard === "finance"} onToggle={() => setExpandedCard(v => v === "finance" ? null : "finance")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: d.margeNetteGlobale>=0?CLR.green.dark:CLR.red.dark, fontFamily: "monospace", marginBottom: 4 }}>
@@ -643,7 +645,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
           </div>
         </SectionCard>
 
-        <SectionCard borderColor={d.livrSignal.border} style={{ padding: "16px 18px" }}>
+        <SectionCard borderColor={d.livrSignal.border} style={{ padding: "16px 18px" }} onClick={() => setExpandedCard(v => v === "livraison" ? null : "livraison")}>
           <SectionHeader title="Livraison" dot={d.livrSignal} onAnalyse={() => setModule("commandes")}
             expanded={expandedCard === "livraison"} onToggle={() => setExpandedCard(v => v === "livraison" ? null : "livraison")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: d.livrSignal.dark, marginBottom: 4 }}>{d.tauxLivr??"—"}{d.tauxLivr!=null?"%":""}</div>
@@ -652,7 +654,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
           <div style={{ marginTop: 8, fontSize: 11, color: CLR.red.text }}>Retours : {d.tauxRetour??"0"}{d.tauxRetour!=null?"%":""}</div>
         </SectionCard>
 
-        <SectionCard borderColor={d.confSignal.border} style={{ padding: "16px 18px" }}>
+        <SectionCard borderColor={d.confSignal.border} style={{ padding: "16px 18px" }} onClick={() => setExpandedCard(v => v === "callcenter" ? null : "callcenter")}>
           <SectionHeader title="Call center" dot={d.confSignal} onAnalyse={() => setModule("leads")}
             expanded={expandedCard === "callcenter"} onToggle={() => setExpandedCard(v => v === "callcenter" ? null : "callcenter")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: d.confSignal.dark, marginBottom: 4 }}>{d.tauxConf??"—"}{d.tauxConf!=null?"%":""}</div>
@@ -663,7 +665,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
           </div>
         </SectionCard>
 
-        <SectionCard borderColor={d.hasAds?CLR.indigo.border:CLR.slate.border} style={{ padding: "16px 18px" }}>
+        <SectionCard borderColor={d.hasAds?CLR.indigo.border:CLR.slate.border} style={{ padding: "16px 18px" }} onClick={() => setExpandedCard(v => v === "media" ? null : "media")}>
           <SectionHeader title="Media buying" dot={d.hasAds?CLR.indigo:CLR.slate} onAnalyse={() => setModule("ads")}
             expanded={expandedCard === "media"} onToggle={() => setExpandedCard(v => v === "media" ? null : "media")} />
           {!d.hasAds ? (
@@ -679,7 +681,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
           )}
         </SectionCard>
 
-        <SectionCard borderColor={CLR.slate.border} style={{ padding: "16px 18px" }}>
+        <SectionCard borderColor={CLR.slate.border} style={{ padding: "16px 18px" }} onClick={() => setExpandedCard(v => v === "stock" ? null : "stock")}>
           <SectionHeader title="Stock" dot={d.nbAReappro>0?CLR.amber:CLR.slate} onAnalyse={() => setModule("produits")}
             expanded={expandedCard === "stock"} onToggle={() => setExpandedCard(v => v === "stock" ? null : "stock")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: CLR.slate.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.capitalImmobilise)} MAD</div>
