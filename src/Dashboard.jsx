@@ -240,10 +240,10 @@ const [
   supabase.from("releve_bancaire").select("date,debit,credit,type,est_bancaire").gte("date", start).lte("date", end),
   supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,transporteur,conseillere,produit,created_at,date_livraison").gte("created_at", start).lte("created_at", endFull),
   supabase.from("leads").select("id,statut,conseillere,produit,created_at").gte("created_at", start).lte("created_at", endFull),
-  supabase.from("ads_spend").select("date,plateforme,budget_mad,leads,produit_id").gte("date", start).lte("date", end),
+  supabase.from("ads_spend").select("date,plateforme,budget_mad,leads,produit").gte("date", start).lte("date", end),
   supabase.from("produits").select("id,nom,cout_achat,stock_disponible,frais_emballage_stockage"),
   supabase.from("commandes").select("id,statut,prix,frais_livraison,frais_emballage_stockage,produit,date_livraison,created_at").gte("created_at", w7.start + "T00:00:00").lte("created_at", w7EndFull),
-  supabase.from("ads_spend").select("date,budget_mad,produit_id").gte("date", w7.start).lte("date", w7.end),
+  supabase.from("ads_spend").select("date,budget_mad,produit").gte("date", w7.start).lte("date", w7.end),
   supabase.from("parametres").select("cle,valeur"),
   supabase.from("reglements_transporteur").select("frais_ramassage,created_at").gte("created_at", start).lte("created_at", endFull),
   supabase.from("stock_movements").select("produit_id,type,quantite,prix_achat_unitaire"),
@@ -264,8 +264,8 @@ const [
     const days7 = getDaysBetween(w7.start, w7.end);
     const adsByProduitDay = {};
     (ads7 || []).forEach(a => {
-      if (!a.produit_id) return;
-      const key = `${a.produit_id}_${a.date}`;
+      if (!a.produit) return;
+      const key = `${a.produit}_${a.date}`;
       adsByProduitDay[key] = (adsByProduitDay[key] || 0) + (parseFloat(a.budget_mad) || 0);
     });
 
@@ -281,10 +281,9 @@ const [
     const prodNoms = [...new Set((cmd7 || []).map(c => c.produit).filter(Boolean))];
     prodNoms.forEach(nomProd => {
       const prod = prodMap[nomProd];
-      const pid  = prod?.id;
       curve[nomProd] = days7.map(day => {
         const cmds = cmdByProduitDay[`${nomProd}_${day}`] || [];
-        const ads  = pid ? (adsByProduitDay[`${pid}_${day}`] || 0) : 0;
+        const ads  = adsByProduitDay[`${nomProd}_${day}`] || 0;
         if (cmds.length === 0) return { label: day.slice(5), val: null };
 
         const stockTotal = (prod?.stock_disponible || 0) + cmds.length;
@@ -365,8 +364,8 @@ const stockAcheteMap = {};
 
     const adsByProduit = {};
     adsSpend.forEach(a => {
-      if (!a.produit_id) return;
-      adsByProduit[a.produit_id] = (adsByProduit[a.produit_id]||0) + (parseFloat(a.budget_mad)||0);
+      if (!a.produit) return;
+      adsByProduit[a.produit] = (adsByProduit[a.produit]||0) + (parseFloat(a.budget_mad)||0);
     });
 
     // ── PRODUITS — MARGE RÉELLE ───────────────────────────────────────────────
@@ -407,9 +406,9 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
       if (c.produit && PS[c.produit]) PS[c.produit].refusees++;
     });
 
-    Object.entries(adsByProduit).forEach(([pid, spend]) => {
-      const nom = prodMap[pid]?.nom;
-      if (nom && PS[nom]) PS[nom].ads = spend;
+    Object.entries(adsByProduit).forEach(([nom, spend]) => {
+      initPS(nom);
+      PS[nom].ads = spend;
     });
 
     // Frais ramassage répartis au prorata des livrées par produit
@@ -494,34 +493,38 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
 
     // ── FINANCE GLOBALE — compte de résultat réel (réconciliation exacte) ──
     // Chaque champ (caTotal, coutStockTotal, ads, fraisLivrTotal, fraisEmbTotal, fraisRamassageProduit,
-    // fraisConfirmationTotal) est défini sur CHAQUE produit, même sans livrée → la somme reconstitue
-    // exactement la marge nette globale (CA - Stock - Ads - Logistique - Confirmation = Marge).
+    // fraisConfirmationTotal) sont définis sur le périmètre livré+facturé UNIQUEMENT → la somme
+    // reconstitue exactement la marge nette globale (CA - COGS - Ads - Logistique - Confirmation = Marge).
+    // COGS = coût des marchandises VENDUES (livrées+facturées), pas tout le stock acheté — distinct
+    // du tableau "Rentabilité produits (stock inclus)" plus bas qui, lui, reste volontairement conservateur.
     const caLivreGlobal      = sum(prodList.map(p => p.caTotal));
-    const coutStockGlobal    = sum(prodList.map(p => p.coutStockTotal));
+    const cogsGlobal         = sum(prodList.map(p => p.livrées * (prodMap[p.nom]?.cout_achat || 0)));
     const adsGlobal          = sum(prodList.map(p => p.ads));
     const logistiqueGlobal   = sum(prodList.map(p => p.fraisLivrTotal + p.fraisEmbTotal + p.fraisRamassageProduit));
     const confirmationGlobal = sum(prodList.map(p => p.fraisConfirmationTotal));
-    const margeNetteGlobale  = caLivreGlobal - coutStockGlobal - adsGlobal - logistiqueGlobal - confirmationGlobal;
+    const margeNetteGlobale  = caLivreGlobal - cogsGlobal - adsGlobal - logistiqueGlobal - confirmationGlobal;
     const margePctGlobal     = caLivreGlobal > 0 ? Math.round((margeNetteGlobale / caLivreGlobal) * 100) : null;
+    const margeNetteUnitaire = totalLivreesGlobal > 0 ? margeNetteGlobale / totalLivreesGlobal : null;
     const margeSignal        = caLivreGlobal === 0 ? CLR.slate : margeNetteGlobale > 0 ? CLR.green : CLR.red;
 
     const compteResultat = [
       { label: "Chiffre d'affaires", val: caLivreGlobal,    sign: "+", pct: 100 },
-      { label: "Achat de stock",     val: coutStockGlobal,  sign: "−", pct: caLivreGlobal > 0 ? Math.round(coutStockGlobal   / caLivreGlobal * 100) : null },
+      { label: "Achat de stock (vendu)", val: cogsGlobal,   sign: "−", pct: caLivreGlobal > 0 ? Math.round(cogsGlobal        / caLivreGlobal * 100) : null },
       { label: "Ads",                val: adsGlobal,        sign: "−", pct: caLivreGlobal > 0 ? Math.round(adsGlobal         / caLivreGlobal * 100) : null },
       { label: "Logistique",         val: logistiqueGlobal, sign: "−", pct: caLivreGlobal > 0 ? Math.round(logistiqueGlobal  / caLivreGlobal * 100) : null },
       { label: "Confirmation",       val: confirmationGlobal, sign: "−", pct: caLivreGlobal > 0 ? Math.round(confirmationGlobal / caLivreGlobal * 100) : null },
     ];
+
 
     // ── FINANCE — répartition du capital (où est l'argent en ce moment) ──
     const capitalTransitCout = sum(cmdTransit.map(c => parseFloat(prodMap[c.produit]?.cout_achat) || 0));
     const capitalRetoursCout = sum(cmdRetours.map(c => parseFloat(prodMap[c.produit]?.cout_achat) || 0));
     const capitalTotal = capitalImmobilise + solde + capitalTransitCout + capitalRetoursCout;
     const repartitionCapital = [
-      { label: "Stock disponible (entrepôt)", val: capitalImmobilise },
-      { label: "Cash en banque",              val: solde },
-      { label: "Expédié / en cours de livraison", val: capitalTransitCout },
-      { label: "En retour (en cours)",        val: capitalRetoursCout },
+      { label: "Stock disponible (entrepôt)", val: capitalImmobilise,     color: "indigo" },
+      { label: "Cash en banque",              val: solde,                 color: "green" },
+      { label: "Expédié / en cours de livraison", val: capitalTransitCout, color: "amber" },
+      { label: "En retour (en cours)",        val: capitalRetoursCout,   color: "red" },
     ].map(r => ({ ...r, pct: capitalTotal > 0 ? Math.round((r.val / capitalTotal) * 100) : null }));
 
     // ── CALL CENTER — répartition des leads par statut ──
@@ -534,14 +537,16 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
       .map(([statut, n]) => ({ statut, n, pct: pct(n, totalLeads) }))
       .sort((a, b) => b.n - a.n);
 
-    // ── LIVRAISON — répartition des commandes par statut ──
+    // ── LIVRAISON — répartition des commandes par statut (nombre + % + CA) ──
     const cmdParStatut = {};
     commandes.forEach(c => {
       const s = c.statut || "Sans statut";
-      cmdParStatut[s] = (cmdParStatut[s] || 0) + 1;
+      if (!cmdParStatut[s]) cmdParStatut[s] = { n: 0, ca: 0 };
+      cmdParStatut[s].n++;
+      cmdParStatut[s].ca += parseFloat(c.prix) || 0;
     });
     const repartitionCommandes = Object.entries(cmdParStatut)
-      .map(([statut, n]) => ({ statut, n, pct: pct(n, commandes.length) }))
+      .map(([statut, v]) => ({ statut, n: v.n, ca: v.ca, pct: pct(v.n, commandes.length) }))
       .sort((a, b) => b.n - a.n);
 
     // ── MEDIA BUYING — cascade CPL → Coût/confirmé → CAC livré ──
@@ -594,7 +599,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
     return {
       releve_ok: releve.length > 0, recettes, depenses, solde, capitalImmobilise,
       finSignal: !releve.length ? CLR.slate : solde > 0 ? CLR.green : solde > -500 ? CLR.amber : CLR.red,
-      margeNetteGlobale, margePctGlobal, margeSignal, caLivreGlobal,
+      margeNetteGlobale, margePctGlobal, margeNetteUnitaire, margeSignal, caLivreGlobal,
       compteResultat, repartitionCapital,
       repartitionLeads, repartitionCommandes,
       coutParConfirme, cascadeMedia,
@@ -640,8 +645,13 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
             {d.margeNetteGlobale>=0?"+":""}{fmt(d.margeNetteGlobale)} MAD
           </div>
           <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Marge nette globale</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: d.margePctGlobal!=null && d.margePctGlobal>=0?CLR.green.text:CLR.red.text }}>
-            {d.margePctGlobal!=null ? `${d.margePctGlobal>=0?"+":""}${d.margePctGlobal}%` : "—"} <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>marge / CA</span>
+          <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: d.margePctGlobal!=null && d.margePctGlobal>=0?CLR.green.text:CLR.red.text }}>
+              {d.margePctGlobal!=null ? `${d.margePctGlobal>=0?"+":""}${d.margePctGlobal}%` : "—"} <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>marge/CA</span>
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: d.margeNetteUnitaire!=null && d.margeNetteUnitaire>=0?CLR.green.text:CLR.red.text }}>
+              {d.margeNetteUnitaire!=null ? `${d.margeNetteUnitaire>=0?"+":""}${fmt(d.margeNetteUnitaire)} MAD` : "—"} <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>/u</span>
+            </div>
           </div>
         </SectionCard>
 
@@ -722,12 +732,23 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
               </table>
 
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Répartition du capital — où est l'argent</div>
+              <div style={{ display: "flex", height: 28, borderRadius: 8, overflow: "hidden", marginBottom: 12, border: "1px solid #E2E8F0" }}>
+                {d.repartitionCapital.map(r => (
+                  <div key={r.label}
+                    title={`${r.label} — ${fmt(r.val)} MAD (${r.pct ?? 0}%)`}
+                    style={{ width: `${Math.max(r.pct || 0, 0)}%`, background: CLR[r.color].text, transition: "width .3s" }}
+                  />
+                ))}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
                 {d.repartitionCapital.map(r => (
-                  <div key={r.label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
-                    <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>{r.label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "monospace" }}>{fmt(r.val)} MAD</div>
-                    <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{r.pct!=null?`${r.pct}%`:"—"}</div>
+                  <div key={r.label} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 3, background: CLR[r.color].text, marginTop: 3, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 10, color: "#94A3B8" }}>{r.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace" }}>{fmt(r.val)} MAD</div>
+                      <div style={{ fontSize: 11, color: "#64748B" }}>{r.pct!=null?`${r.pct}%`:"—"}</div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -761,7 +782,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Répartition des commandes par statut</div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: "#F9FAFB" }}>
-                  {["Statut","Nombre","%"].map(h => (
+                  {["Statut","Nombre","%","CA"].map(h => (
                     <th key={h} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, textTransform: "uppercase", color: "#94A3B8", borderBottom: "1px solid #E2E8F0", textAlign: h==="Statut"?"left":"right" }}>{h}</th>
                   ))}
                 </tr></thead>
@@ -771,6 +792,7 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
                       <td style={{ padding: "8px 10px", fontSize: 13 }}>{r.statut}</td>
                       <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600, textAlign: "right" }}>{r.n}</td>
                       <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", color: "#64748B" }}>{r.pct!=null?`${r.pct}%`:"—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "#64748B" }}>{fmt(r.ca)} MAD</td>
                     </tr>
                   ))}
                 </tbody>
