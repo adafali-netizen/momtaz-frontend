@@ -272,7 +272,6 @@ export default function Commandes({ role, nom, navigate }) {
   const pct      = s => total > 0 ? Math.round((cnt(s) / total) * 100) : 0;
   const livrees  = cnt("Livrée") + cnt("Facturée");
   const tauxLivr = total > 0 ? Math.round((livrees / total) * 100) : 0;
-  const retours  = cnt("Retour en cours") + cnt("Demande de retour");
 
   const heroColor  = tauxLivr >= 60 ? "#16A34A" : tauxLivr >= 45 ? "#D97706" : total > 0 ? "#DC2626" : "#CBD5E1";
   const heroBg     = tauxLivr >= 60 ? "#F0FDF4" : tauxLivr >= 45 ? "#FFFBEB" : total > 0 ? "#FEF2F2" : "#fff";
@@ -314,12 +313,6 @@ export default function Commandes({ role, nom, navigate }) {
 
   return (
     <>
-      {retours > 0 && (
-        <div style={{ margin: "16px 24px 0", padding: "10px 16px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#DC2626", fontWeight: 600 }}>
-          🔴 {retours} retour{retours > 1 ? "s" : ""} en cours
-        </div>
-      )}
-
       {/* ── BANDEAU KPI ── */}
       <div style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0", padding: "20px 24px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
