@@ -164,12 +164,16 @@ function SectionCard({ children, borderColor, style = {} }) {
     </div>
   );
 }
-function SectionHeader({ title, dot, onAnalyse }) {
+function SectionHeader({ title, dot, onAnalyse, expanded, onToggle }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 8, cursor: onToggle ? "pointer" : "default" }}
+        onClick={onToggle}
+      >
         {dot && <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot.text }} />}
         <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: "#0F172A" }}>{title}</span>
+        {onToggle && <span style={{ fontSize: 10, color: "#94A3B8" }}>{expanded ? "▾" : "▸"}</span>}
       </div>
       {onAnalyse && (
         <button onClick={e => { e.stopPropagation(); onAnalyse(); }}
@@ -210,6 +214,7 @@ export default function Dashboard({ role, nom, setModule }) {
   const [data,      setData]      = useState(null);
   const [drill,     setDrill]     = useState(null);
   const [curveData, setCurveData] = useState({});
+  const [expandedCard, setExpandedCard] = useState(null); // 'finance' | 'callcenter' | 'livraison' | 'media' | 'stock' | null
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -485,6 +490,89 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
       };
     }).sort((a, b) => (a.margeUnitaire ?? 999) - (b.margeUnitaire ?? 999));
 
+    // ── FINANCE GLOBALE — compte de résultat réel (réconciliation exacte) ──
+    // Chaque champ (caTotal, coutStockTotal, ads, fraisLivrTotal, fraisEmbTotal, fraisRamassageProduit,
+    // fraisConfirmationTotal) est défini sur CHAQUE produit, même sans livrée → la somme reconstitue
+    // exactement la marge nette globale (CA - Stock - Ads - Logistique - Confirmation = Marge).
+    const caLivreGlobal      = sum(prodList.map(p => p.caTotal));
+    const coutStockGlobal    = sum(prodList.map(p => p.coutStockTotal));
+    const adsGlobal          = sum(prodList.map(p => p.ads));
+    const logistiqueGlobal   = sum(prodList.map(p => p.fraisLivrTotal + p.fraisEmbTotal + p.fraisRamassageProduit));
+    const confirmationGlobal = sum(prodList.map(p => p.fraisConfirmationTotal));
+    const margeNetteGlobale  = caLivreGlobal - coutStockGlobal - adsGlobal - logistiqueGlobal - confirmationGlobal;
+    const margePctGlobal     = caLivreGlobal > 0 ? Math.round((margeNetteGlobale / caLivreGlobal) * 100) : null;
+    const margeSignal        = caLivreGlobal === 0 ? CLR.slate : margeNetteGlobale > 0 ? CLR.green : CLR.red;
+
+    const compteResultat = [
+      { label: "Chiffre d'affaires", val: caLivreGlobal,    sign: "+", pct: 100 },
+      { label: "Achat de stock",     val: coutStockGlobal,  sign: "−", pct: caLivreGlobal > 0 ? Math.round(coutStockGlobal   / caLivreGlobal * 100) : null },
+      { label: "Ads",                val: adsGlobal,        sign: "−", pct: caLivreGlobal > 0 ? Math.round(adsGlobal         / caLivreGlobal * 100) : null },
+      { label: "Logistique",         val: logistiqueGlobal, sign: "−", pct: caLivreGlobal > 0 ? Math.round(logistiqueGlobal  / caLivreGlobal * 100) : null },
+      { label: "Confirmation",       val: confirmationGlobal, sign: "−", pct: caLivreGlobal > 0 ? Math.round(confirmationGlobal / caLivreGlobal * 100) : null },
+    ];
+
+    // ── FINANCE — répartition du capital (où est l'argent en ce moment) ──
+    const capitalTransitCout = sum(cmdTransit.map(c => parseFloat(prodMap[c.produit]?.cout_achat) || 0));
+    const capitalRetoursCout = sum(cmdRetours.map(c => parseFloat(prodMap[c.produit]?.cout_achat) || 0));
+    const capitalTotal = capitalImmobilise + solde + capitalTransitCout + capitalRetoursCout;
+    const repartitionCapital = [
+      { label: "Stock disponible (entrepôt)", val: capitalImmobilise },
+      { label: "Cash en banque",              val: solde },
+      { label: "Expédié / en cours de livraison", val: capitalTransitCout },
+      { label: "En retour (en cours)",        val: capitalRetoursCout },
+    ].map(r => ({ ...r, pct: capitalTotal > 0 ? Math.round((r.val / capitalTotal) * 100) : null }));
+
+    // ── CALL CENTER — répartition des leads par statut ──
+    const leadsParStatut = {};
+    leads.forEach(l => {
+      const s = l.statut || "Sans statut";
+      leadsParStatut[s] = (leadsParStatut[s] || 0) + 1;
+    });
+    const repartitionLeads = Object.entries(leadsParStatut)
+      .map(([statut, n]) => ({ statut, n, pct: pct(n, totalLeads) }))
+      .sort((a, b) => b.n - a.n);
+
+    // ── LIVRAISON — répartition des commandes par statut ──
+    const cmdParStatut = {};
+    commandes.forEach(c => {
+      const s = c.statut || "Sans statut";
+      cmdParStatut[s] = (cmdParStatut[s] || 0) + 1;
+    });
+    const repartitionCommandes = Object.entries(cmdParStatut)
+      .map(([statut, n]) => ({ statut, n, pct: pct(n, commandes.length) }))
+      .sort((a, b) => b.n - a.n);
+
+    // ── MEDIA BUYING — cascade CPL → Coût/confirmé → CAC livré ──
+    const coutParConfirme = hasAds && confirmes > 0 ? totalSpend / confirmes : null;
+    const cascadeMedia = [
+      { label: "CPL (média)",              val: cplMoyen,      note: "Coût par lead généré" },
+      { label: "Coût / lead confirmé",     val: coutParConfirme, note: "+ effet call center" },
+      { label: "CAC livré",                val: cplLivre,      note: "+ effet logistique" },
+    ];
+
+    // ── STOCK — détail par produit (unités, valeur, % du stock, rotation) ──
+    const mvtsParProduit = {};
+    (stockMvts || []).forEach(m => {
+      const nom = prodMap[m.produit_id]?.nom;
+      if (!nom) return;
+      if (!mvtsParProduit[nom]) mvtsParProduit[nom] = { entrees: 0, sorties: 0 };
+      if (m.type === "entree") mvtsParProduit[nom].entrees += parseInt(m.quantite) || 0;
+      if (m.type === "sortie") mvtsParProduit[nom].sorties += parseInt(m.quantite) || 0;
+    });
+    const stockParProduit = produits
+      .filter(p => (p.stock_disponible || 0) > 0 || (mvtsParProduit[p.nom]?.entrees || 0) > 0)
+      .map(p => {
+        const valeur = (p.stock_disponible || 0) * (p.cout_achat || 0);
+        const mv = mvtsParProduit[p.nom] || { entrees: 0, sorties: 0 };
+        return {
+          nom: p.nom, unites: p.stock_disponible || 0, valeur,
+          pct: capitalImmobilise > 0 ? Math.round((valeur / capitalImmobilise) * 100) : null,
+          rotation: mv.entrees > 0 ? Math.round((mv.sorties / mv.entrees) * 100) : null,
+        };
+      })
+      .sort((a, b) => b.valeur - a.valeur);
+    const nbAReappro = produits.filter(p => (p.stock_disponible || 0) > 0 && (p.stock_disponible || 0) <= 5).length;
+
     // ── TRANSPORTEURS ─────────────────────────────────────────────────────────
     const tMap = {};
     commandes.forEach(c => {
@@ -504,6 +592,11 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
     return {
       releve_ok: releve.length > 0, recettes, depenses, solde, capitalImmobilise,
       finSignal: !releve.length ? CLR.slate : solde > 0 ? CLR.green : solde > -500 ? CLR.amber : CLR.red,
+      margeNetteGlobale, margePctGlobal, margeSignal, caLivreGlobal,
+      compteResultat, repartitionCapital,
+      repartitionLeads, repartitionCommandes,
+      coutParConfirme, cascadeMedia,
+      stockParProduit, nbAReappro,
       tauxLivr, tauxRetour, cmdLivrees: cmdLivrees.length,
       capitalTransit, cmdTransit: cmdTransit.length,
       livrSignal,
@@ -536,31 +629,32 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
       </div>
 
       {/* ══ NIVEAU 1 — VUE GLOBALE (5 blocs départementaux) ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: expandedCard ? 0 : 20 }}>
 
-        <SectionCard borderColor={d.finSignal.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Finance" dot={d.finSignal} onAnalyse={() => setModule("finances")} />
-          <div style={{ fontSize: 22, fontWeight: 800, color: d.solde>=0?CLR.green.dark:CLR.red.dark, fontFamily: "monospace", marginBottom: 4 }}>
-            {d.solde>=0?"+":""}{fmt(d.solde)} MAD
+        <SectionCard borderColor={d.margeSignal.border} style={{ padding: "16px 18px" }}>
+          <SectionHeader title="Finance" dot={d.margeSignal} onAnalyse={() => setModule("finances")}
+            expanded={expandedCard === "finance"} onToggle={() => setExpandedCard(v => v === "finance" ? null : "finance")} />
+          <div style={{ fontSize: 22, fontWeight: 800, color: d.margeNetteGlobale>=0?CLR.green.dark:CLR.red.dark, fontFamily: "monospace", marginBottom: 4 }}>
+            {d.margeNetteGlobale>=0?"+":""}{fmt(d.margeNetteGlobale)} MAD
           </div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Solde net période</div>
-          <div style={{ fontSize: 12, color: CLR.green.text }}>+{fmt(d.recettes)} MAD</div>
-          <div style={{ fontSize: 12, color: CLR.red.text }}>−{fmt(d.depenses)} MAD</div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Marge nette globale</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: d.margePctGlobal!=null && d.margePctGlobal>=0?CLR.green.text:CLR.red.text }}>
+            {d.margePctGlobal!=null ? `${d.margePctGlobal>=0?"+":""}${d.margePctGlobal}%` : "—"} <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>marge / CA</span>
+          </div>
         </SectionCard>
 
         <SectionCard borderColor={d.livrSignal.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Livraison" dot={d.livrSignal} onAnalyse={() => setModule("commandes")} />
+          <SectionHeader title="Livraison" dot={d.livrSignal} onAnalyse={() => setModule("commandes")}
+            expanded={expandedCard === "livraison"} onToggle={() => setExpandedCard(v => v === "livraison" ? null : "livraison")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: d.livrSignal.dark, marginBottom: 4 }}>{d.tauxLivr??"—"}{d.tauxLivr!=null?"%":""}</div>
           <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux livraison</div>
           <Bar value={d.tauxLivr} color={d.livrSignal} />
-          <div style={{ marginTop: 8, fontSize: 11 }}>
-            <div style={{ color: CLR.red.text }}>Retours : {d.tauxRetour??"0"}{d.tauxRetour!=null?"%":""}</div>
-            <div style={{ color: "#64748B" }}>En transit : {d.cmdTransit} cmd · {fmt(d.capitalTransit)} MAD</div>
-          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: CLR.red.text }}>Retours : {d.tauxRetour??"0"}{d.tauxRetour!=null?"%":""}</div>
         </SectionCard>
 
         <SectionCard borderColor={d.confSignal.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Call center" dot={d.confSignal} onAnalyse={() => setModule("leads")} />
+          <SectionHeader title="Call center" dot={d.confSignal} onAnalyse={() => setModule("leads")}
+            expanded={expandedCard === "callcenter"} onToggle={() => setExpandedCard(v => v === "callcenter" ? null : "callcenter")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: d.confSignal.dark, marginBottom: 4 }}>{d.tauxConf??"—"}{d.tauxConf!=null?"%":""}</div>
           <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 4 }}>Taux confirmation</div>
           <Bar value={d.tauxConf} color={d.confSignal} />
@@ -570,31 +664,162 @@ PS[c.produit].fraisEmbTotal += parseFloat(c.frais_emballage_stockage) || prod_?.
         </SectionCard>
 
         <SectionCard borderColor={d.hasAds?CLR.indigo.border:CLR.slate.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Media buying" dot={d.hasAds?CLR.indigo:CLR.slate} onAnalyse={() => setModule("ads")} />
+          <SectionHeader title="Media buying" dot={d.hasAds?CLR.indigo:CLR.slate} onAnalyse={() => setModule("ads")}
+            expanded={expandedCard === "media"} onToggle={() => setExpandedCard(v => v === "media" ? null : "media")} />
           {!d.hasAds ? (
             <div style={{ fontSize: 12, color: "#94A3B8" }}>Aucune dépense ads</div>
           ) : (
             <>
-              <div style={{ fontSize: 22, fontWeight: 800, color: CLR.indigo.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.totalSpend)} MAD</div>
-              <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Dépense ads</div>
-              <div style={{ fontSize: 12, color: "#64748B" }}>CPL : {d.cplMoyen!=null?`${fmt(d.cplMoyen)} MAD`:"—"}</div>
-              <div style={{ fontSize: 12, color: "#64748B" }}>CPL/livré : {d.cplLivre!=null?`${fmt(d.cplLivre)} MAD`:"—"}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: CLR.indigo.dark, marginBottom: 4, fontFamily: "monospace" }}>
+                {d.cplLivre!=null?`${fmt(d.cplLivre)} MAD`:"—"}
+              </div>
+              <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>CAC livré (coût réel/commande)</div>
+              <div style={{ fontSize: 12, color: "#64748B" }}>CPL média : {d.cplMoyen!=null?`${fmt(d.cplMoyen)} MAD`:"—"}</div>
             </>
           )}
         </SectionCard>
 
         <SectionCard borderColor={CLR.slate.border} style={{ padding: "16px 18px" }}>
-          <SectionHeader title="Stock" dot={CLR.slate} onAnalyse={() => setModule("produits")} />
+          <SectionHeader title="Stock" dot={d.nbAReappro>0?CLR.amber:CLR.slate} onAnalyse={() => setModule("produits")}
+            expanded={expandedCard === "stock"} onToggle={() => setExpandedCard(v => v === "stock" ? null : "stock")} />
           <div style={{ fontSize: 22, fontWeight: 800, color: CLR.slate.dark, marginBottom: 4, fontFamily: "monospace" }}>{fmt(d.capitalImmobilise)} MAD</div>
-          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>Capital immobilisé</div>
-          {d.transStats.slice(0,2).map(t => (
-            <div key={t.nom} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-              <span style={{ color: "#64748B" }}>{t.nom}</span>
-              <Pill color={gradeClr[t.grade]}>{t.grade}</Pill>
-            </div>
-          ))}
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Capital immobilisé</div>
+          <div style={{ fontSize: 12, color: d.nbAReappro>0?CLR.amber.text:"#64748B" }}>
+            {d.nbAReappro>0 ? `⚠ ${d.nbAReappro} produit(s) à réapprovisionner` : "✓ Stock suffisant"}
+          </div>
         </SectionCard>
       </div>
+
+      {/* ══ DROPDOWN — détail de la carte sélectionnée ══ */}
+      {expandedCard && (
+        <SectionCard style={{ marginBottom: 20, marginTop: 14 }}>
+
+          {expandedCard === "finance" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Compte de résultat (période)</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 22 }}>
+                <thead><tr style={{ background: "#F9FAFB" }}>
+                  {["Poste","Valeur","% du CA"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, textTransform: "uppercase", color: "#94A3B8", borderBottom: "1px solid #E2E8F0", textAlign: h==="Poste"?"left":"right" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {d.compteResultat.map(r => (
+                    <tr key={r.label} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 13 }}>{r.label}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600, textAlign: "right", fontFamily: "monospace", color: r.sign==="−"?CLR.red.text:CLR.green.text }}>{r.sign}{fmt(r.val)} MAD</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", color: "#64748B" }}>{r.pct!=null?`${r.pct}%`:"—"}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: d.margeNetteGlobale>=0?CLR.green.bg:CLR.red.bg }}>
+                    <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 700 }}>= Marge nette globale</td>
+                    <td style={{ padding: "8px 10px", fontSize: 14, fontWeight: 800, textAlign: "right", fontFamily: "monospace", color: d.margeNetteGlobale>=0?CLR.green.dark:CLR.red.dark }}>{d.margeNetteGlobale>=0?"+":""}{fmt(d.margeNetteGlobale)} MAD</td>
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, textAlign: "right" }}>{d.margePctGlobal!=null?`${d.margePctGlobal}%`:"—"}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Répartition du capital — où est l'argent</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                {d.repartitionCapital.map(r => (
+                  <div key={r.label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>{r.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "monospace" }}>{fmt(r.val)} MAD</div>
+                    <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{r.pct!=null?`${r.pct}%`:"—"}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {expandedCard === "callcenter" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Répartition des leads par statut</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: "#F9FAFB" }}>
+                  {["Statut","Nombre","%"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, textTransform: "uppercase", color: "#94A3B8", borderBottom: "1px solid #E2E8F0", textAlign: h==="Statut"?"left":"right" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {d.repartitionLeads.map(r => (
+                    <tr key={r.statut} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 13 }}>{r.statut}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600, textAlign: "right" }}>{r.n}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", color: "#64748B" }}>{r.pct!=null?`${r.pct}%`:"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {expandedCard === "livraison" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Répartition des commandes par statut</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: "#F9FAFB" }}>
+                  {["Statut","Nombre","%"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, textTransform: "uppercase", color: "#94A3B8", borderBottom: "1px solid #E2E8F0", textAlign: h==="Statut"?"left":"right" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {d.repartitionCommandes.map(r => (
+                    <tr key={r.statut} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 13 }}>{r.statut}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600, textAlign: "right" }}>{r.n}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", color: "#64748B" }}>{r.pct!=null?`${r.pct}%`:"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {expandedCard === "media" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Cascade coût réel — média → call center → logistique</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                {d.cascadeMedia.map((c, i) => (
+                  <div key={c.label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "12px 14px", position: "relative" }}>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 4 }}>{c.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: CLR.indigo.dark }}>{c.val!=null?`${fmt(c.val)} MAD`:"—"}</div>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 4 }}>{c.note}</div>
+                    {i < d.cascadeMedia.length - 1 && (
+                      <div style={{ position: "absolute", right: -18, top: "50%", transform: "translateY(-50%)", fontSize: 16, color: "#CBD5E1" }}>→</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {expandedCard === "stock" && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#94A3B8", marginBottom: 10 }}>Répartition du stock par produit</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: "#F9FAFB" }}>
+                  {["Produit","Unités","Valeur","% du stock","Rotation"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 600, textTransform: "uppercase", color: "#94A3B8", borderBottom: "1px solid #E2E8F0", textAlign: h==="Produit"?"left":"right" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {d.stockParProduit.map(s => (
+                    <tr key={s.nom} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600 }}>{s.nom}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 13, textAlign: "right" }}>{s.unites} u</td>
+                      <td style={{ padding: "8px 10px", fontSize: 13, textAlign: "right", fontFamily: "monospace" }}>{fmt(s.valeur)} MAD</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", color: "#64748B" }}>{s.pct!=null?`${s.pct}%`:"—"}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, textAlign: "right", color: s.rotation!=null && s.rotation>=50?CLR.green.text:CLR.amber.text }}>{s.rotation!=null?`${s.rotation}%`:"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+        </SectionCard>
+      )}
 
       {/* ══ NIVEAU 2 — DÉTAIL PAR PRODUIT (marge réelle, décomposition, drill-down) ══ */}
       <SectionCard style={{ marginBottom: 20 }}>
