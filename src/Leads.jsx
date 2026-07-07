@@ -110,23 +110,22 @@ function ZoneTraitement({ lead, onUpdate, ancienStatut }) {
 function LeadCard({ lead, selected, onClick }) {
   const urgent  = isUrgent(lead);
   const overdue = isOverdue(lead);
-  const fermé   = ["Annulé", "Pas intéressé", "Numéro faux"].includes(lead.statut);
   const confirmé = lead.statut === "Confirmé";
   const m = S[lead.statut] || S["Pas intéressé"];
   const accentColor = overdue ? "#D97706" : urgent ? "#DC2626" : confirmé ? "#16A34A" : selected ? "#2563EB" : "transparent";
   return (
     <div onClick={onClick} style={{
-      background: selected ? "#F0F7FF" : fermé ? "#FAFBFC" : "#fff",
+      background: selected ? "#F0F7FF" : "#fff",
       border: `1px solid ${selected ? "#BFDBFE" : urgent ? "#FECACA" : overdue ? "#FDE68A" : "#E2E8F0"}`,
       borderLeft: `3px solid ${accentColor}`,
       borderRadius: 8, padding: "10px 12px", marginBottom: 4,
-      cursor: "pointer", transition: "all .12s", opacity: fermé ? 0.55 : 1,
+      cursor: "pointer", transition: "all .12s",
       boxShadow: selected ? "0 0 0 3px #2563EB10" : "none",
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
           {(urgent || overdue) && <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: urgent ? "#DC2626" : "#D97706" }} />}
-          <span style={{ fontWeight: 700, fontSize: 13, color: fermé ? "#94A3B8" : "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {lead.client_nom || "Sans nom"}
           </span>
           {urgent  && <span style={{ fontSize: 9, fontWeight: 800, color: "#DC2626", background: "#FEF2F2", padding: "1px 5px", borderRadius: 3, flexShrink: 0 }}>URGENT</span>}
