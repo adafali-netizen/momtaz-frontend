@@ -15,6 +15,17 @@ import "./App.css";
 
 const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "finances", "releve-bancaire", "dashboard-analytique", "paiements-conseilleres"];
 
+// Modules accessibles par rôle. Une conseillère ne voit que ses leads, ses commandes et ses paiements.
+const MODULES_CONSEILLERE = ["leads", "commandes", "paiements-conseilleres"];
+
+function allowedModules(role) {
+  return role === "admin" ? VALID_MODULES : MODULES_CONSEILLERE;
+}
+
+function defaultModule(role) {
+  return role === "admin" ? "dashboard" : "leads";
+}
+
 function getModuleFromHash() {
   const hash = window.location.hash.replace("#", "");
   return VALID_MODULES.includes(hash) ? hash : "dashboard";
@@ -47,13 +58,17 @@ export default function App() {
     window.location.hash = mod;
   }
 
-  const role = session?.user?.user_metadata?.role || "conseillere";
-  const nom  = session?.user?.user_metadata?.nom  || session?.user?.email;
+  // Le rôle vient de app_metadata : ce champ n'est modifiable que côté serveur (SQL ou clé service).
+  // user_metadata est modifiable par l'utilisateur lui-même, il ne doit jamais porter un droit.
+  const role = session?.user?.app_metadata?.role === "admin" ? "admin" : "conseillere";
+  const nom  = session?.user?.app_metadata?.nom || session?.user?.user_metadata?.nom || session?.user?.email;
+  const allowed = allowedModules(role);
+  const activeModule = allowed.includes(module) ? module : defaultModule(role);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
-    window.location.hash = "dashboard";
+    window.location.hash = "";
   };
 
   if (authLoading) return <div className="loading-screen"><span className="loading-dot" />Connexion...</div>;
@@ -72,12 +87,13 @@ export default function App() {
     "paiements-conseilleres":   PaiementsConseilleres,
   };
 
-  const Active = MODULES[module] || Dashboard;
+  const Active = MODULES[activeModule];
 
   return (
     <Layout
-      currentModule={module}
+      currentModule={activeModule}
       setModule={mod => navigate(mod)}
+      allowedModules={allowed}
       role={role}
       nom={nom}
       onLogout={handleLogout}
