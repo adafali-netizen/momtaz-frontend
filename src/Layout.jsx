@@ -23,7 +23,8 @@ const PAGE_TITLES = {
   "dashboard-analytique":     { title: "Dashboard Analytique", sub: "CPL MAX, marge nette, décisions" },
 };
 
-export default function Layout({ currentModule, setModule, role, nom, onLogout, children }) {
+export default function Layout({ currentModule, setModule, allowedModules, role, nom, onLogout, children }) {
+  const navItems  = NAV.filter(item => !allowedModules || allowedModules.includes(item.id));
   const page      = PAGE_TITLES[currentModule] || PAGE_TITLES.dashboard;
   const today     = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const activeNav = currentModule === "stock-historique" ? "produits" : currentModule;
@@ -38,7 +39,7 @@ export default function Layout({ currentModule, setModule, role, nom, onLogout, 
         </div>
         <nav className="sidebar-nav">
           <div className="sidebar-section-label">Navigation</div>
-          {NAV.map(item => (
+          {navItems.map(item => (
             <button
               key={item.id}
               className={`nav-item${activeNav === item.id ? " active" : ""}`}
@@ -48,11 +49,6 @@ export default function Layout({ currentModule, setModule, role, nom, onLogout, 
               {item.label}
             </button>
           ))}
-          <div className="nav-divider" />
-          <button className="nav-item" onClick={() => setModule("parametres")}>
-            <span className="nav-icon">⚙️</span>
-            Paramètres
-          </button>
         </nav>
       </aside>
 
