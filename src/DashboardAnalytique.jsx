@@ -45,8 +45,7 @@ const RADIUS = "10px";
 const BORDER = `1px solid ${CLR.borderLight}`;
 
 // ─── Constantes métier ────────────────────────────────────────────────────────
-const FRAIS_EMBALLAGE    = 0;
-const FRAIS_CONFIRMATION = 0;
+const FRAIS_CONFIRMATION_DEFAUT = 10; // MAD par commande livrée, si le paramètre Supabase est absent
 const SEUIL_CONF = 35;
 const SEUIL_LIVR = 55;
 const STATUTS_LIVRES   = ["Livrée", "Facturée"];
@@ -89,11 +88,15 @@ const getMontant = r =>
   parseFloat(r.montant) ||
   (r.credit ? +r.credit : r.debit ? -Math.abs(+r.debit) : 0);
 
-function calcMarge(row, prodMap) {
+// Marge par commande livrée, AVANT publicité :
+// prix − coût produit − livraison − emballage − confirmation
+function calcMarge(row, prodMap, fraisConf) {
+  const prod      = prodMap[row.produit];
   const prix      = parseFloat(row.prix) || 0;
-  const cout      = parseFloat(prodMap[row.produit]?.cout_achat) || 0;
+  const cout      = parseFloat(prod?.cout_achat) || 0;
   const fraisLivr = parseFloat(row.frais_livraison) || 0;
-  return prix - cout - fraisLivr;
+  const fraisEmb  = parseFloat(row.frais_emballage_stockage) || parseFloat(prod?.frais_emballage_stockage) || 0;
+  return prix - cout - fraisLivr - fraisEmb - (fraisConf || 0);
 }
 
 function decisionBadge(leads, livrees, marge) {
@@ -278,10 +281,10 @@ export default function DashboardAnalytique() {
 
     const [
       { data: commandes }, { data: leads }, { data: adsSpend },
-      { data: releve },    { data: produits },
+      { data: releve },    { data: produits }, { data: parametres },
     ] = await Promise.all([
       supabase.from("commandes")
-        .select("id, created_at, statut, prix, frais_livraison, transporteur, conseillere, produit")
+        .select("id, created_at, statut, prix, frais_livraison, frais_emballage_stockage, transporteur, conseillere, produit")
         .gte("created_at", s2Str).lte("created_at", eStr + "T23:59:59"),
       supabase.from("leads")
         .select("id, created_at, statut, conseillere, produit")
@@ -291,18 +294,22 @@ export default function DashboardAnalytique() {
         .gte("date", sStr).lte("date", eStr),
       supabase.from("releve_bancaire")
         .select("*").order("date", { ascending: false }).limit(60),
-      supabase.from("produits").select("id, nom, cout_achat"),
+      supabase.from("produits").select("id, nom, cout_achat, frais_emballage_stockage"),
+      supabase.from("parametres").select("cle,valeur"),
     ]);
+
+    const paramConf = (parametres || []).find(p => p.cle === "frais_confirmation_par_livraison");
+    const fraisConf = parseFloat(paramConf?.valeur) || FRAIS_CONFIRMATION_DEFAUT;
 
     setData(build({
       commandes: commandes || [], leads: leads || [],
       adsSpend: adsSpend || [], releve: releve || [],
-      produits: produits || [], sStr, eStr, s2Str, diffDays,
+      produits: produits || [], sStr, eStr, s2Str, diffDays, fraisConf,
     }));
     setLoading(false);
   }
 
-  function build({ commandes, leads, adsSpend, releve, produits, sStr, eStr, s2Str, diffDays }) {
+  function build({ commandes, leads, adsSpend, releve, produits, sStr, eStr, s2Str, diffDays, fraisConf }) {
     const prodMap = {};
     produits.forEach(p => { prodMap[p.id] = p; if (p.nom) prodMap[p.nom] = p; });
 
@@ -317,12 +324,12 @@ export default function DashboardAnalytique() {
     }
     cmdLivrees.forEach(c => {
       const k = dateKey(c.created_at);
-      if (byDay[k]) { byDay[k].sum += calcMarge(c, prodMap); byDay[k].n++; }
+      if (byDay[k]) { byDay[k].sum += calcMarge(c, prodMap, fraisConf); byDay[k].n++; }
     });
     const heroLabels = Object.keys(byDay).map(labelDate);
     const heroValues = Object.values(byDay).map(d => d.n ? Math.round(d.sum / d.n) : null);
     const heroAvg    = cmdLivrees.length
-      ? Math.round(cmdLivrees.reduce((s, c) => s + calcMarge(c, prodMap), 0) / cmdLivrees.length)
+      ? Math.round(cmdLivrees.reduce((s, c) => s + calcMarge(c, prodMap, fraisConf), 0) / cmdLivrees.length)
       : null;
     const heroPoints = heroValues.filter(v => v !== null).length;
 
@@ -339,7 +346,7 @@ export default function DashboardAnalytique() {
       const isCurr = dateKey(c.created_at) >= sStr;
       const isPrev = dateKey(c.created_at) >= s2Str && dateKey(c.created_at) < sStr;
       if (STATUTS_LIVRES.includes(c.statut)) {
-        const m = calcMarge(c, prodMap);
+        const m = calcMarge(c, prodMap, fraisConf);
         if (isCurr) PS[nom].cl.push(m);
         if (isPrev) PS[nom].pl.push(m);
       }
@@ -602,11 +609,11 @@ console.log("totalExp:", totalExp, "totalRev:", totalRev, "solde:", solde);
               {heroAvg != null ? `${heroAvg} MAD` : "—"}
             </span>
             {/* POLISH : sous-titre plus affirmé */}
-            <span style={{ fontSize: 15, fontWeight: 600, color: CLR.textSecond }}>marge nette / livré</span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: CLR.textSecond }}>marge avant pub / livré</span>
           </div>
           <div style={{ fontSize: 11, color: CLR.textMuted, marginBottom: 16 }}>
             {heroAvg != null
-              ? `Calculé sur ${cmdLivrees} commandes · prix − coût produit − livraison − ${FRAIS_EMBALLAGE} − ${FRAIS_CONFIRMATION} MAD`
+              ? `Calculé sur ${cmdLivrees} commandes · prix − coût produit − livraison − emballage − confirmation · hors publicité`
               : "Aucune commande livrée sur la période"}
           </div>
           <div style={{ height: 200, margin: "0 -28px" }}>
