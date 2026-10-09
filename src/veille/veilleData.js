@@ -70,7 +70,7 @@ export async function loadComparaison(releveId, relevePages) {
 }
 
 // fichiers : [{ pageId, pageNom, cartes, date, incomplet }] déjà lus et vérifiés
-export async function saveReleve(fichiers, pagesExistantes, produitsExistants) {
+export async function saveReleve(fichiers, pagesExistantes, produitsExistants, source = "mhtml") {
   const connues = new Map(pagesExistantes.map(p => [p.fb_page_id, p]));
 
   // 1. Pages : création des nouvelles, mise à jour du nom et des sites des autres
@@ -93,7 +93,7 @@ export async function saveReleve(fichiers, pagesExistantes, produitsExistants) {
   const nbCartes = fichiers.reduce((s, f) => s + f.cartes.length, 0);
   const nbPubs = fichiers.reduce((s, f) => s + f.cartes.filter(c => !c.low).reduce((t, c) => t + c.nb, 0), 0);
   const { data: rel, error: e1 } = await supabase.from("veille_releves")
-    .insert([{ source: "mhtml", nb_pages: fichiers.length, nb_cartes: nbCartes, nb_pubs: nbPubs }]).select().single();
+    .insert([{ source, nb_pages: fichiers.length, nb_cartes: nbCartes, nb_pubs: nbPubs }]).select().single();
   if (e1) throw e1;
 
   const { error: e2 } = await supabase.from("veille_releve_pages").insert(fichiers.map(f => ({
@@ -155,5 +155,70 @@ export async function addPages(ids) {
 
 export async function deleteReleve(id) {
   const { error } = await supabase.from("veille_releves").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ─── Recherche de pages ───────────────────────────────────────────────────
+
+export async function loadRecherche() {
+  const [motscles, config, recherches, candidats] = await Promise.all([
+    fetchAll(() => supabase.from("veille_motscles").select("*").order("created_at")),
+    fetchAll(() => supabase.from("veille_config").select("*")),
+    fetchAll(() => supabase.from("veille_recherches").select("*").order("id", { ascending: false })),
+    fetchAll(() => supabase.from("veille_candidats")
+      .select("fb_page_id,nom,sites,nb_pubs,nb_produits,site_ecom,cod,categorie,decision,raison,mots_cles,apercus,recherche_id,created_at,decide_le")
+      .order("created_at", { ascending: false })),
+  ]);
+  const crit = config.find(c => c.cle === "criteres");
+  return { motscles, criteres: crit ? crit.valeur : null, recherches, candidats };
+}
+
+export async function addMotCle(mot, source = "manuel") {
+  const { error } = await supabase.from("veille_motscles").upsert([{ mot, source }], { onConflict: "mot", ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+export async function updateMotCle(id, champs) {
+  const { error } = await supabase.from("veille_motscles").update(champs).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteMotCle(id) {
+  const { error } = await supabase.from("veille_motscles").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function saveCriteres(valeur) {
+  const { error } = await supabase.from("veille_config").upsert([{ cle: "criteres", valeur }], { onConflict: "cle" });
+  if (error) throw error;
+}
+
+export async function createRecherche(nbMots) {
+  const { data, error } = await supabase.from("veille_recherches").insert([{ nb_mots: nbMots }]).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateRecherche(id, champs) {
+  const { error } = await supabase.from("veille_recherches").update(champs).eq("id", id);
+  if (error) throw error;
+}
+
+export async function saveCandidat(row) {
+  const { error } = await supabase.from("veille_candidats").upsert([row], { onConflict: "fb_page_id" });
+  if (error) throw error;
+}
+
+export async function loadCandidatCartes(fbPageId) {
+  const { data, error } = await supabase.from("veille_candidats").select("cartes,nom,created_at").eq("fb_page_id", fbPageId).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function decideCandidat(fbPageId, decision, raison) {
+  const champs = { decision, decide_le: new Date().toISOString() };
+  if (raison) champs.raison = raison;
+  if (decision === "eliminee") champs.cartes = null;
+  const { error } = await supabase.from("veille_candidats").update(champs).eq("fb_page_id", fbPageId);
   if (error) throw error;
 }

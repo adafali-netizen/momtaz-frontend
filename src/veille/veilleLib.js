@@ -368,3 +368,99 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
   for (let i = 1; i <= maxC; i++) head.push("Créative " + i);
   return head.join("\t") + "\n" + rows.join("\n") + "\n";
 }
+
+// ─── 7. Relevé automatique (extension) et recherche de pages ──────────────
+
+export const libraryPageUrl = id =>
+  "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&is_targeted_country=false&media_type=all&search_type=page&view_all_page_id=" + id;
+
+export const librarySearchUrl = mot =>
+  "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&is_targeted_country=false&media_type=all&search_type=keyword_unordered&q=" + encodeURIComponent(mot);
+
+function cleanUrl(u) {
+  if (!u) return null;
+  return safeDecode(safeDecode(u)).split("?")[0].replace(/\/+$/, "");
+}
+
+// Publicités renvoyées par l'extension → même format que l'import .mhtml
+export function adsToCartes(ads) {
+  const vus = new Set();
+  const out = [];
+  for (const a of ads || []) {
+    if (vus.has(a.cid)) continue;
+    vus.add(a.cid);
+    out.push({
+      library_id: String(a.id),
+      started_on: a.start ? new Date(a.start * 1000).toISOString().slice(0, 10) : null,
+      nb: a.n || 1,
+      low: /low/i.test(a.imp || ""),
+      url: cleanUrl(a.url),
+      format: a.video ? "Vidéo" : "Image",
+      media: a.video || a.image || null,
+      thumb: a.thumb || a.image || null,
+      texte: [a.title, a.text].filter(Boolean).join(" · ").replace(/\s+/g, " ").slice(0, 300),
+    });
+  }
+  return out;
+}
+
+const MESSAGERIE = /(^|\.)(wa\.me|whatsapp\.com|m\.me|messenger\.com|instagram\.com|facebook\.com|fb\.me|fb\.com|t\.me|tiktok\.com)$/i;
+const COD = /الدفع\s*عند\s*(الاستلام|التسليم|التوصل)|الخلاص\s*عند|livraison\s+gratuite|paiement\s+(à|a)\s+la\s+livraison|payez\s+(à|a)\s+la\s+livraison|cash\s+on\s+delivery|توصيل\s*(مجاني|بالمجان|فابور)|التوصيل\s*(مجاني|بالمجان|فابور)|\d+\s*(dh|dhs|mad|درهم)\b/i;
+
+export const CATEGORIES = {
+  vetements:   { label: "Vêtements",   re: /\b(robe|jellaba|djellaba|caftan|kaftan|abaya|t-?shirt|pantalon|chemise|hoodie|sweat|jupe|survêtement|pyjama|lingerie|jean|veste|manteau|hijab)s?\b|ملابس|جلابة|جلابية|قفطان|عباية|سروال|قميص|فستان|كسوة|بيجامة|حجاب/i },
+  cosmetiques: { label: "Cosmétiques", re: /\b(crème|creme|sérum|serum|cosmétique|cosmetique|maquillage|rouge à lèvres|mascara|parfum|shampo?oing|soin du visage|anti-?rides|blanchissant|skincare)s?\b|كريم|سيروم|مكياج|عطر|العناية بالبشرة|تبييض|شامبو/i },
+  immobilier:  { label: "Immobilier",  re: /\b(appartement|villa|terrain|immobilier|immobilière|lotissement|duplex|studio à vendre|à louer)s?\b|شقة|شقق|عقار|أرض للبيع|فيلا|للكراء|للبيع شقة/i },
+  services:    { label: "Services",    re: /\b(clinique|cabinet|dentiste|agence|nettoyage à domicile|plombier|déménagement|assurance|avocat|visa|location de voiture)s?\b|عيادة|طبيب|وكالة|تأمين|محامي|كراء السيارات/i },
+  restaurants: { label: "Restaurants", re: /\b(restaurant|pizza|burger|tacos|snack|menu du jour|livraison de repas)s?\b|مطعم|بيتزا|وجبة|وجبات/i },
+  formations:  { label: "Formations",  re: /\b(formation|cours|école|ecole|inscription|diplôme|certificat|coaching|webinaire|masterclass)s?\b|تكوين|دورة|دورات|مدرسة|تسجيل|شهادة|كوتشينغ/i },
+  auto:        { label: "Auto",        re: /\b(voiture d'occasion|concessionnaire|véhicule neuf|crédit auto|essai routier)s?\b|سيارة للبيع|سيارات مستعملة/i },
+};
+
+function categorie(ads) {
+  const scores = {};
+  for (const a of ads) {
+    const t = [a.title, a.text, a.caption, a.url].filter(Boolean).join(" ");
+    for (const [k, c] of Object.entries(CATEGORIES)) if (c.re.test(t)) scores[k] = (scores[k] || 0) + (a.n || 1);
+  }
+  const total = ads.reduce((s, a) => s + (a.n || 1), 0) || 1;
+  const best = Object.entries(scores).sort((x, y) => y[1] - x[1])[0];
+  // Catégorie retenue seulement si elle concerne au moins 40 % des pubs
+  return best && best[1] / total >= 0.4 ? best[0] : null;
+}
+
+export const CRITERES_DEFAUT = { minPubs: 10, minProduits: 3, siteObligatoire: true, codObligatoire: true, vetementsMinPubs: 20, exclues: ["cosmetiques", "immobilier", "services", "restaurants", "formations", "auto"] };
+
+// Décide si une page découverte ressemble aux tiennes : gardee, a_valider ou eliminee
+export function evaluatePage(ads, crit0) {
+  const crit = { ...CRITERES_DEFAUT, ...(crit0 || {}) };
+  const cartes = adsToCartes(ads);
+  const actives = cartes.filter(c => !c.low);
+  const pubs = actives.reduce((s, c) => s + c.nb, 0);
+  const produits = new Set(cartes.filter(c => c.url).map(c => productKey(c.url))).size;
+  const avecLien = cartes.filter(c => c.url);
+  const ecom = avecLien.filter(c => { const s = siteOf(c.url); return s && !MESSAGERIE.test(s); });
+  const siteEcom = ecom.length > 0 && ecom.length >= avecLien.length / 2;
+  const cod = (ads || []).some(a => COD.test([a.title, a.text, a.caption].filter(Boolean).join(" ")));
+  const cat = categorie(ads || []);
+  const sites = [...new Set(ecom.map(c => siteOf(c.url)).filter(s => s !== "bit.ly"))].slice(0, 3).join(", ") || null;
+
+  const echecs = [];
+  let dur = false;
+  if (cat && cat !== "vetements" && crit.exclues.includes(cat)) { echecs.push("Catégorie exclue : " + CATEGORIES[cat].label); dur = true; }
+  const seuilPubs = cat === "vetements" ? crit.vetementsMinPubs : crit.minPubs;
+  if (pubs < seuilPubs) {
+    echecs.push(cat === "vetements" ? `Vêtements, ${pubs} pubs (moins de ${seuilPubs})` : `Seulement ${pubs} pubs actives (minimum ${seuilPubs})`);
+    if (pubs < Math.ceil(seuilPubs / 2)) dur = true;
+  }
+  if (produits < crit.minProduits) {
+    echecs.push(produits <= 1 ? "1 seul produit" : `${produits} produits seulement (minimum ${crit.minProduits})`);
+    if (produits <= 1) dur = true;
+  }
+  if (crit.siteObligatoire && !siteEcom) echecs.push(avecLien.length ? "Pas de site e-commerce, commandes par messagerie" : "Aucun lien dans les pubs");
+  if (crit.codObligatoire && !cod) echecs.push("Pas de signe de paiement à la livraison");
+
+  const decision = echecs.length === 0 ? "gardee" : (!dur && echecs.length === 1) ? "a_valider" : "eliminee";
+  const apercus = cartes.filter(c => c.thumb).sort((a, b) => b.nb - a.nb).slice(0, 3).map(c => ({ thumb: c.thumb, id: c.library_id }));
+  return { cartes, pubs, produits, siteEcom, cod, categorie: cat, sites, decision, raison: echecs.join(" · ") || "Tous les critères sont remplis", apercus };
+}
