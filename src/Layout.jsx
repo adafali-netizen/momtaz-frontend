@@ -9,6 +9,7 @@ const NAV = [
   { id: "finances",               label: "Finances",    icon: "💰" },
   { id: "paiements-conseilleres", label: "Paiements",   icon: "💸" },
   { id: "dashboard-analytique",   label: "Analytique",  icon: "📈" },
+  { id: "veille",                 label: "Veille",      icon: "🔎" },
 ];
 
 const PAGE_TITLES = {
@@ -21,6 +22,7 @@ const PAGE_TITLES = {
   finances:                   { title: "Finances",             sub: "Relevé bancaire · Journal des mouvements" },
   "paiements-conseilleres":   { title: "Paiements Conseillères", sub: "Relevés traçables · 10 MAD par commande livrée" },
   "dashboard-analytique":     { title: "Dashboard Analytique", sub: "CPL MAX, marge nette, décisions" },
+  veille:                     { title: "Veille",               sub: "Produits des concurrents à lancer" },
 };
 
 export default function Layout({ currentModule, setModule, allowedModules, role, nom, onLogout, children }) {

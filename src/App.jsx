@@ -11,9 +11,10 @@ import StockHistorique from "./StockHistorique";
 import DashboardAnalytique from "./DashboardAnalytique";
 import ReleveBancaire from "./Finances";
 import PaiementsConseilleres from "./pages/PaiementsConseilleres";
+import Veille from "./Veille";
 import "./App.css";
 
-const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "finances", "releve-bancaire", "dashboard-analytique", "paiements-conseilleres"];
+const VALID_MODULES = ["dashboard", "leads", "commandes", "produits", "ads", "stock-historique", "finances", "releve-bancaire", "dashboard-analytique", "paiements-conseilleres", "veille"];
 
 // Modules accessibles par rôle. Une conseillère ne voit que ses leads, ses commandes et ses paiements.
 const MODULES_CONSEILLERE = ["leads", "commandes", "paiements-conseilleres"];
@@ -85,6 +86,7 @@ export default function App() {
     "releve-bancaire":          ReleveBancaire,
     "dashboard-analytique":     DashboardAnalytique,
     "paiements-conseilleres":   PaiementsConseilleres,
+    veille:                     Veille,
   };
 
   const Active = MODULES[activeModule];
