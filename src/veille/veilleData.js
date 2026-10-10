@@ -232,3 +232,74 @@ export async function decideCandidat(fbPageId, decision, raison) {
   const { error } = await supabase.from("veille_candidats").update(champs).eq("fb_page_id", fbPageId);
   if (error) throw error;
 }
+
+// ─── Relevé enregistré page par page (relevé automatique) ─────────────────
+
+const propreTexte = v => (typeof v === "string" ? v.replace(/\u0000/g, "") : v);
+
+export async function startReleve(source = "extension") {
+  const { data, error } = await supabase.from("veille_releves")
+    .insert([{ source, nb_pages: 0, nb_cartes: 0, nb_pubs: 0 }]).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// Enregistre une page dans un relevé déjà créé. produitsConnus : Set "page|clé" mis à jour au fil de l'eau
+export async function addPageReleve(releveId, f, pagesConnues, produitsConnus) {
+  const sites = [...new Set(f.cartes.map(c => siteOf(c.url)).filter(s => s && s !== "bit.ly"))].slice(0, 3).join(", ") || null;
+  if (!pagesConnues.has(f.pageId)) {
+    const { error } = await supabase.from("veille_pages").upsert([{ fb_page_id: f.pageId, nom: f.pageNom, sites, actif: true }], { onConflict: "fb_page_id" });
+    if (error) throw new Error("page : " + error.message);
+    pagesConnues.add(f.pageId);
+  } else {
+    const maj = { actif: true };
+    if (f.pageNom) maj.nom = f.pageNom;
+    if (sites) maj.sites = sites;
+    await supabase.from("veille_pages").update(maj).eq("fb_page_id", f.pageId);
+  }
+
+  const nbPubs = f.cartes.filter(c => !c.low).reduce((t, c) => t + c.nb, 0);
+  const lignes = f.cartes.map(c => ({
+    releve_id: releveId, fb_page_id: f.pageId, library_id: String(c.library_id), started_on: c.started_on || null,
+    nb: Number(c.nb) || 1, low: !!c.low, url: propreTexte(c.url), produit_key: productKey(c.url), format: c.format,
+    media: propreTexte(c.media), thumb: propreTexte(c.thumb), texte: propreTexte(c.texte),
+  }));
+  for (let i = 0; i < lignes.length; i += 100) {
+    const { error } = await supabase.from("veille_pubs").insert(lignes.slice(i, i + 100));
+    if (error) {
+      await supabase.from("veille_pubs").delete().eq("releve_id", releveId).eq("fb_page_id", f.pageId);
+      throw new Error("publicités : " + error.message);
+    }
+  }
+  const { error: e2 } = await supabase.from("veille_releve_pages").upsert([{
+    releve_id: releveId, fb_page_id: f.pageId, capture_le: f.date.toISOString(), incomplet: false,
+    nb_cartes: f.cartes.length, nb_pubs: nbPubs,
+  }], { onConflict: "releve_id,fb_page_id" });
+  if (e2) {
+    await supabase.from("veille_pubs").delete().eq("releve_id", releveId).eq("fb_page_id", f.pageId);
+    throw new Error("relevé de la page : " + e2.message);
+  }
+
+  const nouveaux = new Map();
+  for (const l of lignes) {
+    const k = l.fb_page_id + "|" + l.produit_key;
+    if (produitsConnus.has(k) || nouveaux.has(k)) continue;
+    const nom = defaultName(l.url, l.texte);
+    nouveaux.set(k, { fb_page_id: l.fb_page_id, produit_key: l.produit_key, nom, groupe: nom, url: l.url && !/bit\.ly/i.test(l.url) ? l.url : null, risque_sante: risqueSante(nom) });
+  }
+  if (nouveaux.size) {
+    const { error } = await supabase.from("veille_produits").upsert([...nouveaux.values()], { onConflict: "fb_page_id,produit_key", ignoreDuplicates: true });
+    if (error) throw new Error("produits : " + error.message);
+    for (const k of nouveaux.keys()) produitsConnus.add(k);
+  }
+  return { nbCartes: f.cartes.length, nbPubs, nbNouveauxProduits: nouveaux.size };
+}
+
+export async function finishReleve(releveId, totaux) {
+  if (!totaux.nb_pages) {
+    await supabase.from("veille_releves").delete().eq("id", releveId);
+    return;
+  }
+  const { error } = await supabase.from("veille_releves").update(totaux).eq("id", releveId);
+  if (error) throw error;
+}

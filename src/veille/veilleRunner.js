@@ -2,7 +2,7 @@
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl } from "./veilleLib";
 import { releverUrl } from "./veilleExt";
 import {
-  saveReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
+  saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
 } from "./veilleData";
 
 // Pause entre deux pages Facebook (30 à 60 s) pour relever à un rythme humain
@@ -111,7 +111,7 @@ export async function lancerRecherche(ctx, ctl) {
   return compte;
 }
 
-// Relève toutes les pages suivies et enregistre un relevé
+// Réessaie d'enregistrer les pages relevées dont l'enregistrement a échoué
 export async function reessayerEnregistrement(ctx) {
   const fichiers = window.__momtazReleveNonEnregistre;
   if (!fichiers || !fichiers.length) return { nbPages: 0 };
@@ -120,9 +120,15 @@ export async function reessayerEnregistrement(ctx) {
   return { nbPages: fichiers.length };
 }
 
+// Relève toutes les pages suivies. Chaque page est enregistrée dès qu'elle est relevée :
+// rien n'est perdu si le relevé s'arrête en route.
 export async function lancerReleve(ctx, ctl) {
   const pages = ctx.pages.filter(p => p.actif);
-  const fichiers = [];
+  const pagesConnues = new Set(ctx.pages.map(p => p.fb_page_id));
+  const produitsConnus = new Set(ctx.produits.map(p => p.fb_page_id + "|" + p.produit_key));
+  const totaux = { nb_pages: 0, nb_cartes: 0, nb_pubs: 0 };
+  const echecs = [];
+  let rel = null;
   try {
     for (let i = 0; i < pages.length && !ctl.stop; i++) {
       if (i > 0) await pause(ctl, `Relevé ${i}/${pages.length}`);
@@ -135,22 +141,25 @@ export async function lancerReleve(ctx, ctl) {
         x => ctl.status(`${label} : ${x.pubs} créatives lues`));
       verifierBlocage(res);
       const cartes = adsToCartes(res.ads);
-      ctl.log(`${nom} : ${cartes.length} créatives`);
-      if (cartes.length) fichiers.push({ pageId: p.fb_page_id, pageNom: (res.ads[0] && res.ads[0].page_name) || p.nom, cartes, date: new Date() });
-    }
-  } finally {
-    if (fichiers.length) {
-      ctl.status(`Enregistrement du relevé (${fichiers.length} pages)…`);
+      if (!cartes.length) { ctl.log(`${nom} : aucune pub trouvée`); continue; }
+      const f = { pageId: p.fb_page_id, pageNom: (res.ads[0] && res.ads[0].page_name) || p.nom, cartes, date: new Date() };
       try {
-        await saveReleve(fichiers, ctx.pages, ctx.produits, "extension");
-        window.__momtazReleveNonEnregistre = null;
-        ctl.log(`Relevé enregistré : ${fichiers.length} pages`);
+        if (!rel) rel = await startReleve("extension");
+        const r = await addPageReleve(rel.id, f, pagesConnues, produitsConnus);
+        totaux.nb_pages++; totaux.nb_cartes += r.nbCartes; totaux.nb_pubs += r.nbPubs;
+        await finishReleve(rel.id, totaux).catch(() => {});
+        ctl.log(`${nom} : ${cartes.length} créatives enregistrées`);
       } catch (e) {
-        // On garde les données relevées pour pouvoir réessayer sans tout relever à nouveau
-        window.__momtazReleveNonEnregistre = fichiers;
-        throw new Error("enregistrement impossible (" + (e.message || e) + "). Tes données sont gardées : clique sur « Réessayer l'enregistrement ».");
+        echecs.push(f);
+        ctl.log(`${nom} : ${cartes.length} créatives relevées mais NON enregistrées (${e.message || e})`);
       }
     }
+  } finally {
+    if (rel) await finishReleve(rel.id, totaux).catch(() => {});
+    if (echecs.length) window.__momtazReleveNonEnregistre = echecs;
   }
-  return { nbPages: fichiers.length };
+  if (echecs.length) {
+    throw new Error(`${echecs.length} page(s) relevée(s) mais non enregistrée(s) : ${echecs.map(f => f.pageNom).join(", ")}. Clique sur « Réessayer l'enregistrement ». Détail : voir le journal.`);
+  }
+  return { nbPages: totaux.nb_pages };
 }
