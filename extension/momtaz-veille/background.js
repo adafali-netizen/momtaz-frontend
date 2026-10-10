@@ -57,7 +57,7 @@ async function scrape(id, opts) {
   if (!FB_LIBRARY.test(opts.url || "")) throw new Error("Adresse refusée : seules les pages Ad Library sont autorisées.");
   const maxAds = opts.maxAds || 5000;
   const maxScrolls = opts.maxScrolls || 80;
-  const idleRounds = opts.idleRounds || 4;
+  const idleRounds = Math.max(opts.idleRounds || 4, 5);
 
   const winId = await fenetre();
   const tab = await chrome.tabs.create({ windowId: winId, url: "about:blank", active: true });
@@ -68,18 +68,26 @@ async function scrape(id, opts) {
     await attendreChargement(tab.id, 45000);
     await sleep(hasard(2500, 4000));
 
+    // On attend les premières pubs (jusqu'à 40 s) avant de compter les tours sans nouveauté
+    const debut = Date.now();
+    while (s.ads.size === 0 && !s.captcha && !s.login && !stop && Date.now() - debut < 40000) {
+      await sleep(2000);
+      await defiler(tab.id);
+    }
+
     let sansNouveau = 0;
     let avant = s.ads.size;
     for (let i = 0; i < maxScrolls; i++) {
       if (stop) break;
       if (s.captcha || s.login) break;
       if (s.ads.size >= maxAds) break;
-      if (s.total != null && s.ads.size >= s.total) break;
       await defiler(tab.id);
-      await sleep(hasard(2200, 3800));
+      await sleep(hasard(2500, 4000));
       if (s.ads.size === avant) sansNouveau++; else { sansNouveau = 0; avant = s.ads.size; }
       versErp("progress", id, { pubs: s.ads.size, total: s.total, tour: i + 1 });
-      if (sansNouveau >= idleRounds) break;
+      // Facebook charge parfois lentement la suite : on patiente plus longtemps s'il reste des pubs à venir
+      const patience = s.total != null && s.ads.size < s.total ? idleRounds + 4 : idleRounds;
+      if (sansNouveau >= patience) break;
     }
     return {
       ads: [...s.ads.values()],
