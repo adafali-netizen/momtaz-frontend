@@ -20,6 +20,15 @@ const CTA = {
   CALL_NOW: "Appel", INSTALL_MOBILE_APP: "Application", DOWNLOAD: "Téléchargement", WATCH_MORE: "Vidéo : Voir plus", NO_BUTTON: "Aucun",
 };
 
+// Retire ce qu'Excel refuse : moitiés d'émojis coupés et caractères de contrôle (sinon le fichier est corrompu)
+export function propre(v) {
+  if (typeof v !== "string") return v;
+  return v
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
+    .slice(0, 32000);
+}
+
 function safeDecode(s) { try { return decodeURIComponent(s); } catch { return s; } }
 
 function cleanUrl(u) {
@@ -113,6 +122,7 @@ export function construireEtude(parMot) {
       "Lien vidéo ou image": a.video || a.image || "",
     });
   }
+  for (const l of lignes) for (const k of Object.keys(l)) l[k] = propre(l[k]);
   lignes.sort((x, y) => y["Pubs actives de la page"] - x["Pubs actives de la page"] || x["Nom de la page"].localeCompare(y["Nom de la page"]) || (y["Date de début de diffusion"] || "").localeCompare(x["Date de début de diffusion"] || ""));
   return lignes;
 }
