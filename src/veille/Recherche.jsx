@@ -6,7 +6,7 @@ import {
 } from "./veilleData";
 
 const carte = { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 };
-const libUrl = id => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&view_all_page_id=" + id;
+const libUrl = id => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + id;
 const fmtDate = d => d ? new Date(d).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
 function Criteres({ valeur, onSave }) {

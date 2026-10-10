@@ -70,7 +70,7 @@ async function scrape(id, opts) {
 
     // On attend les premières pubs (jusqu'à 40 s) avant de compter les tours sans nouveauté
     const debut = Date.now();
-    while (s.ads.size === 0 && !s.captcha && !s.login && !stop && Date.now() - debut < 40000) {
+    while (s.ads.size === 0 && s.total !== 0 && !s.captcha && !s.login && !stop && Date.now() - debut < 40000) {
       await sleep(2000);
       await defiler(tab.id);
     }
@@ -81,6 +81,7 @@ async function scrape(id, opts) {
       if (stop) break;
       if (s.captcha || s.login) break;
       if (s.ads.size >= maxAds) break;
+      if (s.total === 0 && s.ads.size === 0) break;
       await defiler(tab.id);
       await sleep(hasard(2500, 4000));
       if (s.ads.size === avant) sansNouveau++; else { sansNouveau = 0; avant = s.ads.size; }

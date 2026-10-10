@@ -18,6 +18,23 @@ async function pause(ctl, label) {
   }
 }
 
+// Relève une page : d'abord pays Maroc, puis tous les pays si rien ne s'affiche.
+// zeroConfirme = Facebook annonce lui-même 0 résultat (page qui a coupé ses pubs).
+async function releverPage(ctl, id, label, opts) {
+  const onProgress = x => ctl.status(`${label} : ${x.pubs} créatives lues`);
+  let res = await releverUrl(libraryPageUrl(id, "MA"), { ...opts, label }, onProgress);
+  verifierBlocage(res);
+  if (res.ads.length || ctl.stop) return { ...res, zeroConfirme: false };
+  const zeroMA = res.total === 0;
+  // Facebook annonce 0 résultat au Maroc : la page a coupé ses pubs, inutile d'essayer tous les pays
+  if (zeroMA) return { ...res, zeroConfirme: true };
+  ctl.status(`${label} : rien avec le pays Maroc, essai avec tous les pays…`);
+  await new Promise(r => setTimeout(r, 8000));
+  res = await releverUrl(libraryPageUrl(id, "ALL"), { ...opts, label }, onProgress);
+  verifierBlocage(res);
+  return { ...res, zeroConfirme: !res.ads.length && (zeroMA || res.total === 0) };
+}
+
 function verifierBlocage(res) {
   if (res.bloque === "captcha") throw new Error("Facebook demande une vérification (captcha). Recherche arrêtée : réessaie dans quelques heures.");
   if (res.bloque === "connexion") throw new Error("Facebook affiche une page de connexion. Recherche arrêtée : vérifie que le profil Chrome n'est pas connecté à Facebook et réessaie plus tard.");
@@ -77,9 +94,7 @@ export async function lancerRecherche(ctx, ctl) {
       const t = nouvelles[i];
       const label = `Page ${i + 1}/${nouvelles.length} « ${t.nom} »`;
       ctl.status(label);
-      const res = await releverUrl(libraryPageUrl(t.id), { maxScrolls: 100, idleRounds: 4, label: t.nom },
-        p => ctl.status(`${label} : ${p.pubs} créatives lues`));
-      verifierBlocage(res);
+      const res = await releverPage(ctl, t.id, label, { maxScrolls: 100, idleRounds: 4 });
       const ev = evaluatePage(res.ads, ctx.criteres);
       const nom = (res.ads[0] && res.ads[0].page_name) || t.nom;
       await saveCandidat({
@@ -137,18 +152,17 @@ export async function lancerReleve(ctx, ctl) {
       const nom = p.nom_interne || p.nom || p.fb_page_id;
       const label = `Relevé ${i + 1}/${pages.length} « ${nom} »`;
       ctl.status(label);
-      const res = await releverUrl(libraryPageUrl(p.fb_page_id), { maxScrolls: 120, idleRounds: 4, label: nom },
-        x => ctl.status(`${label} : ${x.pubs} créatives lues`));
-      verifierBlocage(res);
+      const res = await releverPage(ctl, p.fb_page_id, label, { maxScrolls: 120, idleRounds: 4 });
+      if (ctl.stop && !res.ads.length) break;
       const cartes = adsToCartes(res.ads);
-      if (!cartes.length) { ctl.log(`${nom} : aucune pub trouvée`); continue; }
+      if (!cartes.length && !res.zeroConfirme) { ctl.log(`${nom} : aucune pub lue, page non enregistrée (Facebook n'a rien affiché)`); continue; }
       const f = { pageId: p.fb_page_id, pageNom: (res.ads[0] && res.ads[0].page_name) || p.nom, cartes, date: new Date() };
       try {
         if (!rel) rel = await startReleve("extension");
         const r = await addPageReleve(rel.id, f, pagesConnues, produitsConnus);
         totaux.nb_pages++; totaux.nb_cartes += r.nbCartes; totaux.nb_pubs += r.nbPubs;
         await finishReleve(rel.id, totaux).catch(() => {});
-        ctl.log(`${nom} : ${cartes.length} créatives enregistrées`);
+        ctl.log(cartes.length ? `${nom} : ${cartes.length} créatives enregistrées` : `${nom} : plus aucune pub active (confirmé par Facebook)`);
       } catch (e) {
         echecs.push(f);
         ctl.log(`${nom} : ${cartes.length} créatives relevées mais NON enregistrées (${e.message || e})`);

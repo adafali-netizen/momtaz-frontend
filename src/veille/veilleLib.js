@@ -344,7 +344,7 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
     for (const v of g.vendors) {
       const info = pageInfo(v.fb_page_id);
       const c0 = v.cartes[0] || {};
-      const lib = "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&view_all_page_id=" + v.fb_page_id;
+      const lib = "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + v.fb_page_id;
       const crea = v.cartes.filter(c => c.media).map((c, i) => `=HYPERLINK("${q(c.media)}";"${q(c.format || "Créa")} ${i + 1}")`);
       maxC = Math.max(maxC, crea.length);
       rows.push([
@@ -371,8 +371,9 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
 
 // ─── 7. Relevé automatique (extension) et recherche de pages ──────────────
 
-export const libraryPageUrl = id =>
-  "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&is_targeted_country=false&media_type=all&search_type=page&view_all_page_id=" + id;
+// Pays Maroc par défaut : sans compte Facebook, certaines pages n'affichent rien avec « Tous les pays »
+export const libraryPageUrl = (id, pays = "MA") =>
+  "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=" + pays + "&is_targeted_country=false&media_type=all&search_type=page&view_all_page_id=" + id;
 
 export const librarySearchUrl = mot =>
   "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&is_targeted_country=false&media_type=all&search_type=keyword_unordered&q=" + encodeURIComponent(mot);

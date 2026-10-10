@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Momtaz Veille",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Relève les publicités de l'Ad Library Facebook pour le module Veille de l'ERP Momtaz. À utiliser dans un profil Chrome non connecté à Facebook.",
   "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": ["https://www.facebook.com/*", "https://web.facebook.com/*"],

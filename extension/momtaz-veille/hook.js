@@ -44,7 +44,7 @@
   }
 
   function lire(txt) {
-    if (!txt || (txt.indexOf("ad_archive_id") < 0 && txt.indexOf("captcha_required\":true") < 0)) return;
+    if (!txt || (txt.indexOf("ad_archive_id") < 0 && txt.indexOf("search_results_connection") < 0 && txt.indexOf("captcha_required\":true") < 0)) return;
     const out = [];
     const meta = {};
     for (let ligne of txt.split("\n")) {
