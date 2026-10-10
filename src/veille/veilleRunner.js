@@ -177,3 +177,24 @@ export async function lancerReleve(ctx, ctl) {
   }
   return { nbPages: totaux.nb_pages };
 }
+
+// Étude de marché : relève toutes les pubs des mots-clés donnés.
+// etat : objet partagé avec l'écran ({ resultats: [{ mot, ads }] }), rempli au fil de l'eau
+export async function lancerEtude(mots, opts, etat, ctl, onMot) {
+  for (let i = 0; i < mots.length && !ctl.stop; i++) {
+    const mot = mots[i];
+    if (etat.resultats.some(r => r.mot === mot)) { ctl.log(`« ${mot} » : déjà relevé, ignoré`); continue; }
+    if (i > 0) await pause(ctl, `Étude ${i}/${mots.length}`);
+    if (ctl.stop) break;
+    const label = `Étude ${i + 1}/${mots.length} « ${mot} »`;
+    ctl.status(label);
+    const res = await releverUrl(librarySearchUrl(mot, opts.statut, opts.pays),
+      { maxAds: opts.maxPubs, maxScrolls: Math.ceil(opts.maxPubs / 8) + 10, idleRounds: 4, label: mot },
+      p => ctl.status(`${label} : ${p.pubs} pubs lues`));
+    verifierBlocage(res);
+    etat.resultats.push({ mot, ads: res.ads });
+    ctl.log(`« ${mot} » : ${res.ads.length} pubs, ${new Set(res.ads.map(a => a.page_id)).size} pages`);
+    onMot && onMot();
+  }
+  return { nbMots: etat.resultats.length, nbPubs: etat.resultats.reduce((s, r) => s + r.ads.length, 0) };
+}

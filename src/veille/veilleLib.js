@@ -375,8 +375,8 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
 export const libraryPageUrl = (id, pays = "MA") =>
   "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=" + pays + "&is_targeted_country=false&media_type=all&search_type=page&view_all_page_id=" + id;
 
-export const librarySearchUrl = mot =>
-  "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&is_targeted_country=false&media_type=all&search_type=keyword_unordered&q=" + encodeURIComponent(mot);
+export const librarySearchUrl = (mot, statut = "active", pays = "MA") =>
+  "https://www.facebook.com/ads/library/?active_status=" + statut + "&ad_type=all&country=" + pays + "&is_targeted_country=false&media_type=all&search_type=keyword_unordered&q=" + encodeURIComponent(mot);
 
 function cleanUrl(u) {
   if (!u) return null;

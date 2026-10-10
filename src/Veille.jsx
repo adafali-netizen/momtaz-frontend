@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildGroups } from "./veille/veilleLib";
 import { loadVeille, updateProduits, updatePage } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
-import { lancerRecherche, lancerReleve, reessayerEnregistrement } from "./veille/veilleRunner";
+import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement } from "./veille/veilleRunner";
 import ImportModal from "./veille/ImportModal";
 import Classement from "./veille/Classement";
 import PagesSuivies from "./veille/PagesSuivies";
 import Historique from "./veille/Historique";
 import Recherche from "./veille/Recherche";
+import EtudeMarche, { etudeEtat } from "./veille/EtudeMarche";
 
 const fmtDate = d => d ? new Date(d).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -90,11 +91,13 @@ export default function Veille() {
     setErreur("");
     try {
       const res = await fn(ctl);
-      setMessage(type === "releve"
+      setMessage(type === "etude"
+        ? `Étude terminée : ${res.nbMots} mots-clés, ${res.nbPubs} pubs. Clique sur « Télécharger le fichier Excel ».`
+        : type === "releve"
         ? `Relevé terminé : ${res.nbPages} pages relevées.`
         : `Recherche terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.`);
     } catch (e) {
-      setErreur((type === "releve" ? "Relevé interrompu : " : "Recherche interrompue : ") + (e.message || e));
+      setErreur((type === "etude" ? "Étude interrompue (les résultats déjà relevés sont gardés) : " : type === "releve" ? "Relevé interrompu : " : "Recherche interrompue : ") + (e.message || e));
     } finally {
       ctlRef.current = null;
       setRun(null);
@@ -117,6 +120,8 @@ export default function Veille() {
     return res;
   });
 
+  const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
+
   const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits }, ctl));
 
   if (!data && !erreur) return <div className="loading-screen"><span className="loading-dot" />Chargement de la veille…</div>;
@@ -132,6 +137,7 @@ export default function Veille() {
     { id: "pages",      label: `Pages suivies (${actives})` },
     { id: "historique", label: "Historique des relevés" },
     { id: "recherche",  label: "Recherche de pages" },
+    { id: "etude",      label: "Étude de marché" },
   ];
 
   return (
@@ -163,7 +169,7 @@ export default function Veille() {
       {run && (
         <div className="alert-banner" style={{ background: "var(--blue-lt)", color: "var(--blue)", border: "1px solid #BFDBFE", display: "flex", flexDirection: "column", gap: 4 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-            <span style={{ fontWeight: 700 }}><span className="loading-dot" /> {run.type === "releve" ? "Relevé en cours" : "Recherche en cours"} : {run.status}</span>
+            <span style={{ fontWeight: 700 }}><span className="loading-dot" /> {run.type === "etude" ? "Étude en cours" : run.type === "releve" ? "Relevé en cours" : "Recherche en cours"} : {run.status}</span>
             <button className="btn btn-sm btn-danger" onClick={arreter}>Arrêter</button>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>Laisse cet onglet ouvert et ne réduis pas la fenêtre de l'extension.</div>
@@ -200,6 +206,10 @@ export default function Veille() {
       {data && onglet === "recherche" && (
         <Recherche ext={ext} run={run} onLancer={lancerUneRecherche} onStop={arreter}
           pages={pages} produits={data.produits} onReloadVeille={charger} version={version} />
+      )}
+
+      {data && onglet === "etude" && (
+        <EtudeMarche ext={ext} run={run} onLancer={lancerUneEtude} onStop={arreter} version={version} />
       )}
 
       {importer && data && (

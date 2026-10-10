@@ -27,10 +27,17 @@
       video,
       image: img.original_image_url || c.original_image_url || null,
       thumb: v.video_preview_image_url || img.resized_image_url || c.video_preview_image_url || c.resized_image_url || null,
-      text: (texte(s.body) || texte(c.body) || "").slice(0, 600),
+      text: (texte(s.body) || texte(c.body) || "").slice(0, 5000),
       title: texte(s.title) || texte(c.title) || "",
       caption: s.caption || "",
       cats: s.page_categories || o.page_categories || null,
+      end: o.end_date || null,
+      platforms: o.publisher_platform || s.publisher_platform || null,
+      format: s.display_format || null,
+      nbCartes: (s.cards && s.cards.length) || 0,
+      cta: s.cta_type || c.cta_type || null,
+      ctaText: s.cta_text || c.cta_text || null,
+      pageUri: s.page_profile_uri || null,
     };
   }
 
