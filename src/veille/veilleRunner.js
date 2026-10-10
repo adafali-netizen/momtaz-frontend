@@ -112,6 +112,14 @@ export async function lancerRecherche(ctx, ctl) {
 }
 
 // Relève toutes les pages suivies et enregistre un relevé
+export async function reessayerEnregistrement(ctx) {
+  const fichiers = window.__momtazReleveNonEnregistre;
+  if (!fichiers || !fichiers.length) return { nbPages: 0 };
+  await saveReleve(fichiers, ctx.pages, ctx.produits, "extension");
+  window.__momtazReleveNonEnregistre = null;
+  return { nbPages: fichiers.length };
+}
+
 export async function lancerReleve(ctx, ctl) {
   const pages = ctx.pages.filter(p => p.actif);
   const fichiers = [];
@@ -133,8 +141,15 @@ export async function lancerReleve(ctx, ctl) {
   } finally {
     if (fichiers.length) {
       ctl.status(`Enregistrement du relevé (${fichiers.length} pages)…`);
-      await saveReleve(fichiers, ctx.pages, ctx.produits, "extension");
-      ctl.log(`Relevé enregistré : ${fichiers.length} pages`);
+      try {
+        await saveReleve(fichiers, ctx.pages, ctx.produits, "extension");
+        window.__momtazReleveNonEnregistre = null;
+        ctl.log(`Relevé enregistré : ${fichiers.length} pages`);
+      } catch (e) {
+        // On garde les données relevées pour pouvoir réessayer sans tout relever à nouveau
+        window.__momtazReleveNonEnregistre = fichiers;
+        throw new Error("enregistrement impossible (" + (e.message || e) + "). Tes données sont gardées : clique sur « Réessayer l'enregistrement ».");
+      }
     }
   }
   return { nbPages: fichiers.length };

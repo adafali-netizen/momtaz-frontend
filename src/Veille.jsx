@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildGroups } from "./veille/veilleLib";
 import { loadVeille, updateProduits, updatePage } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
-import { lancerRecherche, lancerReleve } from "./veille/veilleRunner";
+import { lancerRecherche, lancerReleve, reessayerEnregistrement } from "./veille/veilleRunner";
 import ImportModal from "./veille/ImportModal";
 import Classement from "./veille/Classement";
 import PagesSuivies from "./veille/PagesSuivies";
@@ -170,7 +170,12 @@ export default function Veille() {
           {run.logs.slice(0, 5).map((l, i) => <div key={i} style={{ fontSize: 12, color: "var(--text)" }}>{l}</div>)}
         </div>
       )}
-      {erreur && <div className="alert-banner" style={{ background: "var(--red-lt)", color: "var(--red)", border: "1px solid #FECACA" }}>{erreur}</div>}
+      {erreur && <div className="alert-banner" style={{ background: "var(--red-lt)", color: "var(--red)", border: "1px solid #FECACA", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <span>{erreur}</span>
+        {window.__momtazReleveNonEnregistre && !run && (
+          <button className="btn btn-sm btn-danger" onClick={() => lancer("releve", () => reessayerEnregistrement({ pages, produits: data.produits }))}>Réessayer l'enregistrement</button>
+        )}
+      </div>}
       {message && !run && <div className="alert-banner" style={{ background: "var(--green-lt)", color: "var(--green)", border: "1px solid #BBF7D0", display: "flex", justifyContent: "space-between" }}>
         <span>{message}</span><button className="btn-close" onClick={() => setMessage("")}>×</button>
       </div>}

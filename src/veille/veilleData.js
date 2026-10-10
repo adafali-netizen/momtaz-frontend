@@ -96,21 +96,31 @@ export async function saveReleve(fichiers, pagesExistantes, produitsExistants, s
     .insert([{ source, nb_pages: fichiers.length, nb_cartes: nbCartes, nb_pubs: nbPubs }]).select().single();
   if (e1) throw e1;
 
-  const { error: e2 } = await supabase.from("veille_releve_pages").insert(fichiers.map(f => ({
-    releve_id: rel.id, fb_page_id: f.pageId, capture_le: f.date.toISOString(), incomplet: !!f.incomplet,
-    nb_cartes: f.cartes.length, nb_pubs: f.cartes.filter(c => !c.low).reduce((t, c) => t + c.nb, 0),
-  })));
-  if (e2) throw e2;
+  // Texte sans caractères que Postgres refuse
+  const propre = v => (typeof v === "string" ? v.replace(/\u0000/g, "") : v);
 
-  // 3. Publicités, par paquets de 500
-  const lignes = fichiers.flatMap(f => f.cartes.map(c => ({
-    releve_id: rel.id, fb_page_id: f.pageId, library_id: c.library_id, started_on: c.started_on,
-    nb: c.nb, low: c.low, url: c.url, produit_key: productKey(c.url), format: c.format,
-    media: c.media, thumb: c.thumb, texte: c.texte,
-  })));
-  for (let i = 0; i < lignes.length; i += 500) {
-    const { error } = await supabase.from("veille_pubs").insert(lignes.slice(i, i + 500));
-    if (error) throw error;
+  let lignes = [];
+  try {
+    const { error: e2 } = await supabase.from("veille_releve_pages").insert(fichiers.map(f => ({
+      releve_id: rel.id, fb_page_id: f.pageId, capture_le: f.date.toISOString(), incomplet: !!f.incomplet,
+      nb_cartes: f.cartes.length, nb_pubs: f.cartes.filter(c => !c.low).reduce((t, c) => t + c.nb, 0),
+    })));
+    if (e2) throw e2;
+
+    // 3. Publicités, par paquets de 200
+    lignes = fichiers.flatMap(f => f.cartes.map(c => ({
+      releve_id: rel.id, fb_page_id: f.pageId, library_id: String(c.library_id), started_on: c.started_on || null,
+      nb: Number(c.nb) || 1, low: !!c.low, url: propre(c.url), produit_key: productKey(c.url), format: c.format,
+      media: propre(c.media), thumb: propre(c.thumb), texte: propre(c.texte),
+    })));
+    for (let i = 0; i < lignes.length; i += 200) {
+      const { error } = await supabase.from("veille_pubs").insert(lignes.slice(i, i + 200));
+      if (error) throw new Error(`publicités ${i + 1} à ${Math.min(i + 200, lignes.length)} refusées par Supabase : ${error.message}`);
+    }
+  } catch (err) {
+    // Relevé incomplet : on l'efface pour ne pas masquer le précédent
+    await supabase.from("veille_releves").delete().eq("id", rel.id);
+    throw err;
   }
 
   // 4. Nouveaux produits
