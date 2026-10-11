@@ -20,6 +20,20 @@ const CTA = {
   CALL_NOW: "Appel", INSTALL_MOBILE_APP: "Application", DOWNLOAD: "Téléchargement", WATCH_MORE: "Vidéo : Voir plus", NO_BUTTON: "Aucun",
 };
 
+// Pays proposés pour la recherche. « ALL » = tous les pays (fonctionne sans compte Facebook).
+export const PAYS = [
+  { groupe: "", liste: [["MA", "Maroc"], ["ALL", "Tous les pays"]] },
+  { groupe: "Maghreb et Égypte", liste: [["DZ", "Algérie"], ["TN", "Tunisie"], ["EG", "Égypte"]] },
+  { groupe: "Golfe", liste: [["SA", "Arabie saoudite"], ["AE", "Émirats arabes unis"], ["KW", "Koweït"], ["QA", "Qatar"]] },
+  { groupe: "Europe francophone", liste: [["FR", "France"], ["BE", "Belgique"], ["CH", "Suisse"]] },
+  { groupe: "Europe", liste: [["ES", "Espagne"], ["IT", "Italie"], ["DE", "Allemagne"], ["GB", "Royaume-Uni"], ["NL", "Pays-Bas"], ["PT", "Portugal"]] },
+  { groupe: "Amériques", liste: [["US", "États-Unis"], ["CA", "Canada"], ["MX", "Mexique"], ["BR", "Brésil"], ["CO", "Colombie"]] },
+  { groupe: "Autres", liste: [["TR", "Turquie"], ["IN", "Inde"], ["ID", "Indonésie"]] },
+];
+const NOMS_PAYS = Object.fromEntries(PAYS.flatMap(g => g.liste));
+export const nomPays = code => NOMS_PAYS[code] || code || "Maroc";
+export const paysValide = code => (NOMS_PAYS[code] ? code : "MA");
+
 // Retire ce qu'Excel refuse : moitiés d'émojis coupés et caractères de contrôle (sinon le fichier est corrompu)
 export function propre(v) {
   if (typeof v !== "string") return v;
@@ -83,17 +97,18 @@ export function publicVise(texte) {
   return res.length ? res.join(", ") : "Tous";
 }
 
-const libPage = id => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + id;
+const libPage = (id, pays) => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=" + (pays || "MA") + "&view_all_page_id=" + id;
 const fmtDate = s => (s ? new Date(s * 1000).toISOString().slice(0, 10) : "");
 
-// parMot : [{ mot, ads }] → lignes du tableau (pubs dédoublonnées, mots-clés regroupés)
+// parMot : [{ mot, pays, ads }] → lignes du tableau (pubs dédoublonnées, mots-clés et pays regroupés)
 export function construireEtude(parMot) {
   const pubs = new Map();
-  for (const { mot, ads } of parMot) {
+  for (const { mot, ads, pays } of parMot) {
+    const p = pays || "MA";
     for (const a of ads || []) {
       const k = a.cid || a.id;
-      if (pubs.has(k)) { pubs.get(k).mots.add(mot); continue; }
-      pubs.set(k, { a, mots: new Set([mot]) });
+      if (pubs.has(k)) { pubs.get(k).mots.add(mot); pubs.get(k).pays.add(p); continue; }
+      pubs.set(k, { a, mots: new Set([mot]), pays: new Set([p]) });
     }
   }
   // Pubs actives par page, comptées parmi tous les résultats de l'étude
@@ -101,12 +116,13 @@ export function construireEtude(parMot) {
   for (const { a } of pubs.values()) if (a.active) actives[a.page_id] = (actives[a.page_id] || 0) + (a.n || 1);
 
   const lignes = [];
-  for (const { a, mots } of pubs.values()) {
+  for (const { a, mots, pays } of pubs.values()) {
     const texte = [a.title, a.text].filter(Boolean).join("\n");
     lignes.push({
       "Mots-clés": [...mots].join(", "),
+      "Pays de la recherche": [...pays].map(nomPays).join(", "),
       "Nom de la page": a.page_name || "",
-      "Lien de la page": a.page_id ? libPage(a.page_id) : (a.pageUri || ""),
+      "Lien de la page": a.page_id ? libPage(a.page_id, [...pays][0]) : (a.pageUri || ""),
       "Date de début de diffusion": fmtDate(a.start),
       "Statut": a.active ? "Active" : "Inactive",
       "Pubs actives de la page": actives[a.page_id] || 0,

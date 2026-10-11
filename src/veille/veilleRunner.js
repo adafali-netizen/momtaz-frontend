@@ -191,16 +191,17 @@ export async function lancerReleve(ctx, ctl) {
 export async function lancerEtude(mots, opts, etat, ctl, onMot) {
   for (let i = 0; i < mots.length && !ctl.stop; i++) {
     const mot = mots[i];
-    if (etat.resultats.some(r => r.mot === mot)) { ctl.log(`« ${mot} » : déjà relevé, ignoré`); continue; }
+    const pays = opts.pays || "MA";
+    if (etat.resultats.some(r => r.mot === mot && (r.pays || "MA") === pays)) { ctl.log(`« ${mot} » : déjà relevé pour ce pays, ignoré`); continue; }
     if (i > 0) await pause(ctl, `Étude ${i}/${mots.length}`);
     if (ctl.stop) break;
     const label = `Étude ${i + 1}/${mots.length} « ${mot} »`;
     ctl.status(label);
-    const res = await releverUrl(librarySearchUrl(mot, opts.statut, opts.pays, !!opts.exact),
+    const res = await releverUrl(librarySearchUrl(mot, opts.statut, pays, !!opts.exact),
       { maxAds: opts.maxPubs, maxScrolls: Math.ceil(opts.maxPubs / 8) + 10, idleRounds: 4, label: mot },
       p => ctl.status(`${label} : ${p.pubs} pubs lues`));
     verifierBlocage(res);
-    const resultat = { mot, ads: res.ads, exact: !!opts.exact };
+    const resultat = { mot, pays, ads: res.ads, exact: !!opts.exact };
     etat.resultats.push(resultat);
     // Sauvegarde dans le navigateur : l'étude survit à un rechargement ou à une fermeture de l'onglet
     let sauve = true;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { construireEtude, resumePages } from "./etudeLib";
+import { construireEtude, resumePages, PAYS, nomPays, paysValide } from "./etudeLib";
 import { lireResultats, viderResultats, lireReglages, sauverReglages } from "./etudeStore";
 
 const REGLAGES = lireReglages();
@@ -14,8 +14,8 @@ function chargerSauvegarde() {
   if (!chargement) {
     chargement = lireResultats()
       .then(sauves => {
-        const deja = new Set(etudeEtat.resultats.map(r => r.mot));
-        const ajout = sauves.filter(r => !deja.has(r.mot));
+        const deja = new Set(etudeEtat.resultats.map(r => (r.pays || "MA") + "|" + r.mot));
+        const ajout = sauves.filter(r => !deja.has(r.pays + "|" + r.mot));
         etudeEtat.resultats.unshift(...ajout);
         etudeEtat.restaure = ajout.length;
       })
@@ -55,6 +55,7 @@ export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
   const [statut, setStatut] = useState(REGLAGES.statut === "active" ? "active" : "all");
   const [maxPubs, setMaxPubs] = useState(REGLAGES.maxPubs || 300);
   const [exact, setExact] = useState(!!REGLAGES.exact);
+  const [pays, setPays] = useState(paysValide(REGLAGES.pays));
   const [tick, setTick] = useState(0);
   const [erreur, setErreur] = useState("");
 
@@ -68,8 +69,8 @@ export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
   // Les réglages et les mots-clés saisis sont gardés d'une visite à l'autre
   useEffect(() => {
     etudeEtat.mots = mots;
-    sauverReglages({ mots, statut, maxPubs: Number(maxPubs) || 300, exact });
-  }, [mots, statut, maxPubs, exact]);
+    sauverReglages({ mots, statut, maxPubs: Number(maxPubs) || 300, exact, pays });
+  }, [mots, statut, maxPubs, exact, pays]);
 
   // version change à chaque mot-clé terminé : on recalcule le tableau
   const lignes = useMemo(() => construireEtude(etudeEtat.resultats), [version, run, tick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -77,13 +78,13 @@ export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
   const enCours = run && run.type === "etude";
   const liste = [...new Set(mots.split(/\n+/).map(m => m.trim()).filter(Boolean))];
   const max = Math.min(1000, Math.max(30, Number(maxPubs) || 300));
-  const faits = new Set(etudeEtat.resultats.map(r => r.mot));
+  const faits = new Set(etudeEtat.resultats.filter(r => (r.pays || "MA") === pays).map(r => r.mot));
   const restants = liste.filter(m => !faits.has(m));
   const parMot = minutesParMot(max);
 
   const lancer = () => {
     etudeEtat.restaure = 0;
-    onLancer(liste, { statut, pays: "MA", maxPubs: max, exact });
+    onLancer(liste, { statut, pays, maxPubs: max, exact });
   };
 
   const vider = async () => {
@@ -129,7 +130,13 @@ export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
             <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Maximum par mot-clé
               <input type="number" min={30} max={1000} step={10} className="form-input" style={{ width: 80 }} value={maxPubs} onChange={e => setMaxPubs(e.target.value)} disabled={!!enCours} />
             </label>
-            <span className="col-muted">Pays : Maroc</span>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Pays
+              <select className="form-select" style={{ width: "auto" }} value={pays} onChange={e => setPays(e.target.value)} disabled={!!enCours}>
+                {PAYS.map(g => g.groupe
+                  ? <optgroup key={g.groupe} label={g.groupe}>{g.liste.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</optgroup>
+                  : g.liste.map(([c, n]) => <option key={c} value={c}>{n}</option>))}
+              </select>
+            </label>
           </div>
           <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13 }}>
             <input type="checkbox" checked={exact} onChange={e => setExact(e.target.checked)} disabled={!!enCours} style={{ marginTop: 3 }} />
@@ -140,7 +147,7 @@ export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
           </label>
           {restants.length > 0 && (
             <div className="col-muted">
-              {restants.length} mot{restants.length > 1 ? "s" : ""}-clé{restants.length > 1 ? "s" : ""} à relever{liste.length > restants.length ? ` (${liste.length - restants.length} déjà fait${liste.length - restants.length > 1 ? "s" : ""}, ignoré${liste.length - restants.length > 1 ? "s" : ""})` : ""} · durée maximale : environ {fmtDuree(restants.length * parMot)}.
+              {restants.length} mot{restants.length > 1 ? "s" : ""}-clé{restants.length > 1 ? "s" : ""} à relever pour {nomPays(pays)}{liste.length > restants.length ? ` (${liste.length - restants.length} déjà fait${liste.length - restants.length > 1 ? "s" : ""}, ignoré${liste.length - restants.length > 1 ? "s" : ""})` : ""} · durée maximale : environ {fmtDuree(restants.length * parMot)}.
             </div>
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -158,8 +165,8 @@ export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
             <div className="kpi-card" style={{ maxWidth: "none" }}><div className="kpi-value">{pages.length}</div><div className="kpi-label">Pages</div></div>
           </div>
           {etudeEtat.resultats.map(r => (
-            <div key={r.mot} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, borderTop: "1px solid var(--border)", paddingTop: 6 }}>
-              <span style={{ fontWeight: 600 }}>{r.mot}{r.exact && <span className="col-muted" style={{ fontWeight: 400 }}> · exacte</span>}</span>
+            <div key={(r.pays || "MA") + "|" + r.mot} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, borderTop: "1px solid var(--border)", paddingTop: 6 }}>
+              <span style={{ fontWeight: 600 }}>{r.mot}<span className="col-muted" style={{ fontWeight: 400 }}> · {nomPays(r.pays)}{r.exact ? " · exacte" : ""}</span></span>
               <span className="col-muted" style={{ whiteSpace: "nowrap" }}>{r.ads.length} pubs · {new Set(r.ads.map(a => a.page_id)).size} pages</span>
             </div>
           ))}
