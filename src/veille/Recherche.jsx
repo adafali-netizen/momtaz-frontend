@@ -19,6 +19,10 @@ function Criteres({ valeur, onSave }) {
   return (
     <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontWeight: 700 }}>Critères pour garder une page</div>
+      <div style={ligne}>
+        <span className="col-muted">Expression exacte pour tes mots-clés manuels (moins de pages hors sujet)</span>
+        <input type="checkbox" checked={!!c.expressionExacte} onChange={e => set("expressionExacte", e.target.checked)} />
+      </div>
       <div style={ligne}><span className="col-muted">Pubs actives minimum</span>{nb("minPubs")}</div>
       <div style={ligne}><span className="col-muted">Produits différents minimum</span>{nb("minProduits")}</div>
       <div style={ligne}><span className="col-muted">Pubs vers un site e-commerce obligatoires</span><input type="checkbox" checked={c.siteObligatoire} onChange={e => set("siteObligatoire", e.target.checked)} /></div>

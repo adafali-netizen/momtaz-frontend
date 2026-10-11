@@ -434,7 +434,8 @@ function categorie(ads) {
   return best && best[1] / total >= 0.4 ? best[0] : null;
 }
 
-export const CRITERES_DEFAUT = { minPubs: 10, minProduits: 3, siteObligatoire: true, codObligatoire: true, vetementsMinPubs: 20, exclues: ["cosmetiques", "immobilier", "services", "restaurants", "formations", "auto"] };
+// expressionExacte : la recherche de pages cherche tes mots-clés manuels tels quels (mots dans le même ordre)
+export const CRITERES_DEFAUT = { expressionExacte: false, minPubs: 10, minProduits: 3, siteObligatoire: true, codObligatoire: true, vetementsMinPubs: 20, exclues: ["cosmetiques", "immobilier", "services", "restaurants", "formations", "auto"] };
 
 // Décide si une page découverte ressemble aux tiennes : gardee, a_valider ou eliminee
 export function evaluatePage(ads, crit0) {

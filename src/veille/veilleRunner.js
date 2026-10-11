@@ -1,5 +1,5 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
-import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl } from "./veilleLib";
+import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT } from "./veilleLib";
 import { releverUrl } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import {
@@ -48,9 +48,12 @@ export async function lancerRecherche(ctx, ctl) {
   const dejaMots = new Set(ctx.motscles.map(m => m.mot.toLowerCase()));
   const auto = ctx.groupes.filter(g => g.pubs >= 5).slice(0, 20).map(g => g.nom.toLowerCase().trim()).filter(m => m.length >= 4 && !dejaMots.has(m));
   for (const mot of auto) await addMotCle(mot, "produit");
+  // Expression exacte : seulement pour tes mots-clés manuels. Les noms de produits ajoutés
+  // automatiquement restent en recherche large, sinon ils ne trouveraient presque rien.
+  const exacte = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
   const mots = [
-    ...ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot })),
-    ...auto.map(mot => ({ id: null, mot })),
+    ...ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: exacte && m.source === "manuel" })),
+    ...auto.map(mot => ({ id: null, mot, exact: false })),
   ];
   if (!mots.length) throw new Error("Aucun mot-clé actif.");
 
@@ -62,10 +65,10 @@ export async function lancerRecherche(ctx, ctl) {
     // 2. Recherche par mot-clé : on note les pages qui font de la pub
     const trouvees = new Map();
     for (let i = 0; i < mots.length && !ctl.stop; i++) {
-      const { id, mot } = mots[i];
-      const label = `Mot-clé ${i + 1}/${mots.length} « ${mot} »`;
+      const { id, mot, exact } = mots[i];
+      const label = `Mot-clé ${i + 1}/${mots.length} « ${mot} »${exact ? " (exacte)" : ""}`;
       ctl.status(label);
-      const res = await releverUrl(librarySearchUrl(mot), { maxAds: 150, maxScrolls: 15, idleRounds: 3, label: mot },
+      const res = await releverUrl(librarySearchUrl(mot, "active", "MA", exact), { maxAds: 150, maxScrolls: 15, idleRounds: 3, label: mot },
         p => ctl.status(`${label} : ${p.pubs} pubs lues`));
       verifierBlocage(res);
       const pagesMot = new Set();
@@ -77,7 +80,7 @@ export async function lancerRecherche(ctx, ctl) {
         t.pubs += a.n || 1;
         trouvees.set(a.page_id, t);
       }
-      ctl.log(`« ${mot} » : ${pagesMot.size} pages`);
+      ctl.log(`« ${mot} »${exact ? " (exacte)" : ""} : ${pagesMot.size} pages`);
       if (id) await updateMotCle(id, { nb_pages: pagesMot.size, derniere_recherche: new Date().toISOString() }).catch(() => {});
       if (i < mots.length - 1) await pause(ctl, label);
     }
@@ -144,6 +147,8 @@ export async function lancerReleve(ctx, ctl) {
   const produitsConnus = new Set(ctx.produits.map(p => p.fb_page_id + "|" + p.produit_key));
   const totaux = { nb_pages: 0, nb_cartes: 0, nb_pubs: 0 };
   const echecs = [];
+  const nonLues = [];   // Facebook n'a rien affiché : page non enregistrée
+  const sansPub = [];   // Facebook confirme 0 résultat : page enregistrée à 0 pub
   let rel = null;
   try {
     for (let i = 0; i < pages.length && !ctl.stop; i++) {
@@ -156,13 +161,14 @@ export async function lancerReleve(ctx, ctl) {
       const res = await releverPage(ctl, p.fb_page_id, label, { maxScrolls: 120, idleRounds: 4 });
       if (ctl.stop && !res.ads.length) break;
       const cartes = adsToCartes(res.ads);
-      if (!cartes.length && !res.zeroConfirme) { ctl.log(`${nom} : aucune pub lue, page non enregistrée (Facebook n'a rien affiché)`); continue; }
+      if (!cartes.length && !res.zeroConfirme) { nonLues.push(nom); ctl.log(`${nom} : aucune pub lue, page non enregistrée (Facebook n'a rien affiché)`); continue; }
       const f = { pageId: p.fb_page_id, pageNom: (res.ads[0] && res.ads[0].page_name) || p.nom, cartes, date: new Date() };
       try {
         if (!rel) rel = await startReleve("extension");
         const r = await addPageReleve(rel.id, f, pagesConnues, produitsConnus);
         totaux.nb_pages++; totaux.nb_cartes += r.nbCartes; totaux.nb_pubs += r.nbPubs;
         await finishReleve(rel.id, totaux).catch(() => {});
+        if (!cartes.length) sansPub.push(nom);
         ctl.log(cartes.length ? `${nom} : ${cartes.length} créatives enregistrées` : `${nom} : plus aucune pub active (confirmé par Facebook)`);
       } catch (e) {
         echecs.push(f);
@@ -176,7 +182,7 @@ export async function lancerReleve(ctx, ctl) {
   if (echecs.length) {
     throw new Error(`${echecs.length} page(s) relevée(s) mais non enregistrée(s) : ${echecs.map(f => f.pageNom).join(", ")}. Clique sur « Réessayer l'enregistrement ». Détail : voir le journal.`);
   }
-  return { nbPages: totaux.nb_pages };
+  return { nbPages: totaux.nb_pages, total: pages.length, nonLues, sansPub, arrete: !!ctl.stop };
 }
 
 // Étude de marché : relève toutes les pubs des mots-clés donnés.

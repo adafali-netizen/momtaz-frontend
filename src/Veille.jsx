@@ -10,6 +10,17 @@ import Historique from "./veille/Historique";
 import Recherche from "./veille/Recherche";
 import EtudeMarche, { etudeEtat } from "./veille/EtudeMarche";
 
+// Bilan affiché à la fin d'un relevé : pages enregistrées, pages sans pub, pages que Facebook n'a pas affichées
+function bilanReleve(res) {
+  if (res.total == null) return `Relevé terminé : ${res.nbPages} pages enregistrées.`;
+  let m = `Relevé ${res.arrete ? "arrêté" : "terminé"} : ${res.nbPages} page${res.nbPages > 1 ? "s" : ""} enregistrée${res.nbPages > 1 ? "s" : ""} sur ${res.total}.`;
+  if (res.sansPub.length) m += ` Plus aucune pub active (confirmé par Facebook) : ${res.sansPub.join(", ")}.`;
+  if (res.nonLues.length) m += ` NON enregistrées, Facebook n'a rien affiché : ${res.nonLues.join(", ")}.`;
+  return m;
+}
+
+const TITRES_JOURNAL = { releve: "du dernier relevé", recherche: "de la dernière recherche", etude: "de la dernière étude" };
+
 const fmtDate = d => d ? new Date(d).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "—";
 
 export default function Veille() {
@@ -21,6 +32,8 @@ export default function Veille() {
   const [ext,      setExt]      = useState(null);
   const [run,      setRun]      = useState(null);   // { type, status, logs }
   const [version,  setVersion]  = useState(0);
+  const [journal,  setJournal]  = useState(null);   // { type, lignes, fin } : gardé après la fin de la tâche
+  const [journalOuvert, setJournalOuvert] = useState(true);
   const ctlRef = useRef(null);
 
   const charger = useCallback(async () => {
@@ -81,25 +94,33 @@ export default function Veille() {
   // Lance une tâche longue (recherche ou relevé) et suit son avancement
   const lancer = async (type, fn) => {
     if (run) return;
+    const lignes = [];   // journal complet, gardé à l'écran après la fin
     const ctl = {
       stop: false,
       status: t => setRun(r => r && { ...r, status: t }),
-      log: t => setRun(r => r && { ...r, logs: [`${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · ${t}`, ...r.logs].slice(0, 30) }),
+      log: t => {
+        const l = `${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · ${t}`;
+        lignes.push(l);
+        setRun(r => r && { ...r, logs: [l, ...r.logs].slice(0, 30) });
+      },
     };
     ctlRef.current = ctl;
     setRun({ type, status: "Démarrage…", logs: [] });
     setErreur("");
+    setMessage("");
+    setJournal(null);
     try {
       const res = await fn(ctl);
       setMessage(type === "etude"
         ? `Étude terminée : ${res.nbMots} mots-clés, ${res.nbPubs} pubs. Clique sur « Télécharger le fichier Excel ».`
         : type === "releve"
-        ? `Relevé terminé : ${res.nbPages} pages relevées.`
+        ? bilanReleve(res)
         : `Recherche terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.`);
     } catch (e) {
       setErreur((type === "etude" ? "Étude interrompue (les résultats déjà relevés sont gardés) : " : type === "releve" ? "Relevé interrompu : " : "Recherche interrompue : ") + (e.message || e));
     } finally {
       ctlRef.current = null;
+      if (lignes.length) { setJournal({ type, lignes: [...lignes], fin: new Date() }); setJournalOuvert(true); }
       setRun(null);
       await charger();
       setVersion(v => v + 1);
@@ -185,6 +206,28 @@ export default function Veille() {
       {message && !run && <div className="alert-banner" style={{ background: "var(--green-lt)", color: "var(--green)", border: "1px solid #BBF7D0", display: "flex", justifyContent: "space-between" }}>
         <span>{message}</span><button className="btn-close" onClick={() => setMessage("")}>×</button>
       </div>}
+
+      {journal && !run && (
+        <div style={{ margin: "12px 24px 0", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 14px" }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>
+              Journal {TITRES_JOURNAL[journal.type] || ""} · {journal.lignes.length} ligne{journal.lignes.length > 1 ? "s" : ""} · fini à {journal.fin.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+            <span style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-sm btn-secondary" onClick={() => navigator.clipboard?.writeText(journal.lignes.join("\n")).catch(() => {})}>Copier</button>
+              <button className="btn btn-sm btn-secondary" onClick={() => setJournalOuvert(o => !o)}>{journalOuvert ? "Réduire" : "Afficher"}</button>
+              <button className="btn-close" title="Fermer le journal" onClick={() => setJournal(null)}>×</button>
+            </span>
+          </div>
+          {journalOuvert && (
+            <div style={{ maxHeight: 260, overflowY: "auto", borderTop: "1px solid var(--border)", padding: "8px 14px", display: "flex", flexDirection: "column", gap: 3 }}>
+              {journal.lignes.map((l, i) => (
+                <div key={i} style={{ fontSize: 12, color: /non enregistr|impossible|aucune pub lue/i.test(l) ? "var(--red)" : "var(--text)", fontWeight: /non enregistr|impossible|aucune pub lue/i.test(l) ? 600 : 400 }}>{l}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {data && onglet === "classement" && (
         <>
