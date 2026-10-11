@@ -375,8 +375,12 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
 export const libraryPageUrl = (id, pays = "MA") =>
   "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=" + pays + "&is_targeted_country=false&media_type=all&search_type=page&view_all_page_id=" + id;
 
-export const librarySearchUrl = (mot, statut = "active", pays = "MA") =>
-  "https://www.facebook.com/ads/library/?active_status=" + statut + "&ad_type=all&country=" + pays + "&is_targeted_country=false&media_type=all&search_type=keyword_unordered&q=" + encodeURIComponent(mot);
+// exact = true : Facebook ne renvoie que les pubs qui contiennent l'expression entière (moins de hors-sujet)
+export const librarySearchUrl = (mot, statut = "active", pays = "MA", exact = false) =>
+  "https://www.facebook.com/ads/library/?active_status=" + statut + "&ad_type=all&country=" + pays + "&is_targeted_country=false&media_type=all"
+  + (exact
+    ? "&search_type=keyword_exact_phrase&q=" + encodeURIComponent('"' + String(mot).replace(/"/g, "").trim() + '"')
+    : "&search_type=keyword_unordered&q=" + encodeURIComponent(mot));
 
 function cleanUrl(u) {
   if (!u) return null;

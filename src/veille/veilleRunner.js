@@ -1,6 +1,7 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl } from "./veilleLib";
 import { releverUrl } from "./veilleExt";
+import { sauverResultat } from "./etudeStore";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
 } from "./veilleData";
@@ -179,7 +180,8 @@ export async function lancerReleve(ctx, ctl) {
 }
 
 // Étude de marché : relève toutes les pubs des mots-clés donnés.
-// etat : objet partagé avec l'écran ({ resultats: [{ mot, ads }] }), rempli au fil de l'eau
+// etat : objet partagé avec l'écran ({ resultats: [{ mot, ads, exact }] }), rempli au fil de l'eau
+// opts : { statut, pays, maxPubs, exact }
 export async function lancerEtude(mots, opts, etat, ctl, onMot) {
   for (let i = 0; i < mots.length && !ctl.stop; i++) {
     const mot = mots[i];
@@ -188,12 +190,16 @@ export async function lancerEtude(mots, opts, etat, ctl, onMot) {
     if (ctl.stop) break;
     const label = `Étude ${i + 1}/${mots.length} « ${mot} »`;
     ctl.status(label);
-    const res = await releverUrl(librarySearchUrl(mot, opts.statut, opts.pays),
+    const res = await releverUrl(librarySearchUrl(mot, opts.statut, opts.pays, !!opts.exact),
       { maxAds: opts.maxPubs, maxScrolls: Math.ceil(opts.maxPubs / 8) + 10, idleRounds: 4, label: mot },
       p => ctl.status(`${label} : ${p.pubs} pubs lues`));
     verifierBlocage(res);
-    etat.resultats.push({ mot, ads: res.ads });
-    ctl.log(`« ${mot} » : ${res.ads.length} pubs, ${new Set(res.ads.map(a => a.page_id)).size} pages`);
+    const resultat = { mot, ads: res.ads, exact: !!opts.exact };
+    etat.resultats.push(resultat);
+    // Sauvegarde dans le navigateur : l'étude survit à un rechargement ou à une fermeture de l'onglet
+    let sauve = true;
+    try { await sauverResultat(resultat); } catch (e) { sauve = false; etat.nonSauve = true; ctl.log(`« ${mot} » : sauvegarde impossible (${e.message || e}). Télécharge l'Excel avant de fermer l'onglet.`); }
+    ctl.log(`« ${mot} » : ${res.ads.length} pubs, ${new Set(res.ads.map(a => a.page_id)).size} pages${sauve ? " · sauvegardé" : ""}`);
     onMot && onMot();
   }
   return { nbMots: etat.resultats.length, nbPubs: etat.resultats.reduce((s, r) => s + r.ads.length, 0) };
