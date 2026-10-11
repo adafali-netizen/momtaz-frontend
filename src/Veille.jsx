@@ -8,7 +8,7 @@ import Classement from "./veille/Classement";
 import PagesSuivies from "./veille/PagesSuivies";
 import Historique from "./veille/Historique";
 import Recherche from "./veille/Recherche";
-import EtudeMarche, { etudeEtat } from "./veille/EtudeMarche";
+import EtudeMarche, { etudeEtat, telechargerEtude } from "./veille/EtudeMarche";
 
 // Bilan affiché à la fin d'un relevé : pages enregistrées, pages sans pub, pages que Facebook n'a pas affichées
 function bilanReleve(res) {
@@ -34,6 +34,7 @@ export default function Veille() {
   const [version,  setVersion]  = useState(0);
   const [journal,  setJournal]  = useState(null);   // { type, lignes, fin } : gardé après la fin de la tâche
   const [journalOuvert, setJournalOuvert] = useState(true);
+  const [dernierType, setDernierType] = useState(null);   // type de la dernière tâche lancée
   const ctlRef = useRef(null);
 
   const charger = useCallback(async () => {
@@ -109,10 +110,11 @@ export default function Veille() {
     setErreur("");
     setMessage("");
     setJournal(null);
+    setDernierType(type);
     try {
       const res = await fn(ctl);
       setMessage(type === "etude"
-        ? `Étude terminée : ${res.nbMots} mots-clés, ${res.nbPubs} pubs. Clique sur « Télécharger le fichier Excel ».`
+        ? `Étude terminée : ${res.nbMots} mot${res.nbMots > 1 ? "s" : ""}-clé${res.nbMots > 1 ? "s" : ""}, ${res.nbPubs} pubs.`
         : type === "releve"
         ? bilanReleve(res)
         : `Recherche terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.`);
@@ -152,6 +154,13 @@ export default function Veille() {
   const pubsActives = groups.reduce((s, g) => s + g.pubs, 0);
   const enScale = groups.filter(g => g.pubs >= 20 && g.recent > 0).length;
   const nbCreas = groups.reduce((s, g) => s + g.crea, 0);
+
+  // Téléchargement de l'étude depuis n'importe quel onglet
+  const boutonExcel = (
+    <button className="btn btn-sm btn-primary" onClick={() => telechargerEtude().catch(e => setErreur("Téléchargement impossible : " + (e.message || e)))}>
+      Télécharger le fichier Excel
+    </button>
+  );
 
   const ONGLETS = [
     { id: "classement", label: "Classement produits" },
@@ -199,12 +208,17 @@ export default function Veille() {
       )}
       {erreur && <div className="alert-banner" style={{ background: "var(--red-lt)", color: "var(--red)", border: "1px solid #FECACA", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <span>{erreur}</span>
+        {dernierType === "etude" && !run && etudeEtat.resultats.length > 0 && boutonExcel}
         {window.__momtazReleveNonEnregistre && !run && (
           <button className="btn btn-sm btn-danger" onClick={() => lancer("releve", () => reessayerEnregistrement({ pages, produits: data.produits }))}>Réessayer l'enregistrement</button>
         )}
       </div>}
-      {message && !run && <div className="alert-banner" style={{ background: "var(--green-lt)", color: "var(--green)", border: "1px solid #BBF7D0", display: "flex", justifyContent: "space-between" }}>
-        <span>{message}</span><button className="btn-close" onClick={() => setMessage("")}>×</button>
+      {message && !run && <div className="alert-banner" style={{ background: "var(--green-lt)", color: "var(--green)", border: "1px solid #BBF7D0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          {message}
+          {dernierType === "etude" && etudeEtat.resultats.length > 0 && boutonExcel}
+        </span>
+        <button className="btn-close" onClick={() => setMessage("")}>×</button>
       </div>}
 
       {journal && !run && (

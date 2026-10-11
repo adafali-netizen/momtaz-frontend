@@ -43,6 +43,13 @@ async function telechargerExcel(lignes, pages) {
   XLSX.writeFile(wb, `etude_marche_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.xlsx`);
 }
 
+// Export de l'étude en mémoire : utilisé ici et par le message de fin d'étude (visible sur tous les onglets)
+export async function telechargerEtude() {
+  const lignes = construireEtude(etudeEtat.resultats);
+  if (!lignes.length) throw new Error("aucune pub à exporter");
+  await telechargerExcel(lignes, resumePages(lignes));
+}
+
 export default function EtudeMarche({ ext, run, onLancer, onStop, version }) {
   const [mots, setMots] = useState(etudeEtat.mots);
   const [statut, setStatut] = useState(REGLAGES.statut === "active" ? "active" : "all");
