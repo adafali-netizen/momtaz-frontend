@@ -47,7 +47,23 @@ async function defiler(tabId) {
     func: () => {
       window.scrollBy(0, Math.round(window.innerHeight * (0.8 + Math.random() * 0.6)));
       if (Math.random() < 0.5) window.scrollTo(0, document.body.scrollHeight);
-      return document.body.scrollHeight;
+
+      // Sans compte Facebook, la suite des résultats ne se charge pas toute seule :
+      // il faut cliquer sur la barre « Voir plus » en bas de la liste.
+      const LIBELLE = /^(voir plus|afficher plus|see more|show more|ver más|ver mais|mehr anzeigen|mostra altro|عرض المزيد)$/i;
+      let cible = null;
+      for (const el of document.querySelectorAll('a, button, span, div[role="button"]')) {
+        const t = (el.textContent || "").trim();
+        if (!t || t.length > 20 || !LIBELLE.test(t)) continue;
+        // La barre occupe toute la largeur ; les « Voir plus » à l'intérieur d'une pub sont étroits, on les ignore
+        let large = false;
+        for (let p = el, n = 0; p && n < 5; p = p.parentElement, n++) {
+          if (p.getBoundingClientRect().width > window.innerWidth * 0.5) { large = true; break; }
+        }
+        if (large) cible = el;   // on garde le dernier : le plus bas dans la page
+      }
+      if (cible) { cible.scrollIntoView({ block: "center" }); cible.click(); }
+      return !!cible;
     },
   }).catch(() => {});
 }
