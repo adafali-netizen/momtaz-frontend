@@ -200,13 +200,14 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
                       </div>
                     </div>
                   </td>
-                  <td style={{ minWidth: 110 }}>
+                  <td style={{ minWidth: 110 }} title={`Réinvestissement ${g.detail.reinvestissement}/35 · Demande ${g.detail.demande}/30 · Recoupement ${g.detail.recoupement}/20 · Persistance ${g.detail.persistance}/15`}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, height: 7, borderRadius: 99, background: "var(--surface3)", overflow: "hidden" }}>
                         <div style={{ height: 7, width: g.score + "%", background: "var(--blue)" }} />
                       </div>
                       <span className="col-mono" style={{ fontWeight: 700 }}>{g.score}</span>
                     </div>
+                    <div className="col-muted" style={{ fontSize: 11, marginTop: 3, whiteSpace: "nowrap" }}>R {g.detail.reinvestissement} · D {g.detail.demande} · C {g.detail.recoupement} · P {g.detail.persistance}</div>
                   </td>
                   <td className="col-mono" style={{ textAlign: "right", fontWeight: 700 }}>{g.pubs}</td>
                   <td className="col-muted" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{g.age} j</td>

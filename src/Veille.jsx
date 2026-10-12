@@ -79,7 +79,7 @@ export default function Veille() {
     return s;
   }, [pages]);
 
-  const groups = useMemo(() => data ? buildGroups(data.pubs, data.refDates, data.produits, id => pageInfo(id).nom) : [], [data, pageInfo]);
+  const groups = useMemo(() => data ? buildGroups(data.pubs, data.refDates, data.produits, id => pageInfo(id).nom, data.presence) : [], [data, pageInfo]);
 
   const patchProduits = useCallback(async (ids, champs) => {
     try {

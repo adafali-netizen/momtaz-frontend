@@ -205,15 +205,30 @@ export function aggregateProducts(pubs, refDates) {
 }
 
 // Score sur 100 d'un groupe de produits (le même produit vendu par une ou plusieurs pages).
-export function scoreGroup({ pubs, age, recent, nbPages, prixMax, sante }) {
-  const demande = Math.min(40, 40 * Math.log1p(pubs) / Math.log1p(60));
-  const duree = age >= 60 ? 25 : age >= 30 ? 18 : age >= 14 ? 10 : 3;
-  const reinv = recent > 0 && age > 14 ? 15 : recent > 0 ? 5 : age >= 60 ? 8 : 0;
-  const recoup = nbPages >= 2 ? 10 : 0;
-  let faisab = 10;
-  if (sante) faisab -= 5;
-  if (prixMax && prixMax < 200) faisab -= 5;
-  return Math.round(demande + duree + reinv + recoup + Math.max(0, faisab));
+// Ordre d'importance : réinvestissement, demande, recoupement, persistance.
+// L'âge des pubs et la faisabilité (prix, santé) ne comptent pas : la décision financière revient à la Direction.
+const progressif = (n, plein) => Math.min(1, Math.log1p(Math.max(0, n)) / Math.log1p(plein));
+
+export function detailScore({ pubs, recent, nbPages, persistance }) {
+  return {
+    reinvestissement: Math.round(35 * progressif(recent, 20)),        // pubs lancées dans les 7 jours avant le relevé
+    demande:          Math.round(30 * progressif(pubs, 60)),          // pubs actives (hors impressions faibles)
+    recoupement:      nbPages >= 3 ? 20 : nbPages === 2 ? 12 : 0,     // nombre de pages qui vendent le produit
+    persistance:      persistance >= 4 ? 15 : persistance === 3 ? 10 : persistance === 2 ? 5 : 0, // relevés espacés de 7 jours ou plus
+  };
+}
+
+export function scoreGroup(x) {
+  const d = detailScore(x);
+  return d.reinvestissement + d.demande + d.recoupement + d.persistance;
+}
+
+// Nombre de relevés où le produit avait des pubs actives, en ne comptant que des relevés espacés d'au moins 7 jours
+export function relevesEspaces(dates) {
+  const tri = [...new Set(dates)].map(d => new Date(d).getTime()).filter(x => !Number.isNaN(x)).sort((x, y) => x - y);
+  let n = 0, dernier = -Infinity;
+  for (const x of tri) if (x - dernier >= 7 * 86400000) { n++; dernier = x; }
+  return n;
 }
 
 export function tierOf(prixMax) {
@@ -243,7 +258,8 @@ export function vendorUrl(row, cartes) {
 
 // pubs : publicités du dernier relevé de chaque page · produits : lignes veille_produits
 // pageName(fb_page_id) : nom affiché de la page
-export function buildGroups(pubs, refDates, produits, pageName) {
+// presence (facultatif) : { "page|clé produit": [dates des relevés où le produit avait des pubs actives] }
+export function buildGroups(pubs, refDates, produits, pageName, presence) {
   const prodMap = new Map(produits.map(p => [p.fb_page_id + "|" + p.produit_key, p]));
   const groups = new Map();
   for (const it of aggregateProducts(pubs, refDates)) {
@@ -302,12 +318,17 @@ export function buildGroups(pubs, refDates, produits, pageName) {
       nom: G.nom, vendors: v, items, pubs, recent, age, nbPages, prixMax, prixMin, sante, cartes, statut,
       crea: cartes.length,
       ids: items.map(x => x.row?.id).filter(Boolean),
-      score: scoreGroup({ pubs, age, recent, nbPages, prixMax, sante }),
+      persistance: relevesEspaces(items.flatMap(x => (presence && presence[x.fb_page_id + "|" + x.produit_key]) || [])),
+      score: 0,
       tier: tierOf(prixMax),
       thumb: (cartes.find(c => c.thumb) || {}).thumb || null,
     });
   }
-  out.sort((a, b) => a.tier - b.tier || b.score - a.score || b.pubs - a.pubs);
+  for (const g of out) {
+    g.detail = detailScore(g);
+    g.score = scoreGroup(g);
+  }
+  out.sort((a, b) => b.score - a.score || b.pubs - a.pubs);
   return out;
 }
 

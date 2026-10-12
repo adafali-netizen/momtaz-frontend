@@ -54,7 +54,28 @@ export async function loadVeille() {
   const refDates = {};
   for (const rp of Object.values(latest)) refDates[rp.fb_page_id] = rp.capture_le;
 
-  return { pages, releves, relevePages, produits, pubs, latest, refDates };
+  // Persistance : dans quels relevés (90 derniers jours) chaque produit avait des pubs actives
+  const presence = {};
+  try {
+    const depuis = Date.now() - 90 * 86400000;
+    const recents = new Set(releves.filter(r => new Date(r.created_at).getTime() >= depuis).map(r => r.id));
+    const dateDe = {};
+    for (const rp of relevePages) if (recents.has(rp.releve_id)) dateDe[rp.releve_id + "|" + rp.fb_page_id] = rp.capture_le;
+    const ids = [...recents];
+    for (let i = 0; i < ids.length; i += 20) {
+      const lignes = await fetchAll(() => supabase.from("veille_pubs").select("releve_id,fb_page_id,produit_key")
+        .in("releve_id", ids.slice(i, i + 20)).eq("low", false).order("id"));
+      for (const l of lignes) {
+        if (!actifs.has(l.fb_page_id)) continue;
+        const d = dateDe[l.releve_id + "|" + l.fb_page_id];
+        if (!d) continue;
+        const k = l.fb_page_id + "|" + l.produit_key;
+        (presence[k] = presence[k] || []).push(d);
+      }
+    }
+  } catch { /* sans historique, la persistance vaut 0 */ }
+
+  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence };
 }
 
 // Publicités d'un relevé et, pour chacune de ses pages, celles du relevé précédent de la même page.
