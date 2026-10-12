@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { compareReleves, defaultName } from "./veilleLib";
+import { compareReleves, identiteProduit } from "./veilleLib";
 import { loadComparaison, deleteReleve, loadPubsReleve } from "./veilleData";
 import { ecrireXlsx } from "./exportXlsx";
 
@@ -93,7 +93,7 @@ export default function Historique({ releves, relevePages, produits, pageInfo, o
         return {
           "Page": pageInfo(p.fb_page_id).nom,
           "ID de la page": p.fb_page_id,
-          "Produit": (row?.groupe || row?.nom || defaultName(p.url, p.texte)).trim(),
+          "Produit": identiteProduit(row, [p], p.produit_key).groupe,
           "Prix saisi (DH)": row?.prix ?? "",
           "Statut produit": row?.statut || "Nouveau",
           "Date de début": p.started_on || "",

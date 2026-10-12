@@ -162,7 +162,8 @@ export function siteOf(url) {
 
 const STOP = new Set(["de", "du", "des", "la", "le", "les", "a", "au", "aux", "et", "en", "pour", "avec", "sans", "un", "une", "l", "d", "pack", "offre", "speciale", "premium", "qui", "va", "ta", "te", "vous", "dont", "maroc", "products", "product", "pages"]);
 
-export function defaultName(url, texte) {
+// Ancienne règle de nommage (gardée pour reconnaître les noms donnés automatiquement avant la correction)
+function defaultNameV1(url, texte) {
   const key = productKey(url);
   const slug = safeDecode(key.split("/").pop() || "");
   const words = slug.split(/[-_ ]+/).filter(w => w && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
@@ -172,6 +173,58 @@ export function defaultName(url, texte) {
     return t.slice(0, 4).join(" ") || "Produit sans nom";
   }
   return words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+// Appels à l'action et offres : jamais un nom de produit (« لطلب المنتوج إضغط هنا », « 215 درهم التوصيل فابور »…)
+const APPEL = /(لطلب|للطلب|اطلب|أطلب|إطلب|اضغط|إضغط|أضغط|هنا|سارع|الكمية|محدودة|commande[rz]?|cliquez|cliquer|clique|shop now|order now|achetez|acheter|livraison|التوصيل|توصيل|مجان|فابور|بالمجان|درهم|\bdhs?\b|\bmad\b|prix|promo|عرض|تخفيض|خصم|واتساب|whatsapp)/i;
+
+function nomDepuisTexte(texte) {
+  const segments = String(texte || "").split(/\s*(?:·|\||\n|[.!?؟:]|—)\s*/).map(s => s.trim()).filter(Boolean);
+  for (const s of segments) {
+    const mots = s.replace(/[^\p{L}\p{N}\s'-]/gu, " ").split(/\s+/).filter(Boolean);
+    if (mots.length < 2) continue;
+    if (mots.length <= 8 && APPEL.test(s)) continue;          // phrase courte d'appel à l'action ou d'offre
+    const utiles = mots.filter(m => !APPEL.test(m) && !/^\d+$/.test(m));
+    if (utiles.length >= 2) return utiles.slice(0, 5).join(" ");
+  }
+  return null;
+}
+
+// Nom automatique d'un produit. source = "lien" (nom lu dans l'adresse de la page produit) ou "texte" (adresse illisible)
+export function nomAuto(url, texte) {
+  const key = productKey(url);
+  const slug = safeDecode(key.split("/").pop() || "");
+  const words = slug.split(/[-_ ]+/).filter(w => w && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
+  const lienCourt = /^[a-z0-9]{4,9}$/i.test(slug) || key === "sans-lien" || key.split("/").length < 2;
+  if (words.length && !lienCourt) return { nom: words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), source: "lien" };
+  return { nom: nomDepuisTexte(texte) || "Produit sans nom", source: "texte" };
+}
+
+export function defaultName(url, texte) {
+  return nomAuto(url, texte).nom;
+}
+
+const norm = s => (s || "").trim().toLowerCase();
+
+// Identité d'un produit pour le regroupement.
+// - Nom ou groupe saisi par toi : il fait foi (c'est ainsi que tu regroupes le même produit vendu par plusieurs pages).
+// - Nom lu dans l'adresse de la page produit : les produits de même nom sont regroupés, comme avant.
+// - Adresse illisible (lien court) : le produit reste seul, identifié par son lien. Avant, il prenait le texte
+//   de la pub (souvent « لطلب المنتوج إضغط هنا ») et se mélangeait à tous les produits ayant la même accroche.
+export function identiteProduit(row, cartes, produitKey) {
+  const liste = (cartes || []).length ? cartes : [{}];
+  const autos = new Set(liste.flatMap(c => [defaultNameV1(c.url, c.texte), defaultName(c.url, c.texte)]).map(norm));
+  if (row) autos.add(norm(defaultNameV1(row.url, "")));
+  const groupeManuel = row?.groupe && !autos.has(norm(row.groupe)) ? row.groupe.trim() : null;
+  const nomManuel = row?.nom && !autos.has(norm(row.nom)) ? row.nom.trim() : null;
+  let auto = nomAuto(liste[0].url, liste[0].texte);
+  if (auto.source === "texte") {
+    for (const c of liste) { const n = nomDepuisTexte(c.texte); if (n) { auto = { nom: n, source: "texte" }; break; } }
+  }
+  const nom = nomManuel || auto.nom;
+  if (groupeManuel) return { nom, groupe: groupeManuel, cle: "g:" + norm(groupeManuel) };
+  if (nomManuel || auto.source === "lien") return { nom, groupe: nom, cle: "g:" + norm(nom) };
+  return { nom, groupe: nom, cle: "p:" + (produitKey || "") };
 }
 
 const SANTE = ["attelle", "compression", "chauffant", "masseur", "masseuse", "bonnet", "patch", "canne", "genou", "étireur", "etireur", "migraine", "douleur", "arthrite"];
@@ -248,7 +301,6 @@ export const STATUT_COULEURS = {
 
 // ─── 4. Classement : le même produit vendu par plusieurs pages ────────────
 
-const groupKeyOf = s => (s || "").trim().toLowerCase();
 
 export function vendorUrl(row, cartes) {
   if (row?.url) return row.url;
@@ -264,9 +316,9 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
   const groups = new Map();
   for (const it of aggregateProducts(pubs, refDates)) {
     const row = prodMap.get(it.fb_page_id + "|" + it.produit_key) || null;
-    const c0 = it.cartes[0] || {};
-    const nom = row?.nom || defaultName(c0.url, c0.texte);
-    const groupe = (row?.groupe || nom).trim();
+    const id = identiteProduit(row, it.cartes, it.produit_key);
+    const nom = id.nom;
+    const groupe = id.groupe;
     const vendor = {
       ...it, row, nom, groupe,
       page: pageName(it.fb_page_id),
@@ -274,7 +326,7 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
       url: vendorUrl(row, it.cartes),
       sante: row ? !!row.risque_sante : risqueSante(nom),
     };
-    const k = groupKeyOf(groupe);
+    const k = id.cle;
     if (!groups.has(k)) groups.set(k, { nom: groupe, vendors: [] });
     groups.get(k).vendors.push(vendor);
   }
@@ -342,8 +394,9 @@ export function compareReleves(apres, avant, produits, pageName) {
     for (const p of list) {
       if (p.low) continue;
       const row = prodMap.get(p.fb_page_id + "|" + p.produit_key);
-      const nom = (row?.groupe || row?.nom || defaultName(p.url, p.texte)).trim();
-      const k = groupKeyOf(nom);
+      const id = identiteProduit(row, [p], p.produit_key);
+      const nom = id.groupe;
+      const k = id.cle;
       if (!m.has(k)) m.set(k, { nom, pubs: 0, pages: new Set() });
       const g = m.get(k);
       g.pubs += p.nb;
