@@ -141,8 +141,20 @@ export async function reessayerEnregistrement(ctx) {
 
 // Relève toutes les pages suivies. Chaque page est enregistrée dès qu'elle est relevée :
 // rien n'est perdu si le relevé s'arrête en route.
+// ctx : { pages, produits, latest, max } · latest = dernier relevé enregistré de chaque page
+// Ordre : pages jamais relevées (ou dont le relevé a échoué), puis dernier relevé le plus ancien.
+// max : nombre de pages pour cette session (vide = toutes)
+export function pagesARelever(pages, latest, max) {
+  const date = p => (latest && latest[p.fb_page_id] ? new Date(latest[p.fb_page_id].capture_le).getTime() : 0);
+  const triees = pages.filter(p => p.actif)
+    .map((p, i) => ({ p, i, d: date(p) }))
+    .sort((a, b) => a.d - b.d || a.i - b.i)
+    .map(x => x.p);
+  return max > 0 ? triees.slice(0, max) : triees;
+}
+
 export async function lancerReleve(ctx, ctl) {
-  const pages = ctx.pages.filter(p => p.actif);
+  const pages = pagesARelever(ctx.pages, ctx.latest, ctx.max);
   const pagesConnues = new Set(ctx.pages.map(p => p.fb_page_id));
   const produitsConnus = new Set(ctx.produits.map(p => p.fb_page_id + "|" + p.produit_key));
   const totaux = { nb_pages: 0, nb_cartes: 0, nb_pubs: 0 };

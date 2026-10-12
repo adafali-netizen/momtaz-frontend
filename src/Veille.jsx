@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildGroups } from "./veille/veilleLib";
 import { loadVeille, updateProduits, updatePage } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
-import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement } from "./veille/veilleRunner";
+import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement, pagesARelever } from "./veille/veilleRunner";
 import ImportModal from "./veille/ImportModal";
 import Classement from "./veille/Classement";
 import PagesSuivies from "./veille/PagesSuivies";
@@ -35,6 +35,9 @@ export default function Veille() {
   const [journal,  setJournal]  = useState(null);   // { type, lignes, fin } : gardé après la fin de la tâche
   const [journalOuvert, setJournalOuvert] = useState(true);
   const [dernierType, setDernierType] = useState(null);   // type de la dernière tâche lancée
+  // Nombre de pages par relevé (vide = toutes), mémorisé dans ce navigateur
+  const [maxReleve, setMaxReleve] = useState(() => { try { return localStorage.getItem("momtaz_releve_max") || ""; } catch { return ""; } });
+  useEffect(() => { try { localStorage.setItem("momtaz_releve_max", maxReleve); } catch { /* stockage indisponible */ } }, [maxReleve]);
   const ctlRef = useRef(null);
 
   const charger = useCallback(async () => {
@@ -145,12 +148,14 @@ export default function Veille() {
 
   const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
 
-  const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits }, ctl));
+  const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, max: Number(maxReleve) || 0 }, ctl));
 
   if (!data && !erreur) return <div className="loading-screen"><span className="loading-dot" />Chargement de la veille…</div>;
 
   const releves = data?.releves || [];
   const actives = pages.filter(p => p.actif).length;
+  const aRelever = data ? pagesARelever(pages, data.latest, Number(maxReleve) || 0) : [];
+  const jamais = data ? pages.filter(p => p.actif && !data.latest[p.fb_page_id]).length : 0;
   const pubsActives = groups.reduce((s, g) => s + g.pubs, 0);
   const enScale = groups.filter(g => g.pubs >= 20 && g.recent > 0).length;
   const nbCreas = groups.reduce((s, g) => s + g.crea, 0);
@@ -186,7 +191,16 @@ export default function Veille() {
             <button className="btn btn-secondary" onClick={() => setImporter(true)} disabled={!data || !!run}>Importer des fichiers .mhtml</button>
             {run?.type === "releve"
               ? <button className="btn btn-danger" onClick={arreter}>Arrêter le relevé</button>
-              : <button className="btn btn-primary" onClick={lancerUnReleve} disabled={!data || !ext || !!run || !actives} title={ext ? "" : "Ouvre l'ERP dans le Chrome où l'extension est installée"}>Lancer un relevé (extension)</button>}
+              : <>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }} title={`Les pages jamais relevées passent en premier (${jamais}), puis celles dont le dernier relevé est le plus ancien. Vide = toutes les pages.`}>
+                    Pages
+                    <input type="number" min={1} max={actives || 1} className="form-input" style={{ width: 70, padding: "6px 8px" }}
+                      placeholder={String(actives)} value={maxReleve} onChange={e => setMaxReleve(e.target.value.replace(/[^0-9]/g, ""))} disabled={!!run} />
+                  </label>
+                  <button className="btn btn-primary" onClick={lancerUnReleve} disabled={!data || !ext || !!run || !actives} title={ext ? "Les pages en retard passent en premier" : "Ouvre l'ERP dans le Chrome où l'extension est installée"}>
+                    Lancer un relevé ({aRelever.length} page{aRelever.length > 1 ? "s" : ""})
+                  </button>
+                </>}
           </div>
         </div>
         <div className="filter-tabs" style={{ paddingBottom: 12 }}>

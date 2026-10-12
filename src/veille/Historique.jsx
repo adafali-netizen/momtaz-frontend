@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { compareReleves } from "./veilleLib";
-import { loadComparaison, deleteReleve } from "./veilleData";
+import { compareReleves, defaultName } from "./veilleLib";
+import { loadComparaison, deleteReleve, loadPubsReleve } from "./veilleData";
+import { ecrireXlsx } from "./exportXlsx";
 
 const fmtDate = d => new Date(d).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -40,6 +41,7 @@ export default function Historique({ releves, relevePages, produits, pageInfo, o
   const [comp,    setComp]    = useState(null);
   const [charge,  setCharge]  = useState(false);
   const [erreur,  setErreur]  = useState("");
+  const [export_, setExport]  = useState(false);
 
   useEffect(() => {
     if (!releves.some(r => r.id === sel)) setSel(releves[0]?.id || null);
@@ -77,6 +79,49 @@ export default function Historique({ releves, relevePages, produits, pageInfo, o
     await onReload();
   };
 
+  // Une ligne par publicité du relevé choisi, plus un onglet résumé par page
+  const telecharger = async () => {
+    setExport(true); setErreur("");
+    try {
+      const pubs = await loadPubsReleve(sel, relevePages);
+      const prodMap = new Map(produits.map(p => [p.fb_page_id + "|" + p.produit_key, p]));
+      const rps = relevePages.filter(r => r.releve_id === sel);
+      const capture = Object.fromEntries(rps.map(r => [r.fb_page_id, r.capture_le]));
+      const lignes = pubs.map(p => {
+        const row = prodMap.get(p.fb_page_id + "|" + p.produit_key);
+        const ref = capture[p.fb_page_id] ? new Date(capture[p.fb_page_id]) : new Date();
+        return {
+          "Page": pageInfo(p.fb_page_id).nom,
+          "ID de la page": p.fb_page_id,
+          "Produit": (row?.groupe || row?.nom || defaultName(p.url, p.texte)).trim(),
+          "Prix saisi (DH)": row?.prix ?? "",
+          "Statut produit": row?.statut || "Nouveau",
+          "Date de début": p.started_on || "",
+          "Âge (jours)": p.started_on ? Math.max(0, Math.floor((ref - new Date(p.started_on)) / 86400000)) : "",
+          "Pubs utilisant cette créative": p.nb,
+          "Impressions faibles": p.low ? "Oui" : "",
+          "Format": p.format || "",
+          "Texte de la pub (300 caractères)": p.texte || "",
+          "Lien de la page produit": p.url || "",
+          "Lien de la pub": "https://www.facebook.com/ads/library/?id=" + p.library_id,
+          "Lien vidéo ou image": p.media || "",
+          "Date du relevé de la page": capture[p.fb_page_id] ? new Date(capture[p.fb_page_id]).toLocaleString("fr-FR") : "",
+        };
+      }).sort((a, b) => a.Page.localeCompare(b.Page) || b["Pubs utilisant cette créative"] - a["Pubs utilisant cette créative"]);
+      const resume = rps.map(r => ({
+        "Page": pageInfo(r.fb_page_id).nom,
+        "ID de la page": r.fb_page_id,
+        "Créatives": r.nb_cartes,
+        "Pubs": r.nb_pubs,
+        "Relevée le": new Date(r.capture_le).toLocaleString("fr-FR"),
+        "Lien Ad Library": "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + r.fb_page_id,
+      })).sort((a, b) => b.Pubs - a.Pubs);
+      const d = new Date(releveSel.created_at);
+      await ecrireXlsx(`releve_${d.toISOString().slice(0, 16).replace(/[:T]/g, "-")}.xlsx`, [{ nom: "Pubs", lignes }, { nom: "Pages", lignes: resume }]);
+    } catch (e) { setErreur("Téléchargement impossible : " + (e.message || e)); }
+    finally { setExport(false); }
+  };
+
   return (
     <div style={{ padding: "16px 24px", display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       <div style={{ flex: "1 1 260px", maxWidth: 340, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -96,7 +141,10 @@ export default function Historique({ releves, relevePages, produits, pageInfo, o
         {releveSel && (
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <div style={{ fontWeight: 700 }}>Ce qui a changé au relevé du {fmtDate(releveSel.created_at)}</div>
-            <button className="btn btn-sm btn-danger" onClick={supprimer}>Supprimer ce relevé</button>
+            <span style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-sm btn-primary" onClick={telecharger} disabled={export_}>{export_ ? "Préparation…" : "Télécharger ce relevé"}</button>
+              <button className="btn btn-sm btn-danger" onClick={supprimer}>Supprimer ce relevé</button>
+            </span>
           </div>
         )}
         {charge && <div className="col-muted"><span className="loading-dot" /> Comparaison…</div>}

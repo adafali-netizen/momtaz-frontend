@@ -1,6 +1,22 @@
 // Module Veille : lecture des pages Ad Library enregistrées (.mhtml) et calcul du classement.
 // Aucune dépendance au navigateur : ce fichier est aussi testable avec Node.
 
+// ─── 0. Textes acceptés par Supabase et Excel ─────────────────────────────
+
+// Retire les moitiés d'émojis et les caractères de contrôle (Supabase refuse la page entière sinon)
+export function texteSur(v) {
+  if (typeof v !== "string") return v;
+  return v
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "");
+}
+
+// Coupe à n caractères sans couper un émoji en deux
+export function couper(s, n) {
+  const c = Array.from(String(s || ""));
+  return texteSur(c.length > n ? c.slice(0, n).join("") : c.join(""));
+}
+
 // ─── 1. Lecture du fichier .mhtml ─────────────────────────────────────────
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
@@ -123,7 +139,7 @@ export function extractAds(html, url, fallbackName) {
       format: vid ? "Vidéo" : "Image",
       media: vid ? decodeEntities(vid[1]) : (imgs[0] || null),
       thumb: imgs[0] || null,
-      texte: body ? body[1].replace(/\d+:\d+ \/ \d+:\d+/g, "").replace(/(\s*Download)+/g, " ").trim().slice(0, 300) : "",
+      texte: body ? couper(body[1].replace(/\d+:\d+ \/ \d+:\d+/g, "").replace(/(\s*Download)+/g, " ").trim(), 300) : "",
     });
   }
   return { pageId, pageNom: pageNom || fallbackName || null, cartes };
@@ -403,7 +419,7 @@ export function adsToCartes(ads) {
       format: a.video ? "Vidéo" : "Image",
       media: a.video || a.image || null,
       thumb: a.thumb || a.image || null,
-      texte: [a.title, a.text].filter(Boolean).join(" · ").replace(/\s+/g, " ").slice(0, 300),
+      texte: couper([a.title, a.text].filter(Boolean).join(" · ").replace(/\s+/g, " "), 300),
     });
   }
   return out;

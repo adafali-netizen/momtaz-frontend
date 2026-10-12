@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { pageIdFrom } from "./veilleLib";
 import { addPages, updatePage } from "./veilleData";
+import { ecrireXlsx, horodatage } from "./exportXlsx";
 
 const libUrl = id => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + id;
 
@@ -72,6 +73,28 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
     try { await navigator.clipboard.writeText(liens); setCopie(true); setTimeout(() => setCopie(false), 2500); } catch { /* presse-papiers indisponible */ }
   };
 
+  // Téléchargement de la liste affichée (pages suivies ou retirées, avec le filtre de recherche)
+  const telecharger = () => ecrireXlsx(`pages_${retirees ? "retirees" : "suivies"}_${horodatage()}.xlsx`, [{
+    nom: retirees ? "Pages retirées" : "Pages suivies",
+    lignes: liste.map(p => {
+      const s = stats[p.fb_page_id] || { pubs: 0, produits: 0, recent: 0 };
+      const rel = latest[p.fb_page_id];
+      return {
+        "Page": p.nom || "",
+        "Nom interne": p.nom_interne || "",
+        "ID de la page": p.fb_page_id,
+        "Sites": p.sites || "",
+        "Pubs actives": s.pubs,
+        "Produits": s.produits,
+        "Ajouts 7 jours": s.recent,
+        "Créatives au dernier relevé": rel ? rel.nb_cartes : "",
+        "Dernier relevé": rel ? new Date(rel.capture_le).toLocaleString("fr-FR") : "Jamais relevée",
+        "Statut": p.actif ? "Suivie" : "Retirée",
+        "Lien Ad Library": libUrl(p.fb_page_id),
+      };
+    }),
+  }]);
+
   const ETATS = {
     nouvelle: ["Nouvelle page", "var(--blue)", "Son nom apparaîtra au premier relevé."],
     suivie:   ["Déjà suivie", "var(--muted)", "Même ID qu'une page de ta liste : ignorée."],
@@ -120,6 +143,7 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
           <div style={{ flex: 1 }} />
           <input className="search-input" style={{ paddingLeft: 12, width: 260 }} placeholder="Rechercher par nom, ID ou site" value={q} onChange={e => setQ(e.target.value)} />
           <button className="btn btn-sm btn-secondary" onClick={() => setRetirees(!retirees)}>{retirees ? "Voir les pages suivies" : "Voir les pages retirées"}</button>
+          <button className="btn btn-sm btn-primary" onClick={() => telecharger().catch(e => alert("Téléchargement impossible : " + (e.message || e)))} disabled={!liste.length}>Télécharger les pages</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table className="data-table" style={{ minWidth: 980 }}>

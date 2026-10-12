@@ -1,6 +1,6 @@
 // Module Veille : lecture et écriture dans Supabase.
 import { supabase } from "../supabaseClient";
-import { productKey, siteOf, defaultName, risqueSante } from "./veilleLib";
+import { productKey, siteOf, defaultName, risqueSante, texteSur } from "./veilleLib";
 
 // Supabase renvoie 1000 lignes maximum par requête : on lit page par page.
 async function fetchAll(make) {
@@ -22,6 +22,12 @@ async function fetchPubs(releveId, pageIds) {
       .eq("releve_id", releveId).in("fb_page_id", ids).order("id")));
   }
   return out;
+}
+
+// Toutes les publicités d'un relevé (pour le téléchargement depuis l'Historique)
+export async function loadPubsReleve(releveId, relevePages) {
+  const ids = relevePages.filter(r => r.releve_id === releveId).map(r => r.fb_page_id);
+  return ids.length ? fetchPubs(releveId, ids) : [];
 }
 
 export async function loadVeille() {
@@ -78,11 +84,11 @@ export async function saveReleve(fichiers, pagesExistantes, produitsExistants, s
     const sites = [...new Set(f.cartes.map(c => siteOf(c.url)).filter(s => s && s !== "bit.ly"))].slice(0, 3).join(", ") || null;
     const p = connues.get(f.pageId);
     if (!p) {
-      const { error } = await supabase.from("veille_pages").insert([{ fb_page_id: f.pageId, nom: f.pageNom, sites }]);
+      const { error } = await supabase.from("veille_pages").insert([{ fb_page_id: f.pageId, nom: texteSur(f.pageNom), sites }]);
       if (error) throw error;
     } else {
       const maj = { actif: true };
-      if (f.pageNom) maj.nom = f.pageNom;
+      if (f.pageNom) maj.nom = texteSur(f.pageNom);
       if (sites) maj.sites = sites;
       const { error } = await supabase.from("veille_pages").update(maj).eq("fb_page_id", f.pageId);
       if (error) throw error;
@@ -97,7 +103,7 @@ export async function saveReleve(fichiers, pagesExistantes, produitsExistants, s
   if (e1) throw e1;
 
   // Texte sans caractères que Postgres refuse
-  const propre = v => (typeof v === "string" ? v.replace(/\u0000/g, "") : v);
+  const propre = texteSur;
 
   let lignes = [];
   try {
@@ -235,7 +241,7 @@ export async function decideCandidat(fbPageId, decision, raison) {
 
 // ─── Relevé enregistré page par page (relevé automatique) ─────────────────
 
-const propreTexte = v => (typeof v === "string" ? v.replace(/\u0000/g, "") : v);
+const propreTexte = texteSur;
 
 export async function startReleve(source = "extension") {
   const { data, error } = await supabase.from("veille_releves")
@@ -248,12 +254,12 @@ export async function startReleve(source = "extension") {
 export async function addPageReleve(releveId, f, pagesConnues, produitsConnus) {
   const sites = [...new Set(f.cartes.map(c => siteOf(c.url)).filter(s => s && s !== "bit.ly"))].slice(0, 3).join(", ") || null;
   if (!pagesConnues.has(f.pageId)) {
-    const { error } = await supabase.from("veille_pages").upsert([{ fb_page_id: f.pageId, nom: f.pageNom, sites, actif: true }], { onConflict: "fb_page_id" });
+    const { error } = await supabase.from("veille_pages").upsert([{ fb_page_id: f.pageId, nom: texteSur(f.pageNom), sites, actif: true }], { onConflict: "fb_page_id" });
     if (error) throw new Error("page : " + error.message);
     pagesConnues.add(f.pageId);
   } else {
     const maj = { actif: true };
-    if (f.pageNom) maj.nom = f.pageNom;
+    if (f.pageNom) maj.nom = texteSur(f.pageNom);
     if (sites) maj.sites = sites;
     await supabase.from("veille_pages").update(maj).eq("fb_page_id", f.pageId);
   }
