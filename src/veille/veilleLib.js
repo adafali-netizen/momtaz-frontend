@@ -446,9 +446,10 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
   const marge = '=IF(INDIRECT("H"&ROW())="";"";INDIRECT("G"&ROW())-INDIRECT("H"&ROW()))';
   const rows = [];
   let maxC = 0;
-  for (const g of groups) {
+  groups.forEach((g, rang) => {
     for (const v of g.vendors) {
       const info = pageInfo(v.fb_page_id);
+      const d = g.detail || {};
       const c0 = v.cartes[0] || {};
       const lib = "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + v.fb_page_id;
       const crea = v.cartes.filter(c => c.media).map((c, i) => `=HYPERLINK("${q(c.media)}";"${q(c.format || "Créa")} ${i + 1}")`);
@@ -466,11 +467,20 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
         g.statut,
         v.cartes.length,
         v.pubs,
+        rang + 1,
+        g.score ?? "",
+        d.reinvestissement ?? "", d.demande ?? "", d.recoupement ?? "", d.persistance ?? "", d.faisabilite ?? "",
+        g.pubs,
+        g.recent,
+        g.nbPages,
+        g.sante ? "Oui" : "",
         ...crea,
       ].join("\t"));
     }
-  }
-  const head = ["Date", "Page", "ID", "Produit", "Lien de publicité", "Page produit", "Prix de vente", "Prix achat", "Marge brute", "Status", "Nombre de créatives", "Nombre de pub"];
+  });
+  const head = ["Date", "Page", "ID", "Produit", "Lien de publicité", "Page produit", "Prix de vente", "Prix achat", "Marge brute", "Status", "Nombre de créatives", "Nombre de pub",
+    "Rang", "Score /100", "Réinvestissement /30", "Demande /25", "Recoupement /20", "Persistance /15", "Faisabilité /10",
+    "Pubs du produit (toutes pages)", "Pubs lancées sur 7 jours", "Pages vendeuses", "Promesse santé"];
   for (let i = 1; i <= maxC; i++) head.push("Créative " + i);
   return head.join("\t") + "\n" + rows.join("\n") + "\n";
 }
