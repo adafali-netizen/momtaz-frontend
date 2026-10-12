@@ -149,6 +149,7 @@ export default function Veille() {
   const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
 
   const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, max: Number(maxReleve) || 0 }, ctl));
+  const releverSelection = ids => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, ids }, ctl));
 
   if (!data && !erreur) return <div className="loading-screen"><span className="loading-dot" />Chargement de la veille…</div>;
 
@@ -269,7 +270,8 @@ export default function Veille() {
         </>
       )}
       {data && onglet === "pages" && (
-        <PagesSuivies pages={pages} groups={groups} latest={data.latest} pageInfo={pageInfo} homonymes={homonymes} onReload={charger} onPatchPage={patchPage} />
+        <PagesSuivies pages={pages} groups={groups} latest={data.latest} pageInfo={pageInfo} homonymes={homonymes} onReload={charger} onPatchPage={patchPage}
+          ext={ext} run={run} onRelever={releverSelection} />
       )}
       {data && onglet === "historique" && (
         <Historique releves={releves} relevePages={data.relevePages} produits={data.produits} pageInfo={pageInfo} onReload={charger} />

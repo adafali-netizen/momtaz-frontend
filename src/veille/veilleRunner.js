@@ -153,8 +153,11 @@ export function pagesARelever(pages, latest, max) {
   return max > 0 ? triees.slice(0, max) : triees;
 }
 
+// ctx.ids (facultatif) : relever seulement ces pages (cases cochées dans Pages suivies)
 export async function lancerReleve(ctx, ctl) {
-  const pages = pagesARelever(ctx.pages, ctx.latest, ctx.max);
+  const pages = ctx.ids
+    ? pagesARelever(ctx.pages, ctx.latest, 0).filter(p => ctx.ids.includes(p.fb_page_id))
+    : pagesARelever(ctx.pages, ctx.latest, ctx.max);
   const pagesConnues = new Set(ctx.pages.map(p => p.fb_page_id));
   const produitsConnus = new Set(ctx.produits.map(p => p.fb_page_id + "|" + p.produit_key));
   const totaux = { nb_pages: 0, nb_cartes: 0, nb_pubs: 0 };

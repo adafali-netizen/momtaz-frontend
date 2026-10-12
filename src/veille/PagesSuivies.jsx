@@ -23,7 +23,8 @@ function NomInterne({ page, onSave }) {
   );
 }
 
-export default function PagesSuivies({ pages, groups, latest, pageInfo, homonymes, onReload, onPatchPage }) {
+export default function PagesSuivies({ pages, groups, latest, pageInfo, homonymes, onReload, onPatchPage, ext, run, onRelever }) {
+  const [choix,    setChoix]    = useState(() => new Set());   // pages cochées pour un relevé
   const [texte,    setTexte]    = useState("");
   const [verif,    setVerif]    = useState(null);
   const [envoi,    setEnvoi]    = useState(false);
@@ -67,6 +68,19 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
     .filter(p => retirees ? !p.actif : p.actif)
     .filter(p => !q || [pageInfo(p.fb_page_id).nom, p.nom, p.fb_page_id, p.sites].join(" ").toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => (stats[b.fb_page_id]?.pubs || 0) - (stats[a.fb_page_id]?.pubs || 0));
+
+  // Cases à cocher : seulement pour les pages suivies (une page retirée ne se relève pas)
+  const cochables = retirees ? [] : liste.map(p => p.fb_page_id);
+  const nbChoix = cochables.filter(id => choix.has(id)).length;
+  const toutCoche = cochables.length > 0 && nbChoix === cochables.length;
+  const basculer = id => setChoix(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toutBasculer = () => setChoix(toutCoche ? new Set() : new Set(cochables));
+  const releverChoix = () => {
+    const ids = cochables.filter(id => choix.has(id));
+    if (!ids.length) return;
+    setChoix(new Set());
+    onRelever(ids);
+  };
 
   const copierLiens = async () => {
     const liens = pages.filter(p => p.actif).map(p => libUrl(p.fb_page_id)).join("\n");
@@ -143,12 +157,19 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
           <div style={{ flex: 1 }} />
           <input className="search-input" style={{ paddingLeft: 12, width: 260 }} placeholder="Rechercher par nom, ID ou site" value={q} onChange={e => setQ(e.target.value)} />
           <button className="btn btn-sm btn-secondary" onClick={() => setRetirees(!retirees)}>{retirees ? "Voir les pages suivies" : "Voir les pages retirées"}</button>
-          <button className="btn btn-sm btn-primary" onClick={() => telecharger().catch(e => alert("Téléchargement impossible : " + (e.message || e)))} disabled={!liste.length}>Télécharger les pages</button>
+          {!retirees && (
+            <button className="btn btn-sm btn-primary" onClick={releverChoix} disabled={!nbChoix || !ext || !!run}
+              title={!ext ? "Extension non détectée" : run ? "Une tâche est déjà en cours" : "Relève seulement les pages cochées"}>
+              Relever la sélection ({nbChoix})
+            </button>
+          )}
+          <button className="btn btn-sm btn-secondary" onClick={() => telecharger().catch(e => alert("Téléchargement impossible : " + (e.message || e)))} disabled={!liste.length}>Télécharger les pages</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table className="data-table" style={{ minWidth: 980 }}>
             <thead>
               <tr>
+                {!retirees && <th style={{ width: 32 }}><input type="checkbox" checked={toutCoche} onChange={toutBasculer} title="Tout cocher" /></th>}
                 <th>Page</th><th>Nom interne</th><th>Sites</th>
                 <th style={{ textAlign: "right" }}>Pubs actives</th><th style={{ textAlign: "right" }}>Produits</th>
                 <th style={{ textAlign: "right" }}>Ajouts 7 j</th><th>Dernier relevé</th><th>Actions</th>
@@ -159,7 +180,8 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
                 const s = stats[p.fb_page_id] || { pubs: 0, produits: 0, recent: 0 };
                 const rel = latest[p.fb_page_id];
                 return (
-                  <tr key={p.fb_page_id} style={{ cursor: "default" }}>
+                  <tr key={p.fb_page_id} style={{ cursor: "default", background: choix.has(p.fb_page_id) ? "var(--blue-lt)" : undefined }}>
+                    {!retirees && <td><input type="checkbox" checked={choix.has(p.fb_page_id)} onChange={() => basculer(p.fb_page_id)} /></td>}
                     <td>
                       <div style={{ fontWeight: 600 }}>{p.nom || "Nom inconnu (au prochain relevé)"}</div>
                       <div className="col-mono col-muted">ID {p.fb_page_id}</div>
