@@ -194,6 +194,36 @@ function nomDepuisTexte(texte) {
 const PAS_PRODUIT = /(^|\.)(wa\.me|whatsapp\.com|m\.me|messenger\.com|instagram\.com|facebook\.com|fb\.me|fb\.com|t\.me|tiktok\.com|bit\.ly)(\/|$)|\/(pages|collections|blogs|policies|cart|checkout|account|contact)(\/|$)/i;
 const SLUG_GENERIQUE = /^(chat|chat-with-us|contact|contact-us|contactez-nous|home|index|accueil|shop|store|boutique|all|send|order|commande|commander|whatsapp|products?|catalog|catalogue|merci|thank-you|thanks|promo|offre|offres)$/i;
 
+// Nom de fiche produit comparable d'un site à l'autre : sans accents, sans suffixe « -1 », « -copie », « -copy »
+export function slugNormalise(url) {
+  const cle = safeDecode(safeDecode(productKey(url)));
+  return (cle.split("/").pop() || "").toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[-_ ]+(copie|copy|\d{1,2})$/g, "")
+    .replace(/[-_ ]+(copie|copy|\d{1,2})$/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
+}
+
+// Produits probablement identiques, vendus par des pages différentes sous des noms proches.
+// Renvoie [{ a, b, raison }] (a et b sont des groupes du classement), à confirmer par l'utilisateur.
+const motsDe = s => new Set(String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+  .split(/[^\p{L}\p{N}]+/u).filter(m => m.length >= 3 && !STOP.has(m) && !/^\d+$/.test(m)));
+export function suggestionsRegroupement(groupes, max = 30) {
+  const liste = groupes.slice(0, 400).map(g => ({ g, mots: motsDe(g.nom), pages: new Set(g.vendors.map(v => v.fb_page_id)) }));
+  const out = [];
+  for (let i = 0; i < liste.length; i++) for (let j = i + 1; j < liste.length; j++) {
+    const A = liste[i], B = liste[j];
+    if ([...A.pages].some(p => B.pages.has(p))) continue;              // même page : pas un recoupement
+    const communs = [...A.mots].filter(m => B.mots.has(m));
+    if (communs.length < 2) continue;
+    const jaccard = communs.length / new Set([...A.mots, ...B.mots]).size;
+    if (jaccard < 0.4) continue;
+    if (A.g.prixMax && B.g.prixMax && Math.abs(A.g.prixMax - B.g.prixMax) / Math.max(A.g.prixMax, B.g.prixMax) > 0.35) continue;
+    out.push({ a: A.g, b: B.g, raison: "mots communs : " + communs.join(", "), force: jaccard });
+  }
+  return out.sort((x, y) => y.force - x.force || (y.a.pubs + y.b.pubs) - (x.a.pubs + x.b.pubs)).slice(0, max);
+}
+
 // L'adresse mène-t-elle à une fiche produit (et pas à WhatsApp, une page de contact, une catégorie) ?
 export function estFicheProduit(url) {
   if (!url || !/^https?:\/\//i.test(url)) return false;
@@ -236,15 +266,36 @@ export function identiteProduit(row, cartes, produitKey) {
   }
   const nom = nomManuel || auto.nom;
   if (groupeManuel) return { nom, groupe: groupeManuel, cle: "g:" + norm(groupeManuel) };
-  if (nomManuel || auto.source === "lien") return { nom, groupe: nom, cle: "g:" + norm(nom) };
+  if (nomManuel) return { nom, groupe: nom, cle: "g:" + norm(nom) };
+  // Fiche produit lisible : même nom de fiche = même produit, même sur deux sites différents
+  // (« console-decorative-3-niveaux » chez La zone360 et chez Darinnova)
+  if (auto.source === "lien") return { nom, groupe: nom, cle: "s:" + slugNormalise(liste[0].url) };
   // produitKey reçu sous la forme « page|clé » : un produit sans fiche lisible reste propre à sa page
   return { nom, groupe: nom, cle: "p:" + (produitKey || "") };
 }
 
-const SANTE = ["attelle", "compression", "chauffant", "masseur", "masseuse", "bonnet", "patch", "canne", "genou", "étireur", "etireur", "migraine", "douleur", "arthrite"];
-export function risqueSante(nom) {
-  const n = (nom || "").toLowerCase();
-  return SANTE.some(w => n.includes(w));
+// Ancienne liste (sert à reconnaître une case « santé » cochée automatiquement à la création du produit)
+const SANTE_V1 = ["attelle", "compression", "chauffant", "masseur", "masseuse", "bonnet", "patch", "canne", "genou", "étireur", "etireur", "migraine", "douleur", "arthrite"];
+const risqueSanteV1 = nom => { const n = (nom || "").toLowerCase(); return SANTE_V1.some(w => n.includes(w)); };
+
+// Promesse santé, minceur ou anti-âge : refusées par nos règles et risquées chez Meta.
+// Cherchée dans le nom du produit et dans le texte des pubs, en français, anglais et arabe.
+const SANTE = new RegExp([
+  // santé, douleur, soin
+  "attelle", "genouill", "orthop", "posture", "correcteur de posture", "douleurs?", "soulag", "arthr", "articulation", "rhumatism",
+  "sciatique", "migraine", "varices?", "diab[eè]t", "cholest[eé]rol", "tension art[eé]rielle", "insomnie", "gu[eé]ri", "th[eé]rapeuti", "m[eé]dical",
+  "masseur", "massage", "compression", "canne", "pain relief",
+  // minceur
+  "minceur", "mincir", "maigrir", "perte de poids", "perdre du poids", "kilos?", "graisse", "cellulite", "br[uû]le", "ventre plat", "slim",
+  // anti-âge
+  "anti-?rides", "rides", "lifting", "rajeun", "anti-?[aâ]ge",
+  // arabe
+  "تنحيف", "التنحيف", "الكرش", "الكرشة", "الدهون", "الذهون", "السيلوليت", "التجاعيد", "تجاعيد", "آلام", "الألم", "ألم", "المفاصل", "الركبة", "الركبتين",
+  "الروماتيزم", "السكري", "الدوالي", "علاج", "يعالج", "الشقيقة", "البواسير", "الوزن", "رجعي سنين", "شد الوجه",
+].join("|"), "i");
+
+export function risqueSante(...textes) {
+  return textes.some(t => t && SANTE.test(String(t)));
 }
 
 // Regroupe les publicités d'un relevé par (page, produit).
@@ -339,7 +390,8 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
       page: pageName(it.fb_page_id),
       prix: row?.prix != null && row.prix !== "" ? Number(row.prix) : null,
       url: vendorUrl(row, it.cartes),
-      sante: row ? !!row.risque_sante : risqueSante(nom),
+      // Case cochée à la main (pas par l'ancienne règle automatique) : toujours respectée ; sinon détection sur le nom et le texte des pubs
+      sante: (row && row.risque_sante && !risqueSanteV1(row.nom)) || risqueSante(nom, row?.nom, ...it.cartes.map(c => c.texte)),
     };
     const k = id.cle;
     if (!groups.has(k)) groups.set(k, { nom: groupe, vendors: [] });

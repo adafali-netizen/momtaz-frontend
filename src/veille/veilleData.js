@@ -159,7 +159,7 @@ export async function saveReleve(fichiers, pagesExistantes, produitsExistants, s
     const nom = defaultName(l.url, l.texte);
     nouveaux.set(k, {
       fb_page_id: l.fb_page_id, produit_key: l.produit_key, nom, groupe: nom,
-      url: l.url && !/bit\.ly/i.test(l.url) ? l.url : null, risque_sante: risqueSante(nom),
+      url: l.url && !/bit\.ly/i.test(l.url) ? l.url : null, risque_sante: risqueSante(nom, l.texte),
     });
   }
   const aCreer = [...nouveaux.values()];
@@ -312,7 +312,7 @@ export async function addPageReleve(releveId, f, pagesConnues, produitsConnus) {
     const k = l.fb_page_id + "|" + l.produit_key;
     if (produitsConnus.has(k) || nouveaux.has(k)) continue;
     const nom = defaultName(l.url, l.texte);
-    nouveaux.set(k, { fb_page_id: l.fb_page_id, produit_key: l.produit_key, nom, groupe: nom, url: l.url && !/bit\.ly/i.test(l.url) ? l.url : null, risque_sante: risqueSante(nom) });
+    nouveaux.set(k, { fb_page_id: l.fb_page_id, produit_key: l.produit_key, nom, groupe: nom, url: l.url && !/bit\.ly/i.test(l.url) ? l.url : null, risque_sante: risqueSante(nom, l.texte) });
   }
   if (nouveaux.size) {
     const { error } = await supabase.from("veille_produits").upsert([...nouveaux.values()], { onConflict: "fb_page_id,produit_key", ignoreDuplicates: true });

@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { STATUTS, STATUT_COULEURS, toSheetTsv, estFicheProduit } from "./veilleLib";
+import { STATUTS, STATUT_COULEURS, toSheetTsv, estFicheProduit, suggestionsRegroupement } from "./veilleLib";
 
 const FILTRES_PRIX = [
   { id: "tous",   label: "Tous les prix" },
@@ -94,6 +94,16 @@ function Details({ g, nomsGroupes, onPatch }) {
 
 export default function Classement({ groups, pages, pageInfo, onPatch, dateReleve, ext, run, onCapturerPrix }) {
   const [verifier, setVerifier] = useState(false);   // vérifier aussi les prix saisis (écarts dans le journal)
+  const [voirSugg, setVoirSugg] = useState(false);
+  const [ignorees, setIgnorees] = useState(() => new Set());
+  const suggestions = useMemo(() => suggestionsRegroupement(groups).filter(s => !ignorees.has(s.a.nom + "|" + s.b.nom)), [groups, ignorees]);
+  // Regrouper : les deux produits prennent le même nom de groupe (celui qui a le plus de pubs)
+  const regrouper = s => {
+    const garde = s.a.pubs >= s.b.pubs ? s.a : s.b;
+    const ids = [...s.a.ids, ...s.b.ids];
+    if (!ids.length) return;
+    onPatch(ids, { groupe: garde.nom, statut: garde.statut });
+  };
   const [fPage,   setFPage]   = useState("");
   const [fStatut, setFStatut] = useState("actifs");
   const [fPrix,   setFPrix]   = useState("tous");
@@ -181,6 +191,29 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
         </button>
         <button className="btn btn-secondary" onClick={exporter}>Exporter vers le Sheet</button>
       </div>
+
+      {suggestions.length > 0 && (
+        <div style={{ margin: "12px 24px 0", border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", gap: 12 }}>
+            <span style={{ fontSize: 13 }}><b>{suggestions.length} regroupement{suggestions.length > 1 ? "s" : ""} suggéré{suggestions.length > 1 ? "s" : ""}</b> : même produit probable chez des pages différentes. Le regroupement compte pour le recoupement du score.</span>
+            <button className="btn btn-sm btn-secondary" onClick={() => setVoirSugg(v => !v)}>{voirSugg ? "Masquer" : "Voir"}</button>
+          </div>
+          {voirSugg && suggestions.map(s => (
+            <div key={s.a.nom + "|" + s.b.nom} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "8px 14px", borderTop: "1px solid var(--border)", fontSize: 13 }}>
+              <span style={{ flex: "1 1 420px", minWidth: 0 }}>
+                <b>{s.a.nom}</b> <span className="col-muted">({s.a.vendors.map(v => v.page).join(", ")} · {s.a.pubs} pubs)</span>
+                {"  ↔  "}
+                <b>{s.b.nom}</b> <span className="col-muted">({s.b.vendors.map(v => v.page).join(", ")} · {s.b.pubs} pubs)</span>
+                <div className="col-muted" style={{ fontSize: 11 }}>{s.raison}</div>
+              </span>
+              {s.a.thumb && <img src={s.a.thumb} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} onError={e => { e.currentTarget.style.display = "none"; }} />}
+              {s.b.thumb && <img src={s.b.thumb} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} onError={e => { e.currentTarget.style.display = "none"; }} />}
+              <button className="btn btn-sm btn-primary" disabled={!s.a.ids.length || !s.b.ids.length} onClick={() => regrouper(s)}>Regrouper</button>
+              <button className="btn btn-sm btn-secondary" onClick={() => setIgnorees(x => new Set(x).add(s.a.nom + "|" + s.b.nom))}>Ignorer</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="table-wrap" style={{ paddingTop: 12 }}>
         <table className="data-table" style={{ minWidth: 1000 }}>
