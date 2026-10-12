@@ -176,7 +176,7 @@ function defaultNameV1(url, texte) {
 }
 
 // Appels à l'action et offres : jamais un nom de produit (« لطلب المنتوج إضغط هنا », « 215 درهم التوصيل فابور »…)
-const APPEL = /(لطلب|للطلب|اطلب|أطلب|إطلب|اضغط|إضغط|أضغط|هنا|سارع|الكمية|محدودة|commande[rz]?|cliquez|cliquer|clique|shop now|order now|achetez|acheter|livraison|التوصيل|توصيل|مجان|فابور|بالمجان|درهم|\bdhs?\b|\bmad\b|prix|promo|عرض|تخفيض|خصم|واتساب|whatsapp)/i;
+const APPEL = /(لطلب|للطلب|اطلب|أطلب|إطلب|اضغط|إضغط|أضغط|هنا|سارع|الكمية|محدودة|commande[rz]?|cliquez|cliquer|clique|shop now|order now|achetez|acheter|livraison|التوصيل|توصيل|مجان|فابور|بالمجان|درهم|\bdhs?\b|\bmad\b|prix|promo|عرض|تخفيض|خصم|واتساب|whatsapp|chat|contact|contactez|envoyez|message|messenger|راسلنا|راسلونا|تواصل|اتصل|en savoir plus|learn more|voir plus|see more)/i;
 
 function nomDepuisTexte(texte) {
   const segments = String(texte || "").split(/\s*(?:·|\||\n|[.!?؟:]|—)\s*/).map(s => s.trim()).filter(Boolean);
@@ -190,13 +190,19 @@ function nomDepuisTexte(texte) {
   return null;
 }
 
-// Nom automatique d'un produit. source = "lien" (nom lu dans l'adresse de la page produit) ou "texte" (adresse illisible)
+// Adresses qui ne sont pas une fiche produit : messagerie, contact, pages d'information, catégories
+const PAS_PRODUIT = /(^|\.)(wa\.me|whatsapp\.com|m\.me|messenger\.com|instagram\.com|facebook\.com|fb\.me|fb\.com|t\.me|tiktok\.com|bit\.ly)(\/|$)|\/(pages|collections|blogs|policies|cart|checkout|account|contact)(\/|$)/i;
+const SLUG_GENERIQUE = /^(chat|chat-with-us|contact|contact-us|contactez-nous|home|index|accueil|shop|store|boutique|all|send|order|commande|commander|whatsapp|products?|catalog|catalogue|merci|thank-you|thanks|promo|offre|offres)$/i;
+
+// Nom automatique d'un produit. source = "lien" (nom lu dans l'adresse d'une fiche produit) ou "texte" (adresse illisible ou pas une fiche produit)
 export function nomAuto(url, texte) {
   const key = productKey(url);
-  const slug = safeDecode(key.split("/").pop() || "");
+  const cle = safeDecode(safeDecode(key));
+  const slug = cle.split("/").pop() || "";
   const words = slug.split(/[-_ ]+/).filter(w => w && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
-  const lienCourt = /^[a-z0-9]{4,9}$/i.test(slug) || key === "sans-lien" || key.split("/").length < 2;
-  if (words.length && !lienCourt) return { nom: words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), source: "lien" };
+  const lienCourt = /^[a-z0-9]{4,9}$/i.test(slug) || key === "sans-lien" || cle.split("/").length < 2;
+  const pasProduit = PAS_PRODUIT.test(cle) || SLUG_GENERIQUE.test(slug);
+  if (words.length && !lienCourt && !pasProduit) return { nom: words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), source: "lien" };
   return { nom: nomDepuisTexte(texte) || "Produit sans nom", source: "texte" };
 }
 
@@ -224,6 +230,7 @@ export function identiteProduit(row, cartes, produitKey) {
   const nom = nomManuel || auto.nom;
   if (groupeManuel) return { nom, groupe: groupeManuel, cle: "g:" + norm(groupeManuel) };
   if (nomManuel || auto.source === "lien") return { nom, groupe: nom, cle: "g:" + norm(nom) };
+  // produitKey reçu sous la forme « page|clé » : un produit sans fiche lisible reste propre à sa page
   return { nom, groupe: nom, cle: "p:" + (produitKey || "") };
 }
 
@@ -316,7 +323,7 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
   const groups = new Map();
   for (const it of aggregateProducts(pubs, refDates)) {
     const row = prodMap.get(it.fb_page_id + "|" + it.produit_key) || null;
-    const id = identiteProduit(row, it.cartes, it.produit_key);
+    const id = identiteProduit(row, it.cartes, it.fb_page_id + "|" + it.produit_key);
     const nom = id.nom;
     const groupe = id.groupe;
     const vendor = {
@@ -394,7 +401,7 @@ export function compareReleves(apres, avant, produits, pageName) {
     for (const p of list) {
       if (p.low) continue;
       const row = prodMap.get(p.fb_page_id + "|" + p.produit_key);
-      const id = identiteProduit(row, [p], p.produit_key);
+      const id = identiteProduit(row, [p], p.fb_page_id + "|" + p.produit_key);
       const nom = id.groupe;
       const k = id.cle;
       if (!m.has(k)) m.set(k, { nom, pubs: 0, pages: new Set() });

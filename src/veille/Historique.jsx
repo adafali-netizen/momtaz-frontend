@@ -93,7 +93,7 @@ export default function Historique({ releves, relevePages, produits, pageInfo, o
         return {
           "Page": pageInfo(p.fb_page_id).nom,
           "ID de la page": p.fb_page_id,
-          "Produit": identiteProduit(row, [p], p.produit_key).groupe,
+          "Produit": identiteProduit(row, [p], p.fb_page_id + "|" + p.produit_key).groupe,
           "Prix saisi (DH)": row?.prix ?? "",
           "Statut produit": row?.statut || "Nouveau",
           "Date de début": p.started_on || "",
