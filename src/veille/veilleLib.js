@@ -265,22 +265,23 @@ export function aggregateProducts(pubs, refDates) {
 }
 
 // Score sur 100 d'un groupe de produits (le même produit vendu par une ou plusieurs pages).
-// Ordre d'importance : réinvestissement, demande, recoupement, persistance.
-// L'âge des pubs et la faisabilité (prix, santé) ne comptent pas : la décision financière revient à la Direction.
+// Ordre d'importance : réinvestissement, demande, recoupement, persistance, puis faisabilité (prix et santé).
+// L'âge des pubs ne compte pas : une vieille pub relancée fausserait la mesure.
 const progressif = (n, plein) => Math.min(1, Math.log1p(Math.max(0, n)) / Math.log1p(plein));
 
-export function detailScore({ pubs, recent, nbPages, persistance }) {
+export function detailScore({ pubs, recent, nbPages, persistance, prixMax, sante }) {
   return {
-    reinvestissement: Math.round(35 * progressif(recent, 20)),        // pubs lancées dans les 7 jours avant le relevé
-    demande:          Math.round(30 * progressif(pubs, 60)),          // pubs actives (hors impressions faibles)
+    reinvestissement: Math.round(30 * progressif(recent, 20)),        // pubs lancées dans les 7 jours avant le relevé
+    demande:          Math.round(25 * progressif(pubs, 60)),          // pubs actives (hors impressions faibles)
     recoupement:      nbPages >= 3 ? 20 : nbPages === 2 ? 12 : 0,     // nombre de pages qui vendent le produit
     persistance:      persistance >= 4 ? 15 : persistance === 3 ? 10 : persistance === 2 ? 5 : 0, // relevés espacés de 7 jours ou plus
+    faisabilite:      10 - (sante ? 5 : 0) - (prixMax && prixMax < 200 ? 5 : 0), // promesse santé, prix sous 200 DH
   };
 }
 
 export function scoreGroup(x) {
   const d = detailScore(x);
-  return d.reinvestissement + d.demande + d.recoupement + d.persistance;
+  return d.reinvestissement + d.demande + d.recoupement + d.persistance + d.faisabilite;
 }
 
 // Nombre de relevés où le produit avait des pubs actives, en ne comptant que des relevés espacés d'au moins 7 jours
@@ -387,7 +388,8 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
     g.detail = detailScore(g);
     g.score = scoreGroup(g);
   }
-  out.sort((a, b) => b.score - a.score || b.pubs - a.pubs);
+  // Comme avant : produits à 250 DH et plus d'abord, puis sans prix, puis moins de 250 DH ; ensuite le score
+  out.sort((a, b) => a.tier - b.tier || b.score - a.score || b.pubs - a.pubs);
   return out;
 }
 
