@@ -194,6 +194,13 @@ function nomDepuisTexte(texte) {
 const PAS_PRODUIT = /(^|\.)(wa\.me|whatsapp\.com|m\.me|messenger\.com|instagram\.com|facebook\.com|fb\.me|fb\.com|t\.me|tiktok\.com|bit\.ly)(\/|$)|\/(pages|collections|blogs|policies|cart|checkout|account|contact)(\/|$)/i;
 const SLUG_GENERIQUE = /^(chat|chat-with-us|contact|contact-us|contactez-nous|home|index|accueil|shop|store|boutique|all|send|order|commande|commander|whatsapp|products?|catalog|catalogue|merci|thank-you|thanks|promo|offre|offres)$/i;
 
+// L'adresse mène-t-elle à une fiche produit (et pas à WhatsApp, une page de contact, une catégorie) ?
+export function estFicheProduit(url) {
+  if (!url || !/^https?:\/\//i.test(url)) return false;
+  const cle = safeDecode(safeDecode(productKey(url)));
+  return !PAS_PRODUIT.test(cle) && !SLUG_GENERIQUE.test(cle.split("/").pop() || "");
+}
+
 // Nom automatique d'un produit. source = "lien" (nom lu dans l'adresse d'une fiche produit) ou "texte" (adresse illisible ou pas une fiche produit)
 export function nomAuto(url, texte) {
   const key = productKey(url);

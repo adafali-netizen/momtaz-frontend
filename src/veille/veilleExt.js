@@ -42,6 +42,11 @@ export function releverUrl(url, opts, onProgress) {
   return envoyer("scrape", { url, ...opts }, { onProgress, delai: 120000 });
 }
 
+// Prix affiché sur une page produit : { prix, source, barre, urlFinale }
+export function capturerPrix(url) {
+  return envoyer("prix", { url }, { delai: 60000 });
+}
+
 export function arreterExtension() {
   return envoyer("stop", null, { delai: 5000 }).catch(() => {});
 }

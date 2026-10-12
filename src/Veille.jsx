@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildGroups } from "./veille/veilleLib";
 import { loadVeille, updateProduits, updatePage } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
-import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement, pagesARelever } from "./veille/veilleRunner";
+import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement, pagesARelever, lancerCapturePrix } from "./veille/veilleRunner";
 import ImportModal from "./veille/ImportModal";
 import Classement from "./veille/Classement";
 import PagesSuivies from "./veille/PagesSuivies";
@@ -19,7 +19,7 @@ function bilanReleve(res) {
   return m;
 }
 
-const TITRES_JOURNAL = { releve: "du dernier relevé", recherche: "de la dernière recherche", etude: "de la dernière étude" };
+const TITRES_JOURNAL = { releve: "du dernier relevé", recherche: "de la dernière recherche", etude: "de la dernière étude", prix: "de la dernière capture de prix" };
 
 const fmtDate = d => d ? new Date(d).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -120,9 +120,11 @@ export default function Veille() {
         ? `Étude terminée : ${res.nbMots} mot${res.nbMots > 1 ? "s" : ""}-clé${res.nbMots > 1 ? "s" : ""}, ${res.nbPubs} pubs.`
         : type === "releve"
         ? bilanReleve(res)
+        : type === "prix"
+        ? `Capture ${res.arrete ? "arrêtée" : "terminée"} : ${res.remplis} prix remplis, ${res.ecarts} écart${res.ecarts > 1 ? "s" : ""} avec tes prix, ${res.introuvables} introuvable${res.introuvables > 1 ? "s" : ""}, ${res.erreurs} erreur${res.erreurs > 1 ? "s" : ""}, sur ${res.total} pages produit. Détail dans le journal.`
         : `Recherche terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.`);
     } catch (e) {
-      setErreur((type === "etude" ? "Étude interrompue (les résultats déjà relevés sont gardés) : " : type === "releve" ? "Relevé interrompu : " : "Recherche interrompue : ") + (e.message || e));
+      setErreur((type === "etude" ? "Étude interrompue (les résultats déjà relevés sont gardés) : " : type === "releve" ? "Relevé interrompu : " : type === "prix" ? "Capture des prix interrompue (les prix déjà trouvés sont enregistrés) : " : "Recherche interrompue : ") + (e.message || e));
     } finally {
       ctlRef.current = null;
       if (lignes.length) { setJournal({ type, lignes: [...lignes], fin: new Date() }); setJournalOuvert(true); }
@@ -149,6 +151,7 @@ export default function Veille() {
   const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
 
   const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, max: Number(maxReleve) || 0 }, ctl));
+  const capturerLesPrix = items => lancer("prix", ctl => lancerCapturePrix(items, ctl));
   const releverSelection = ids => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, ids }, ctl));
 
   if (!data && !erreur) return <div className="loading-screen"><span className="loading-dot" />Chargement de la veille…</div>;
@@ -214,7 +217,7 @@ export default function Veille() {
       {run && (
         <div className="alert-banner" style={{ background: "var(--blue-lt)", color: "var(--blue)", border: "1px solid #BFDBFE", display: "flex", flexDirection: "column", gap: 4 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-            <span style={{ fontWeight: 700 }}><span className="loading-dot" /> {run.type === "etude" ? "Étude en cours" : run.type === "releve" ? "Relevé en cours" : "Recherche en cours"} : {run.status}</span>
+            <span style={{ fontWeight: 700 }}><span className="loading-dot" /> {run.type === "etude" ? "Étude en cours" : run.type === "releve" ? "Relevé en cours" : run.type === "prix" ? "Capture des prix en cours" : "Recherche en cours"} : {run.status}</span>
             <button className="btn btn-sm btn-danger" onClick={arreter}>Arrêter</button>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>Laisse cet onglet ouvert et ne réduis pas la fenêtre de l'extension.</div>
@@ -266,7 +269,8 @@ export default function Veille() {
             <div className="kpi-card"><div className="kpi-value">{groups.length}</div><div className="kpi-label">Produits · {nbCreas} créatives</div></div>
             <div className="kpi-card kpi-success"><div className="kpi-value">{enScale}</div><div className="kpi-label">En scale (20 pubs et ajouts récents)</div></div>
           </div>
-          <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at} />
+          <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at}
+            ext={ext} run={run} onCapturerPrix={capturerLesPrix} />
         </>
       )}
       {data && onglet === "pages" && (

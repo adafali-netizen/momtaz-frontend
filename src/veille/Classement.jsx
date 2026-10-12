@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { STATUTS, STATUT_COULEURS, toSheetTsv } from "./veilleLib";
+import { STATUTS, STATUT_COULEURS, toSheetTsv, estFicheProduit } from "./veilleLib";
 
 const FILTRES_PRIX = [
   { id: "tous",   label: "Tous les prix" },
@@ -92,7 +92,8 @@ function Details({ g, nomsGroupes, onPatch }) {
   );
 }
 
-export default function Classement({ groups, pages, pageInfo, onPatch, dateReleve }) {
+export default function Classement({ groups, pages, pageInfo, onPatch, dateReleve, ext, run, onCapturerPrix }) {
+  const [verifier, setVerifier] = useState(false);   // vérifier aussi les prix saisis (écarts dans le journal)
   const [fPage,   setFPage]   = useState("");
   const [fStatut, setFStatut] = useState("actifs");
   const [fPrix,   setFPrix]   = useState("tous");
@@ -113,6 +114,23 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
 
   const nomsGroupes = useMemo(() => groups.map(g => g.nom).sort((a, b) => a.localeCompare(b)), [groups]);
   const pagesTriees = useMemo(() => [...pages].filter(p => p.actif).sort((a, b) => pageInfo(a.fb_page_id).nom.localeCompare(pageInfo(b.fb_page_id).nom)), [pages, pageInfo]);
+
+  // Pages produit à visiter pour le prix : produits affichés (filtres appliqués), une par page vendeuse
+  const aCapturer = useMemo(() => {
+    const out = [];
+    for (const g of visibles) for (const v of g.vendors) {
+      if (!v.url || !v.ids.length || !estFicheProduit(v.url) || v.prixDifferents) continue;
+      if (v.prix && !verifier) continue;
+      out.push({ ids: v.ids, url: v.url, prix: v.prix, nom: g.nom, page: v.page });
+    }
+    return out;
+  }, [visibles, verifier]);
+
+  const capturer = () => {
+    const minutes = Math.ceil(aCapturer.length * 12 / 60);
+    if (!window.confirm(`Capturer le prix sur ${aCapturer.length} pages produit des produits affichés ? Environ ${minutes} minute${minutes > 1 ? "s" : ""}.\nSeuls les prix vides sont remplis${verifier ? " ; les écarts avec tes prix seront signalés dans le journal" : ""}.`)) return;
+    onCapturerPrix(aCapturer);
+  };
 
   const exporter = () => {
     const tsv = toSheetTsv(visibles, pageInfo, dateReleve ? new Date(dateReleve).toLocaleDateString("fr-FR") : "");
@@ -154,6 +172,13 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
         </select>
         <div className="spacer" style={{ flex: 1 }} />
         <span className="col-muted">{visibles.length} produits</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }} title="Visite aussi les produits déjà chiffrés et signale les écarts, sans modifier tes prix">
+          <input type="checkbox" checked={verifier} onChange={e => setVerifier(e.target.checked)} /> Vérifier mes prix
+        </label>
+        <button className="btn btn-primary" onClick={capturer} disabled={!aCapturer.length || !ext || !!run}
+          title={!ext ? "Extension non détectée" : run ? "Une tâche est déjà en cours" : "Lit le prix sur la page produit des concurrents (produits affichés, filtres appliqués)"}>
+          Capturer les prix ({aCapturer.length})
+        </button>
         <button className="btn btn-secondary" onClick={exporter}>Exporter vers le Sheet</button>
       </div>
 

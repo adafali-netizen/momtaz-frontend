@@ -1,9 +1,10 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT } from "./veilleLib";
-import { releverUrl } from "./veilleExt";
+import { releverUrl, capturerPrix } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
+  updateProduits,
 } from "./veilleData";
 
 // Pause entre deux pages Facebook (30 à 60 s) pour relever à un rythme humain
@@ -225,4 +226,36 @@ export async function lancerEtude(mots, opts, etat, ctl, onMot) {
     onMot && onMot();
   }
   return { nbMots: etat.resultats.length, nbPubs: etat.resultats.reduce((s, r) => s + r.ads.length, 0) };
+}
+
+// Capture des prix sur les pages produit des concurrents.
+// items : [{ ids, url, prix, nom, page }] · seuls les prix vides sont enregistrés ; un prix saisi différent est signalé.
+export async function lancerCapturePrix(items, ctl) {
+  const bilan = { total: items.length, remplis: 0, ecarts: 0, introuvables: 0, erreurs: 0 };
+  for (let i = 0; i < items.length && !ctl.stop; i++) {
+    const it = items[i];
+    const label = `Prix ${i + 1}/${items.length} « ${it.nom} » (${it.page})`;
+    ctl.status(label);
+    try {
+      const r = await capturerPrix(it.url);
+      if (!r || !r.prix) { bilan.introuvables++; ctl.log(`${it.nom} (${it.page}) : prix introuvable sur ${it.url}`); }
+      else if (it.prix == null || it.prix === "") {
+        await updateProduits(it.ids, { prix: r.prix });
+        bilan.remplis++;
+        ctl.log(`${it.nom} (${it.page}) : ${r.prix} DH${r.barre ? ` (barré ${r.barre} DH)` : ""} · ${r.source}`);
+      } else if (Math.abs(Number(it.prix) - r.prix) >= 1) {
+        bilan.ecarts++;
+        ctl.log(`${it.nom} (${it.page}) : ÉCART, prix saisi ${it.prix} DH, prix sur le site ${r.prix} DH (non modifié)`);
+      }
+    } catch (e) {
+      bilan.erreurs++;
+      ctl.log(`${it.nom} (${it.page}) : capture impossible (${e.message || e})`);
+    }
+    if (i < items.length - 1 && !ctl.stop) {
+      const fin = Date.now() + 3000 + Math.random() * 3000;
+      while (Date.now() < fin && !ctl.stop) { ctl.status(`${label} · suivant dans ${Math.ceil((fin - Date.now()) / 1000)} s`); await new Promise(r => setTimeout(r, 500)); }
+    }
+  }
+  bilan.arrete = !!ctl.stop;
+  return bilan;
 }

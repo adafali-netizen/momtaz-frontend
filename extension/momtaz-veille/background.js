@@ -118,6 +118,111 @@ async function scrape(id, opts) {
   }
 }
 
+// ─── Capture du prix sur la page produit d'un concurrent ─────────────────
+// Lue dans l'onglet ouvert : 1) boutique Shopify (fichier produit .js), 2) données structurées,
+// 3) balises meta, 4) prix affiché le plus visible, hors prix barré.
+function lirePrixDansLaPage() {
+  const nombre = s => {
+    let t = String(s).replace(/[\s  ]/g, "");
+    const virgule = t.lastIndexOf(","), point = t.lastIndexOf(".");
+    const dec = Math.max(virgule, point);
+    if (dec >= 0 && t.length - dec - 1 <= 2) t = t.slice(0, dec).replace(/[.,]/g, "") + "." + t.slice(dec + 1);
+    else t = t.replace(/[.,]/g, "");
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : null;
+  };
+  const plausible = n => n != null && n >= 10 && n <= 50000;
+  const resultat = (prix, source, barre) => ({ prix: Math.round(prix * 100) / 100, source, barre: barre && plausible(barre) && barre > prix ? Math.round(barre * 100) / 100 : null });
+
+  return (async () => {
+    // 1. Shopify : /products/xxx.js donne le prix de la variante la moins chère (prix d'une unité, pas des packs)
+    const m = location.pathname.match(/^(.*\/products\/[^/?#]+)/);
+    if (m) {
+      try {
+        const r = await fetch(m[1] + ".js", { credentials: "omit" });
+        if (r.ok) {
+          const j = await r.json();
+          const v = (j.variants || []).filter(x => x.available !== false);
+          const prix = (v.length ? Math.min(...v.map(x => x.price)) : j.price) / 100;
+          const barre = (j.compare_at_price || 0) / 100;
+          if (plausible(prix)) return resultat(prix, "Shopify", barre);
+        }
+      } catch (e) { /* pas Shopify */ }
+    }
+    // 2. Données structurées (schema.org)
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const pile = [JSON.parse(s.textContent)];
+        while (pile.length) {
+          const o = pile.pop();
+          if (!o || typeof o !== "object") continue;
+          if (Array.isArray(o)) { pile.push(...o); continue; }
+          const offre = o.offers || (o["@type"] === "Offer" || o["@type"] === "AggregateOffer" ? o : null);
+          if (offre) {
+            const liste = Array.isArray(offre) ? offre : [offre];
+            const prix = liste.map(x => nombre(x.lowPrice ?? x.price)).filter(plausible);
+            if (prix.length) return resultat(Math.min(...prix), "données structurées");
+          }
+          for (const k in o) if (o[k] && typeof o[k] === "object") pile.push(o[k]);
+        }
+      } catch (e) { /* bloc illisible */ }
+    }
+    // 3. Balises meta
+    const meta = document.querySelector('meta[property="product:price:amount"], meta[property="og:price:amount"], meta[itemprop="price"], [itemprop="price"][content]');
+    if (meta) { const n = nombre(meta.getAttribute("content")); if (plausible(n)) return resultat(n, "balise meta"); }
+
+    // 4. Prix affiché : le plus gros prix visible en haut de page, en ignorant les prix barrés
+    const RE = /(?:\b(?:mad|dhs?)\s*|درهم\s*|د\.م\.?\s*)?(\d{1,3}(?:[\s  .]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:mad\b|dhs?\b|درهم|دراهم|د\.م)?/i;
+    const DEVISE = /(?:mad|dhs?)\s*\d|\d\s*(?:mad|dhs?)(?![a-z])|درهم|دراهم|د\.م/i;
+    const barre = el => {
+      for (let p = el, n = 0; p && n < 4; p = p.parentElement, n++) {
+        if (/^(DEL|S|STRIKE)$/.test(p.tagName)) return true;
+        if ((getComputedStyle(p).textDecorationLine || "").includes("line-through")) return true;
+        if (/compare|old-?price|price-?old|barr|was-?price|price-?was/i.test(typeof p.className === "string" ? p.className : "")) return true;
+      }
+      return false;
+    };
+    const candidats = [];
+    for (const el of document.querySelectorAll("body *")) {
+      if (el.children.length > 2) continue;
+      const t = (el.textContent || "").trim();
+      if (!t || t.length > 40 || !DEVISE.test(t)) continue;
+      const mm = t.match(RE);
+      if (!mm) continue;
+      const n = nombre(mm[1]);
+      if (!plausible(n)) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || r.top > 1800) continue;
+      candidats.push({ n, barre: barre(el), taille: parseFloat(getComputedStyle(el).fontSize) || 0, haut: r.top });
+    }
+    const valides = candidats.filter(c => !c.barre).sort((a, b) => b.taille - a.taille || a.haut - b.haut);
+    if (valides.length) {
+      // Prix barré retenu seulement s'il est affiché à côté du prix principal (taille proche), pas celui d'un pack
+      const b = candidats.filter(c => c.barre && c.taille >= valides[0].taille * 0.8).sort((a, b2) => b2.taille - a.taille)[0];
+      return resultat(valides[0].n, "prix affiché", b && b.n);
+    }
+    return { prix: null, source: null };
+  })();
+}
+
+async function capturerPrix(opts) {
+  const url = String(opts.url || "");
+  if (!/^https?:\/\//i.test(url) || /facebook\.com|fb\.com|fb\.me|instagram\.com|wa\.me|whatsapp\.com|m\.me|messenger\.com|t\.me|tiktok\.com/i.test(url)) {
+    throw new Error("Adresse refusée : pas une page produit.");
+  }
+  const winId = await fenetre();
+  const tab = await chrome.tabs.create({ windowId: winId, url, active: true });
+  try {
+    await attendreChargement(tab.id, 30000);
+    await sleep(hasard(2500, 4000));   // laisse le temps aux prix chargés après coup
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: lirePrixDansLaPage });
+    const t = await chrome.tabs.get(tab.id).catch(() => null);
+    return { ...(r && r.result ? r.result : { prix: null }), urlFinale: t ? t.url : url };
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg) return;
 
@@ -144,6 +249,15 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       occupe = true; stop = false;
       setEtat("Relevé en cours : " + (msg.payload && msg.payload.label || ""));
       scrape(msg.id, msg.payload || {})
+        .then(res => versErp("result", msg.id, res))
+        .catch(err => versErp("error", msg.id, String(err && err.message || err)))
+        .finally(() => { occupe = false; setEtat("Dernière tâche terminée à " + new Date().toLocaleTimeString("fr-FR")); });
+    }
+    if (msg.cmd === "prix") {
+      if (occupe) { versErp("error", msg.id, "L'extension est déjà occupée."); return; }
+      occupe = true;
+      setEtat("Capture de prix : " + (msg.payload && msg.payload.url || ""));
+      capturerPrix(msg.payload || {})
         .then(res => versErp("result", msg.id, res))
         .catch(err => versErp("error", msg.id, String(err && err.message || err)))
         .finally(() => { occupe = false; setEtat("Dernière tâche terminée à " + new Date().toLocaleTimeString("fr-FR")); });
