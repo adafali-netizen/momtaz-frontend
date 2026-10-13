@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES, CRITERES_DEFAUT } from "./veilleLib";
-import { CLE_MOTS, lireListe, typeDe, trierMots, ajouterGardee, reactiver, changerType, cleMot, RECHERCHES_AVANT_NETTOYAGE } from "./motsLib";
+import { CLE_MOTS, CLE_FILE, lireListe, typeDe, trierMots, ajouterGardee, reactiver, changerType, cleMot, RECHERCHES_AVANT_NETTOYAGE, ANALYSEES_AVANT_NETTOYAGE, MOTS_PAR_SESSION, PAGES_PAR_SESSION } from "./motsLib";
 import {
   saveConfig,
   loadRecherche, addMotCle, updateMotCle, deleteMotCle, saveCriteres,
@@ -90,6 +90,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const enCours = run && run.type === "recherche";
 
   const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(d.criteres || {}) }.expressionExacte;
+  const nbFile = Object.keys(d.file || {}).length;
   const statsMots = d.stats || {};
   const sauverStats = async st => { try { await saveConfig(CLE_MOTS, st); } catch (e) { setErreur("Rendement des mots-clés non enregistré : " + (e.message || e)); } };
 
@@ -150,6 +151,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const stats = [
     { label: "Mots-clés", value: derniere ? derniere.nb_mots : d.motscles.filter(m => m.actif).length, color: "var(--text)" },
     { label: "Pages trouvées", value: derniere ? derniere.nb_trouvees : 0, color: "var(--text)" },
+    { label: "File d'attente", value: Object.keys(d.file || {}).length, color: "var(--blue)" },
     { label: "Gardées", value: derniere ? derniere.nb_gardees : 0, color: "var(--green)" },
     { label: "À valider", value: aValider.length, color: "var(--orange)" },
     { label: "Éliminées", value: derniere ? derniere.nb_eliminees : 0, color: "var(--red)" },
@@ -168,11 +170,24 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
           <span style={{ fontWeight: 700 }}>
             {derniere ? `Dernière recherche : ${fmtDate(derniere.created_at)} · ${derniere.statut}` : "Aucune recherche lancée pour l'instant"}
           </span>
-          <span className="col-muted">Une page toutes les 30 à 60 secondes. Laisse cet onglet et la fenêtre de l'extension ouverts pendant la recherche.</span>
+          <span className="col-muted">
+            {nbFile >= PAGES_PAR_SESSION
+              ? `File d'attente : ${nbFile} pages trouvées à analyser. La prochaine recherche en analyse ${PAGES_PAR_SESSION} (celles vues avec le plus de mots-clés et de pubs), sans nouveaux mots-clés : environ 1 h 30.`
+              : `Une recherche = ${MOTS_PAR_SESSION} mots-clés au plus (jamais utilisés d'abord, puis les plus rentables), puis ${PAGES_PAR_SESSION} pages analysées au plus : environ 1 h 30 à 2 h.${nbFile ? ` File d'attente : ${nbFile} pages.` : ""}`}
+            {" "}Laisse cet onglet et la fenêtre de l'extension ouverts.
+          </span>
         </div>
-        {enCours
-          ? <button className="btn btn-danger" onClick={onStop}>Arrêter</button>
-          : <button className="btn btn-primary" disabled={!ext || !!run} onClick={() => onLancer(d, charger)}>Lancer une recherche maintenant</button>}
+        <span style={{ display: "flex", gap: 8 }}>
+          {!enCours && nbFile > 0 && (
+            <button className="btn btn-secondary" disabled={!!run} title="Oublier les pages trouvées pas encore analysées"
+              onClick={async () => { if (window.confirm(`Vider la file d'attente (${nbFile} pages pas encore analysées) ?`)) { await saveConfig(CLE_FILE, {}); await charger(); } }}>
+              Vider la file
+            </button>
+          )}
+          {enCours
+            ? <button className="btn btn-danger" onClick={onStop}>Arrêter</button>
+            : <button className="btn btn-primary" disabled={!ext || !!run} onClick={() => onLancer(d, charger)}>{nbFile >= PAGES_PAR_SESSION ? `Analyser ${PAGES_PAR_SESSION} pages de la file` : "Lancer une recherche maintenant"}</button>}
+        </span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
@@ -190,7 +205,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
             <div style={{ fontWeight: 700 }}>Mots-clés ({d.motscles.filter(m => m.actif).length} actifs)</div>
             <div className="col-muted">
               La recherche lit le texte des pubs (texte et titre). À chaque recherche, les produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours sont ajoutés.
-              Un mot-clé qui n'apporte aucune page gardée en {RECHERCHES_AVANT_NETTOYAGE} recherches est désactivé automatiquement.
+              Un mot-clé est désactivé automatiquement s'il n'a fait garder aucune page sur {ANALYSEES_AVANT_NETTOYAGE} pages analysées, ou s'il ne trouve aucune nouvelle page en {RECHERCHES_AVANT_NETTOYAGE} recherches.
             </div>
             <textarea className="form-input" rows={5} value={liste} onChange={e => setListe(e.target.value)}
               placeholder={"Un mot-clé par ligne\nالدفع عند الاستلام\nlivraison gratuite\ndéfroisseur vapeur"} style={{ resize: "vertical" }} />
@@ -204,7 +219,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
               </button>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)", paddingTop: 7 }}>
-              <span>Triés par pages gardées · gardées / nouvelles / trouvées · recherches</span>
+              <span>Triés par pages gardées · gardées / analysées / nouvelles · recherches</span>
               <button className="btn btn-sm btn-secondary" onClick={() => setVoirInactifs(v => !v)}>{voirInactifs ? "Masquer les inactifs" : `Voir les inactifs (${d.motscles.filter(m => !m.actif).length})`}</button>
             </div>
             {trierMots(d.motscles, statsMots).filter(m => voirInactifs || m.actif).map(m => {
@@ -217,8 +232,8 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
                     <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.mot}</span>
                     {!m.actif && st.desactive && <span style={{ fontSize: 11, color: "var(--red)" }}>Désactivé : {st.desactive.raison}</span>}
                   </div>
-                  <span className="col-mono" title="Pages gardées / nouvelles pages / pages trouvées · nombre de recherches" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-                    {st.recherches ? <><b style={{ color: st.gardees ? "var(--green)" : "var(--muted)" }}>{st.gardees}</b> / {st.nouvelles} / {st.trouvees} · {st.recherches}×</> : <span className="col-muted">jamais</span>}
+                  <span className="col-mono" title="Pages gardées / pages analysées / nouvelles pages trouvées · nombre de recherches" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
+                    {st.recherches ? <><b style={{ color: st.gardees ? "var(--green)" : "var(--muted)" }}>{st.gardees}</b> / {st.analysees || 0} / {st.nouvelles} · {st.recherches}×</> : <span className="col-muted">jamais</span>}
                   </span>
                   <button className={`tag ${type === "phrase" ? "blue" : "green"}`} style={{ border: "none", cursor: "pointer" }} title="Changer de type" onClick={() => basculerType(m)}>
                     {type === "phrase" ? "Phrase" : "Produit"}

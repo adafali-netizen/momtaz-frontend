@@ -2,7 +2,7 @@
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper } from "./veilleLib";
 import { releverUrl, capturerPrix, attendreExtensionLibre } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
-import { CLE_MOTS, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto } from "./motsLib";
+import { CLE_MOTS, CLE_FILE, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto, choisirMots, ajouterAFile, prochainesPages, PAGES_PAR_SESSION, MOTS_PAR_SESSION } from "./motsLib";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
   updateProduits, remplirPrixVide, saveConfig, CLE_FICHES, CLE_ECARTS,
@@ -44,34 +44,41 @@ function verifierBlocage(res) {
 }
 
 // ctl : { stop, status(texte), log(texte) }
-// ctx : { pages, produits, candidats, motscles, criteres, groupes, stats }
-// stats : rendement cumulé de chaque mot-clé (motsLib) ; mis à jour et enregistré à la fin de la recherche
+// ctx : { pages, produits, candidats, motscles, criteres, groupes, stats, file }
+// stats : rendement cumulé de chaque mot-clé (motsLib) · file : pages trouvées pas encore analysées (motsLib)
+// Une recherche = au plus 40 mots-clés, puis au plus 60 pages analysées. S'il reste au moins 60 pages dans la file,
+// on reprend la file sans interroger de mots-clés. Tout est enregistré au fur et à mesure.
 export async function lancerRecherche(ctx, ctl) {
-  // 1. Mots-clés : tes mots-clés actifs + les produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours
-  //    (les mots-clés désactivés par le nettoyage ne reviennent pas automatiquement)
-  const dejaMots = new Set(ctx.motscles.map(m => cleMot(m.mot)));
-  const auto = motsProduitsAuto(ctx.groupes, dejaMots);
-  for (const mot of auto) await addMotCle(mot, "produit");
-  // Type par mot-clé : « phrase » = expression exacte, « produit » = recherche large
-  const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
-  const mots = [
-    ...ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" })),
-    ...auto.map(mot => ({ id: null, mot, exact: false })),
-  ];
-  if (!mots.length) throw new Error("Aucun mot-clé actif.");
-  const parMot = Object.fromEntries(mots.map(m => [m.mot, { type: m.exact ? "phrase" : "produit", trouvees: 0, nouvelles: 0, gardees: 0 }]));
   const connuesAvant = new Set([...ctx.pages.map(p => p.fb_page_id), ...ctx.candidats.map(c => c.fb_page_id)]);
+  let file = ajouterAFile(ctx.file || {}, [], connuesAvant);
+  const repriseSeule = Object.keys(file).length >= PAGES_PAR_SESSION;
+
+  // 1. Mots-clés : produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours, puis tes mots-clés actifs,
+  //    jamais utilisés d'abord, puis les plus rentables (40 au plus)
+  let mots = [];
+  if (!repriseSeule) {
+    const dejaMots = new Set(ctx.motscles.map(m => cleMot(m.mot)));
+    const auto = motsProduitsAuto(ctx.groupes, dejaMots);
+    for (const mot of auto) await addMotCle(mot, "produit");
+    const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
+    const actifs = ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" }));
+    mots = [...auto.map(mot => ({ id: null, mot, exact: false })), ...choisirMots(actifs, ctx.stats, Math.max(0, MOTS_PAR_SESSION - auto.length))];
+    if (!mots.length && !Object.keys(file).length) throw new Error("Aucun mot-clé actif.");
+  }
+  const interroges = {};
+  const analyse = {};
+  const noter = (mot, champ) => { analyse[mot] = analyse[mot] || { analysees: 0, gardees: 0 }; analyse[mot][champ]++; };
 
   const rech = await createRecherche(mots.length);
-  let motsInterroges = 0;
   const compte = { nb_trouvees: 0, nb_gardees: 0, nb_a_valider: 0, nb_eliminees: 0 };
   const gardees = [];
   let statut = "terminée";
+  const sauverFile = () => saveConfig(CLE_FILE, file).catch(e => ctl.log("File d'attente non enregistrée : " + (e.message || e)));
   try {
-    // 2. Recherche par mot-clé : on note les pages qui font de la pub
+    // 2. Recherche par mot-clé : les pages trouvées rejoignent la file d'attente
+    if (repriseSeule) ctl.log(`Reprise de la file d'attente : ${Object.keys(file).length} pages à analyser, pas de nouveaux mots-clés cette fois`);
     const trouvees = new Map();
     for (let i = 0; i < mots.length && !ctl.stop; i++) {
-      motsInterroges = i + 1;
       const { id, mot, exact } = mots[i];
       const label = `Mot-clé ${i + 1}/${mots.length} « ${mot} »${exact ? " (exacte)" : ""}`;
       ctl.status(label);
@@ -87,71 +94,80 @@ export async function lancerRecherche(ctx, ctl) {
         t.pubs += a.n || 1;
         trouvees.set(a.page_id, t);
       }
-      parMot[mot].trouvees = pagesMot.size;
-      parMot[mot].nouvelles = [...pagesMot].filter(p => !connuesAvant.has(p)).length;
-      ctl.log(`« ${mot} »${exact ? " (exacte)" : ""} : ${pagesMot.size} pages, dont ${parMot[mot].nouvelles} nouvelles`);
+      const nouv = [...pagesMot].filter(p => !connuesAvant.has(p)).length;
+      interroges[mot] = { type: exact ? "phrase" : "produit", trouvees: pagesMot.size, nouvelles: nouv };
+      ctl.log(`« ${mot} »${exact ? " (exacte)" : ""} : ${pagesMot.size} pages, dont ${nouv} nouvelles`);
       if (id) await updateMotCle(id, { nb_pages: pagesMot.size, derniere_recherche: new Date().toISOString() }).catch(() => {});
       if (i < mots.length - 1) await pause(ctl, label);
     }
-
-    // 3. Pages jamais vues : on relève toutes leurs pubs et on applique tes critères
-    const connues = new Set([...ctx.pages.map(p => p.fb_page_id), ...ctx.candidats.map(c => c.fb_page_id)]);
-    const nouvelles = [...trouvees.values()].filter(t => !connues.has(t.id)).sort((a, b) => b.pubs - a.pubs);
+    if (mots.length) {
+      file = ajouterAFile(file, [...trouvees.values()].map(t => ({ ...t, mots: [...t.mots] })), connuesAvant);
+      await sauverFile();
+    }
     compte.nb_trouvees = trouvees.size;
     await updateRecherche(rech.id, compte);
-    ctl.log(`${trouvees.size} pages trouvées, dont ${nouvelles.length} nouvelles à analyser`);
 
-    for (let i = 0; i < nouvelles.length && !ctl.stop; i++) {
-      await pause(ctl, `Analyse des pages ${i}/${nouvelles.length}`);
+    // 3. Analyse des pages de la file : celles vues avec le plus de mots-clés et de pubs d'abord, 60 au plus
+    const aAnalyser = ctl.stop ? [] : prochainesPages(file, PAGES_PAR_SESSION);
+    ctl.log(`${trouvees.size} pages trouvées · file d'attente : ${Object.keys(file).length} pages · ${aAnalyser.length} analysées cette fois`);
+    for (let i = 0; i < aAnalyser.length && !ctl.stop; i++) {
+      await pause(ctl, `Analyse des pages ${i}/${aAnalyser.length}`);
       if (ctl.stop) break;
-      const t = nouvelles[i];
-      const label = `Page ${i + 1}/${nouvelles.length} « ${t.nom} »`;
+      const t = aAnalyser[i];
+      const label = `Page ${i + 1}/${aAnalyser.length} « ${t.nom} »`;
       ctl.status(label);
-      const res = await releverPage(ctl, t.id, label, { maxScrolls: 100, idleRounds: 4 });
+      // 150 pubs suffisent pour juger une page
+      const res = await releverPage(ctl, t.id, label, { maxAds: 150, maxScrolls: 30, idleRounds: 4 });
+      if (ctl.stop && !res.ads.length) break;
       const ev = evaluatePage(res.ads, ctx.criteres);
       const nom = (res.ads[0] && res.ads[0].page_name) || t.nom;
       await saveCandidat({
         fb_page_id: t.id, nom, sites: ev.sites, nb_pubs: ev.pubs, nb_produits: ev.produits,
         site_ecom: ev.siteEcom, cod: ev.cod, categorie: ev.categorie, decision: ev.decision, raison: ev.raison,
-        mots_cles: [...t.mots].join(", "), apercus: ev.apercus,
+        mots_cles: t.mots.join(", "), apercus: ev.apercus,
         cartes: ev.decision === "eliminee" ? null : ev.cartes,
         recherche_id: rech.id, created_at: new Date().toISOString(), decide_le: null,
       });
+      for (const m of t.mots) noter(m, "analysees");
       if (ev.decision === "gardee") {
         compte.nb_gardees++;
         gardees.push({ pageId: t.id, pageNom: nom, cartes: ev.cartes, date: new Date() });
-        for (const m of t.mots) if (parMot[m]) parMot[m].gardees++;
+        for (const m of t.mots) noter(m, "gardees");
       }
       else if (ev.decision === "a_valider") compte.nb_a_valider++;
       else compte.nb_eliminees++;
+      delete file[t.id];
       ctl.log(`${nom} : ${ev.decision === "gardee" ? "gardée" : ev.decision === "a_valider" ? "à valider" : "éliminée"} (${ev.raison})`);
       await updateRecherche(rech.id, compte);
+      if ((i + 1) % 10 === 0) await sauverFile();
     }
     if (ctl.stop) statut = "arrêtée";
+    const reste = Object.keys(file).length;
+    if (reste) ctl.log(`Il reste ${reste} pages dans la file d'attente : elles seront analysées aux prochaines recherches`);
   } catch (e) {
     statut = "erreur";
     ctl.log(e.message || String(e));
     throw e;
   } finally {
+    await sauverFile();
     // 4. Les pages gardées rejoignent tes pages suivies avec leurs pubs
     if (gardees.length) {
       ctl.status(`Enregistrement de ${gardees.length} pages gardées…`);
       await saveReleve(gardees, ctx.pages, ctx.produits, "extension").catch(e => ctl.log("Enregistrement des pages gardées impossible : " + e.message));
     }
     await updateRecherche(rech.id, { ...compte, statut, fin: new Date().toISOString() }).catch(() => {});
-    // 5. Rendement des mots-clés et nettoyage : on ne compte que les mots-clés réellement interrogés
-    const utilises = Object.fromEntries(Object.entries(parMot).filter(([m]) => mots.findIndex(x => x.mot === m) < motsInterroges));
-    let stats = bilanRecherche(ctx.stats || {}, utilises);
+    // 5. Rendement des mots-clés et nettoyage : chaque mot-clé est jugé sur ses pages réellement analysées
+    let stats = bilanRecherche(ctx.stats || {}, interroges, analyse);
     const aCouper = aDesactiver(stats);
     if (aCouper.length) {
       stats = marquerDesactives(stats, aCouper);
       const ids = new Map([...ctx.motscles.map(m => [cleMot(m.mot), m.id])]);
       for (const k of aCouper) if (ids.get(k)) await updateMotCle(ids.get(k), { actif: false }).catch(() => {});
-      ctl.log(`Nettoyage : ${aCouper.length} mot${aCouper.length > 1 ? "s" : ""}-clé${aCouper.length > 1 ? "s" : ""} désactivé${aCouper.length > 1 ? "s" : ""}, aucune page gardée après plusieurs recherches : ${aCouper.join(", ")}`);
+      ctl.log(`Nettoyage : ${aCouper.length} mot${aCouper.length > 1 ? "s" : ""}-clé${aCouper.length > 1 ? "s" : ""} désactivé${aCouper.length > 1 ? "s" : ""} : ${aCouper.map(k => `${k} (${stats[k].desactive.raison})`).join(", ")}`);
     }
     await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
-  return compte;
+  return { ...compte, file: Object.keys(file).length };
 }
 
 // Réessaie d'enregistrer les pages relevées dont l'enregistrement a échoué

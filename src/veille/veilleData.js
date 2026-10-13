@@ -229,7 +229,8 @@ export async function loadRecherche() {
   ]);
   const crit = config.find(c => c.cle === "criteres");
   const stats = config.find(c => c.cle === "motscles_stats");
-  return { motscles, criteres: crit ? crit.valeur : null, recherches, candidats, stats: stats ? stats.valeur : {} };
+  const file = config.find(c => c.cle === "recherche_file");
+  return { motscles, criteres: crit ? crit.valeur : null, recherches, candidats, stats: stats ? stats.valeur : {}, file: file ? file.valeur || {} : {} };
 }
 
 export async function addMotCle(mot, source = "manuel") {
