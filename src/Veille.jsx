@@ -147,7 +147,7 @@ export default function Veille() {
         ? bilanReleve(res)
         : type === "prix"
         ? `Capture ${res.arrete ? "arrêtée" : "terminée"} : ${res.remplis} prix remplis, ${res.ecarts} écart${res.ecarts > 1 ? "s" : ""} avec tes prix, ${res.introuvables + res.erreurs} laissé${res.introuvables + res.erreurs > 1 ? "s" : ""} vide${res.introuvables + res.erreurs > 1 ? "s" : ""}, ${res.photos} avec photo, sur ${res.total} pages produit. Détail dans le journal.`
-        : `Recherche terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.${res.file ? ` ${res.file} pages restent dans la file d'attente : relance une recherche pour les analyser.` : ""}`);
+        : `${res.collecte ? "Collecte" : "Recherche"} terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.${res.file ? ` ${res.file} pages restent dans la file d'attente : relance une recherche pour les analyser.` : ""}`);
     } catch (e) {
       setErreur((type === "etude" ? "Étude interrompue (les résultats déjà relevés sont gardés) : " : type === "releve" ? "Relevé interrompu : " : type === "prix" ? "Capture des prix interrompue (les prix déjà trouvés sont enregistrés) : " : "Recherche interrompue : ") + (e.message || e));
     } finally {
@@ -165,8 +165,9 @@ export default function Veille() {
     setRun(r => r && { ...r, status: "Arrêt en cours, enregistrement de ce qui a déjà été relevé…" });
   };
 
-  const lancerUneRecherche = (rech, rechargerRecherche) => lancer("recherche", async ctl => {
+  const lancerUneRecherche = (rech, rechargerRecherche, options = {}) => lancer("recherche", async ctl => {
     const res = await lancerRecherche({
+      ...options,
       pages, produits: data.produits, candidats: rech.candidats, motscles: rech.motscles, criteres: rech.criteres, groupes: groups, stats: rech.stats, file: rech.file,
     }, ctl);
     await rechargerRecherche();

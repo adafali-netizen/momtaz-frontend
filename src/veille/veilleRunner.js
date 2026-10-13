@@ -44,14 +44,18 @@ function verifierBlocage(res) {
 }
 
 // ctl : { stop, status(texte), log(texte) }
-// ctx : { pages, produits, candidats, motscles, criteres, groupes, stats, file }
+// ctx : { pages, produits, candidats, motscles, criteres, groupes, stats, file, mode, maxPages }
+//   mode « collecte » : tous les mots-clés actifs sont interrogés, les pages trouvées vont dans la file, rien n'est analysé
+//   maxPages : pages analysées cette fois (60 par défaut, jusqu'à 300 pour une nuit)
 // stats : rendement cumulé de chaque mot-clé (motsLib) · file : pages trouvées pas encore analysées (motsLib)
 // Une recherche = au plus 40 mots-clés, puis au plus 60 pages analysées. S'il reste au moins 60 pages dans la file,
 // on reprend la file sans interroger de mots-clés. Tout est enregistré au fur et à mesure.
 export async function lancerRecherche(ctx, ctl) {
   const connuesAvant = new Set([...ctx.pages.map(p => p.fb_page_id), ...ctx.candidats.map(c => c.fb_page_id)]);
   let file = ajouterAFile(ctx.file || {}, [], connuesAvant);
-  const repriseSeule = Object.keys(file).length >= PAGES_PAR_SESSION;
+  const collecte = ctx.mode === "collecte";
+  const maxPages = collecte ? 0 : Math.max(1, Math.min(300, Number(ctx.maxPages) || PAGES_PAR_SESSION));
+  const repriseSeule = !collecte && Object.keys(file).length >= maxPages;
 
   // 1. Mots-clés : produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours, puis tes mots-clés actifs,
   //    jamais utilisés d'abord, puis les plus rentables (40 au plus)
@@ -62,7 +66,7 @@ export async function lancerRecherche(ctx, ctl) {
     for (const mot of auto) await addMotCle(mot, "produit");
     const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
     const actifs = ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" }));
-    mots = [...auto.map(mot => ({ id: null, mot, exact: false })), ...choisirMots(actifs, ctx.stats, Math.max(0, MOTS_PAR_SESSION - auto.length))];
+    mots = [...auto.map(mot => ({ id: null, mot, exact: false })), ...choisirMots(actifs, ctx.stats, collecte ? actifs.length : Math.max(0, MOTS_PAR_SESSION - auto.length))];
     if (!mots.length && !Object.keys(file).length) throw new Error("Aucun mot-clé actif.");
   }
   const interroges = {};
@@ -98,6 +102,12 @@ export async function lancerRecherche(ctx, ctl) {
       interroges[mot] = { type: exact ? "phrase" : "produit", trouvees: pagesMot.size, nouvelles: nouv };
       ctl.log(`« ${mot} »${exact ? " (exacte)" : ""} : ${pagesMot.size} pages, dont ${nouv} nouvelles`);
       if (id) await updateMotCle(id, { nb_pages: pagesMot.size, derniere_recherche: new Date().toISOString() }).catch(() => {});
+      // Toutes les 10 recherches, la file est enregistrée : un arrêt ne perd rien
+      if ((i + 1) % 10 === 0) {
+        file = ajouterAFile(file, [...trouvees.values()].map(t => ({ ...t, mots: [...t.mots] })), connuesAvant);
+        await sauverFile();
+        ctl.log(`File d'attente enregistrée : ${Object.keys(file).length} pages`);
+      }
       if (i < mots.length - 1) await pause(ctl, label);
     }
     if (mots.length) {
@@ -108,7 +118,7 @@ export async function lancerRecherche(ctx, ctl) {
     await updateRecherche(rech.id, compte);
 
     // 3. Analyse des pages de la file : celles vues avec le plus de mots-clés et de pubs d'abord, 60 au plus
-    const aAnalyser = ctl.stop ? [] : prochainesPages(file, PAGES_PAR_SESSION);
+    const aAnalyser = ctl.stop || collecte ? [] : prochainesPages(file, maxPages);
     ctl.log(`${trouvees.size} pages trouvées · file d'attente : ${Object.keys(file).length} pages · ${aAnalyser.length} analysées cette fois`);
     for (let i = 0; i < aAnalyser.length && !ctl.stop; i++) {
       await pause(ctl, `Analyse des pages ${i}/${aAnalyser.length}`);
@@ -167,7 +177,7 @@ export async function lancerRecherche(ctx, ctl) {
     }
     await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
-  return { ...compte, file: Object.keys(file).length };
+  return { ...compte, file: Object.keys(file).length, collecte };
 }
 
 // Réessaie d'enregistrer les pages relevées dont l'enregistrement a échoué

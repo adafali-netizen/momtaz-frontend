@@ -71,6 +71,9 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const [liste, setListe] = useState("");
   const [typeListe, setTypeListe] = useState("phrase");
   const [voirInactifs, setVoirInactifs] = useState(false);
+  // Pages analysées par session, mémorisé dans ce navigateur
+  const [maxPages, setMaxPages] = useState(() => { try { return Number(localStorage.getItem("momtaz_pages_session")) || PAGES_PAR_SESSION; } catch { return PAGES_PAR_SESSION; } });
+  const choisirMax = v => { setMaxPages(v); try { localStorage.setItem("momtaz_pages_session", String(v)); } catch { /* stockage indisponible */ } };
   const [voirElim, setVoirElim] = useState(false);
   const [occupe, setOccupe] = useState(null);
 
@@ -171,9 +174,10 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
             {derniere ? `Dernière recherche : ${fmtDate(derniere.created_at)} · ${derniere.statut}` : "Aucune recherche lancée pour l'instant"}
           </span>
           <span className="col-muted">
-            {nbFile >= PAGES_PAR_SESSION
-              ? `File d'attente : ${nbFile} pages trouvées à analyser. La prochaine recherche en analyse ${PAGES_PAR_SESSION} (celles vues avec le plus de mots-clés et de pubs), sans nouveaux mots-clés : environ 1 h 30.`
-              : `Une recherche = ${MOTS_PAR_SESSION} mots-clés au plus (jamais utilisés d'abord, puis les plus rentables), puis ${PAGES_PAR_SESSION} pages analysées au plus : environ 1 h 30 à 2 h.${nbFile ? ` File d'attente : ${nbFile} pages.` : ""}`}
+            {nbFile >= maxPages
+              ? `File d'attente : ${nbFile} pages trouvées à analyser. La prochaine analyse en traite ${maxPages} (celles vues avec le plus de mots-clés et de pubs), environ ${Math.round(maxPages * 1.6 / 60 * 10) / 10} h.`
+              : `Une recherche = ${MOTS_PAR_SESSION} mots-clés au plus (jamais utilisés d'abord, puis les plus rentables), puis ${maxPages} pages analysées au plus.${nbFile ? ` File d'attente : ${nbFile} pages.` : ""}`}
+            {" "}« Collecter les pages » interroge tous tes mots-clés actifs ({d.motscles.filter(m => m.actif).length}) et met les pages trouvées dans la file, sans les analyser : environ {Math.round(d.motscles.filter(m => m.actif).length * 1.6 / 60 * 10) / 10} h.
             {" "}Laisse cet onglet et la fenêtre de l'extension ouverts.
           </span>
         </div>
@@ -184,9 +188,18 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
               Vider la file
             </button>
           )}
+          {!enCours && (
+            <select className="form-select" style={{ width: "auto" }} value={maxPages} onChange={e => choisirMax(Number(e.target.value))} disabled={!!run} title="Pages analysées par session">
+              {[60, 120, 200, 300].map(n => <option key={n} value={n}>{n} pages{n === 300 ? " (une nuit)" : ""}</option>)}
+            </select>
+          )}
+          {!enCours && (
+            <button className="btn btn-secondary" disabled={!ext || !!run} onClick={() => onLancer(d, charger, { mode: "collecte" })}
+              title="Interroge tous les mots-clés actifs et remplit la file d'attente, sans analyser les pages">Collecter les pages</button>
+          )}
           {enCours
             ? <button className="btn btn-danger" onClick={onStop}>Arrêter</button>
-            : <button className="btn btn-primary" disabled={!ext || !!run} onClick={() => onLancer(d, charger)}>{nbFile >= PAGES_PAR_SESSION ? `Analyser ${PAGES_PAR_SESSION} pages de la file` : "Lancer une recherche maintenant"}</button>}
+            : <button className="btn btn-primary" disabled={!ext || !!run} onClick={() => onLancer(d, charger, { maxPages })}>{nbFile >= maxPages ? `Analyser ${maxPages} pages de la file` : "Lancer une recherche maintenant"}</button>}
         </span>
       </div>
 
