@@ -205,16 +205,42 @@ function lirePrixDansLaPage() {
   })();
 }
 
+async function prixShopifyDirect(url) {
+  const delai = ms => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; };
+  let finale = url;
+  if (!/\/products\/[^/?#]+/.test(new URL(url).pathname)) {
+    const r = await fetch(url, { redirect: "follow", credentials: "omit", signal: delai(8000) });
+    finale = r.url || url;
+  }
+  const u = new URL(finale);
+  const m = u.pathname.match(/^(.*\/products\/[^/?#]+)/);
+  if (!m) return null;
+  const r = await fetch(u.origin + m[1] + ".js", { credentials: "omit", signal: delai(8000) });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const v = (j.variants || []).filter(x => x.available !== false);
+  const prix = (v.length ? Math.min(...v.map(x => x.price)) : j.price) / 100;
+  if (!(prix >= 10 && prix <= 50000)) return null;
+  const barre = (j.compare_at_price || 0) / 100;
+  return { prix: Math.round(prix * 100) / 100, source: "Shopify (direct)", barre: barre > prix ? Math.round(barre * 100) / 100 : null, urlFinale: finale };
+}
+
 async function capturerPrix(opts) {
   const url = String(opts.url || "");
   if (!/^https?:\/\//i.test(url) || /facebook\.com|fb\.com|fb\.me|instagram\.com|wa\.me|whatsapp\.com|m\.me|messenger\.com|t\.me|tiktok\.com/i.test(url)) {
     throw new Error("Adresse refusée : pas une page produit.");
   }
+  // 1. Voie rapide, sans ouvrir d'onglet : boutique Shopify (fichier produit .js).
+  //    Un lien court est d'abord suivi pour connaître l'adresse finale.
+  const direct = await prixShopifyDirect(url).catch(() => null);
+  if (direct) return direct;
+
+  // 2. Sinon : ouverture de la page et lecture du prix affiché
   const winId = await fenetre();
   const tab = await chrome.tabs.create({ windowId: winId, url, active: true });
   try {
     await attendreChargement(tab.id, 30000);
-    await sleep(hasard(2500, 4000));   // laisse le temps aux prix chargés après coup
+    await sleep(hasard(1500, 2500));   // laisse le temps aux prix chargés après coup
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: lirePrixDansLaPage });
     const t = await chrome.tabs.get(tab.id).catch(() => null);
     return { ...(r && r.result ? r.result : { prix: null }), urlFinale: t ? t.url : url };

@@ -319,7 +319,7 @@ export async function addPageReleve(releveId, f, pagesConnues, produitsConnus) {
     if (error) throw new Error("produits : " + error.message);
     for (const k of nouveaux.keys()) produitsConnus.add(k);
   }
-  return { nbCartes: f.cartes.length, nbPubs, nbNouveauxProduits: nouveaux.size };
+  return { nbCartes: f.cartes.length, nbPubs, nbNouveauxProduits: nouveaux.size, nouveaux: [...nouveaux.values()] };
 }
 
 export async function finishReleve(releveId, totaux) {
@@ -329,4 +329,13 @@ export async function finishReleve(releveId, totaux) {
   }
   const { error } = await supabase.from("veille_releves").update(totaux).eq("id", releveId);
   if (error) throw error;
+}
+
+// Prix d'un produit identifié par sa page et sa clé, seulement s'il est encore vide (jamais d'écrasement d'un prix saisi)
+export async function remplirPrixVide(fbPageId, produitKey, prix) {
+  const { data, error } = await supabase.from("veille_produits")
+    .update({ prix, updated_at: new Date().toISOString() })
+    .eq("fb_page_id", fbPageId).eq("produit_key", produitKey).is("prix", null).select("id");
+  if (error) throw error;
+  return (data || []).length;
 }

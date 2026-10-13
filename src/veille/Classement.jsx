@@ -137,7 +137,7 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
   }, [visibles, verifier]);
 
   const capturer = () => {
-    const minutes = Math.ceil(aCapturer.length * 12 / 60);
+    const minutes = Math.ceil(aCapturer.length * 6 / 60);
     if (!window.confirm(`Capturer le prix sur ${aCapturer.length} pages produit des produits affichés ? Environ ${minutes} minute${minutes > 1 ? "s" : ""}.\nSeuls les prix vides sont remplis${verifier ? " ; les écarts avec tes prix seront signalés dans le journal" : ""}.`)) return;
     onCapturerPrix(aCapturer);
   };

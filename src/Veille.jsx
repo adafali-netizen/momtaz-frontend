@@ -16,6 +16,7 @@ function bilanReleve(res) {
   let m = `Relevé ${res.arrete ? "arrêté" : "terminé"} : ${res.nbPages} page${res.nbPages > 1 ? "s" : ""} enregistrée${res.nbPages > 1 ? "s" : ""} sur ${res.total}.`;
   if (res.sansPub.length) m += ` Plus aucune pub active (confirmé par Facebook) : ${res.sansPub.join(", ")}.`;
   if (res.nonLues.length) m += ` NON enregistrées, Facebook n'a rien affiché : ${res.nonLues.join(", ")}.`;
+  if (res.nbNouveaux) m += ` ${res.nbNouveaux} nouveau${res.nbNouveaux > 1 ? "x" : ""} produit${res.nbNouveaux > 1 ? "s" : ""}, ${res.prixNouveaux || 0} prix trouvé${res.prixNouveaux > 1 ? "s" : ""} automatiquement.`;
   return m;
 }
 

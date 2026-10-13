@@ -1,10 +1,10 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
-import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT } from "./veilleLib";
+import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, estFicheProduit, defaultName } from "./veilleLib";
 import { releverUrl, capturerPrix } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
-  updateProduits,
+  updateProduits, remplirPrixVide,
 } from "./veilleData";
 
 // Pause entre deux pages Facebook (30 à 60 s) pour relever à un rythme humain
@@ -165,6 +165,7 @@ export async function lancerReleve(ctx, ctl) {
   const echecs = [];
   const nonLues = [];   // Facebook n'a rien affiché : page non enregistrée
   const sansPub = [];   // Facebook confirme 0 résultat : page enregistrée à 0 pub
+  const nouveauxProduits = [];   // produits vus pour la première fois : leur prix est capturé à la fin
   let rel = null;
   try {
     for (let i = 0; i < pages.length && !ctl.stop; i++) {
@@ -182,6 +183,7 @@ export async function lancerReleve(ctx, ctl) {
       try {
         if (!rel) rel = await startReleve("extension");
         const r = await addPageReleve(rel.id, f, pagesConnues, produitsConnus);
+        for (const n of r.nouveaux || []) nouveauxProduits.push({ ...n, page: nom });
         totaux.nb_pages++; totaux.nb_cartes += r.nbCartes; totaux.nb_pubs += r.nbPubs;
         await finishReleve(rel.id, totaux).catch(() => {});
         if (!cartes.length) sansPub.push(nom);
@@ -198,7 +200,26 @@ export async function lancerReleve(ctx, ctl) {
   if (echecs.length) {
     throw new Error(`${echecs.length} page(s) relevée(s) mais non enregistrée(s) : ${echecs.map(f => f.pageNom).join(", ")}. Clique sur « Réessayer l'enregistrement ». Détail : voir le journal.`);
   }
-  return { nbPages: totaux.nb_pages, total: pages.length, nonLues, sansPub, arrete: !!ctl.stop };
+  // Prix des nouveaux produits de ce relevé (jamais d'écrasement d'un prix saisi), 60 au maximum
+  let prixNouveaux = 0;
+  const aChiffrer = nouveauxProduits.filter(n => n.url && estFicheProduit(n.url)).slice(0, 60);
+  if (aChiffrer.length && !ctl.stop) {
+    ctl.log(`Prix des nouveaux produits : ${aChiffrer.length} pages produit à lire`);
+    for (let i = 0; i < aChiffrer.length && !ctl.stop; i++) {
+      const n = aChiffrer[i];
+      ctl.status(`Prix des nouveaux produits ${i + 1}/${aChiffrer.length} (${n.page})`);
+      try {
+        const r = await capturerPrix(n.url);
+        if (r && r.prix && await remplirPrixVide(n.fb_page_id, n.produit_key, r.prix)) {
+          prixNouveaux++;
+          ctl.log(`${n.nom || defaultName(n.url, "")} (${n.page}) : ${r.prix} DH · ${r.source}`);
+        }
+      } catch (e) { /* prix introuvable : sans gravité, il reste saisissable à la main */ }
+      await new Promise(res => setTimeout(res, 1000 + Math.random() * 1000));
+    }
+    ctl.log(`Prix des nouveaux produits : ${prixNouveaux} trouvé${prixNouveaux > 1 ? "s" : ""} sur ${aChiffrer.length}`);
+  }
+  return { nbPages: totaux.nb_pages, total: pages.length, nonLues, sansPub, arrete: !!ctl.stop, prixNouveaux, nbNouveaux: nouveauxProduits.length };
 }
 
 // Étude de marché : relève toutes les pubs des mots-clés donnés.
@@ -252,7 +273,7 @@ export async function lancerCapturePrix(items, ctl) {
       ctl.log(`${it.nom} (${it.page}) : capture impossible (${e.message || e})`);
     }
     if (i < items.length - 1 && !ctl.stop) {
-      const fin = Date.now() + 3000 + Math.random() * 3000;
+      const fin = Date.now() + 1000 + Math.random() * 1000;
       while (Date.now() < fin && !ctl.stop) { ctl.status(`${label} · suivant dans ${Math.ceil((fin - Date.now()) / 1000)} s`); await new Promise(r => setTimeout(r, 500)); }
     }
   }
