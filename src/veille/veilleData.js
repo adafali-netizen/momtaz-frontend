@@ -225,7 +225,8 @@ export async function loadRecherche() {
       .order("created_at", { ascending: false })),
   ]);
   const crit = config.find(c => c.cle === "criteres");
-  return { motscles, criteres: crit ? crit.valeur : null, recherches, candidats };
+  const stats = config.find(c => c.cle === "motscles_stats");
+  return { motscles, criteres: crit ? crit.valeur : null, recherches, candidats, stats: stats ? stats.valeur : {} };
 }
 
 export async function addMotCle(mot, source = "manuel") {

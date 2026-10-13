@@ -158,7 +158,7 @@ export default function Veille() {
 
   const lancerUneRecherche = (rech, rechargerRecherche) => lancer("recherche", async ctl => {
     const res = await lancerRecherche({
-      pages, produits: data.produits, candidats: rech.candidats, motscles: rech.motscles, criteres: rech.criteres, groupes: groups,
+      pages, produits: data.produits, candidats: rech.candidats, motscles: rech.motscles, criteres: rech.criteres, groupes: groups, stats: rech.stats,
     }, ctl);
     await rechargerRecherche();
     return res;

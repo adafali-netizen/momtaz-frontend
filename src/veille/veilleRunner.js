@@ -2,6 +2,7 @@
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper } from "./veilleLib";
 import { releverUrl, capturerPrix, attendreExtensionLibre } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
+import { CLE_MOTS, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto } from "./motsLib";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
   updateProduits, remplirPrixVide, saveConfig, CLE_FICHES, CLE_ECARTS,
@@ -43,22 +44,26 @@ function verifierBlocage(res) {
 }
 
 // ctl : { stop, status(texte), log(texte) }
-// ctx : { pages, produits, candidats, motscles, criteres, groupes }
+// ctx : { pages, produits, candidats, motscles, criteres, groupes, stats }
+// stats : rendement cumulé de chaque mot-clé (motsLib) ; mis à jour et enregistré à la fin de la recherche
 export async function lancerRecherche(ctx, ctl) {
-  // 1. Mots-clés : les manuels actifs + les noms de tes meilleurs produits
-  const dejaMots = new Set(ctx.motscles.map(m => m.mot.toLowerCase()));
-  const auto = ctx.groupes.filter(g => g.pubs >= 5).slice(0, 20).map(g => g.nom.toLowerCase().trim()).filter(m => m.length >= 4 && !dejaMots.has(m));
+  // 1. Mots-clés : tes mots-clés actifs + les produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours
+  //    (les mots-clés désactivés par le nettoyage ne reviennent pas automatiquement)
+  const dejaMots = new Set(ctx.motscles.map(m => cleMot(m.mot)));
+  const auto = motsProduitsAuto(ctx.groupes, dejaMots);
   for (const mot of auto) await addMotCle(mot, "produit");
-  // Expression exacte : seulement pour tes mots-clés manuels. Les noms de produits ajoutés
-  // automatiquement restent en recherche large, sinon ils ne trouveraient presque rien.
-  const exacte = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
+  // Type par mot-clé : « phrase » = expression exacte, « produit » = recherche large
+  const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
   const mots = [
-    ...ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: exacte && m.source === "manuel" })),
+    ...ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" })),
     ...auto.map(mot => ({ id: null, mot, exact: false })),
   ];
   if (!mots.length) throw new Error("Aucun mot-clé actif.");
+  const parMot = Object.fromEntries(mots.map(m => [m.mot, { type: m.exact ? "phrase" : "produit", trouvees: 0, nouvelles: 0, gardees: 0 }]));
+  const connuesAvant = new Set([...ctx.pages.map(p => p.fb_page_id), ...ctx.candidats.map(c => c.fb_page_id)]);
 
   const rech = await createRecherche(mots.length);
+  let motsInterroges = 0;
   const compte = { nb_trouvees: 0, nb_gardees: 0, nb_a_valider: 0, nb_eliminees: 0 };
   const gardees = [];
   let statut = "terminée";
@@ -66,6 +71,7 @@ export async function lancerRecherche(ctx, ctl) {
     // 2. Recherche par mot-clé : on note les pages qui font de la pub
     const trouvees = new Map();
     for (let i = 0; i < mots.length && !ctl.stop; i++) {
+      motsInterroges = i + 1;
       const { id, mot, exact } = mots[i];
       const label = `Mot-clé ${i + 1}/${mots.length} « ${mot} »${exact ? " (exacte)" : ""}`;
       ctl.status(label);
@@ -81,7 +87,9 @@ export async function lancerRecherche(ctx, ctl) {
         t.pubs += a.n || 1;
         trouvees.set(a.page_id, t);
       }
-      ctl.log(`« ${mot} »${exact ? " (exacte)" : ""} : ${pagesMot.size} pages`);
+      parMot[mot].trouvees = pagesMot.size;
+      parMot[mot].nouvelles = [...pagesMot].filter(p => !connuesAvant.has(p)).length;
+      ctl.log(`« ${mot} »${exact ? " (exacte)" : ""} : ${pagesMot.size} pages, dont ${parMot[mot].nouvelles} nouvelles`);
       if (id) await updateMotCle(id, { nb_pages: pagesMot.size, derniere_recherche: new Date().toISOString() }).catch(() => {});
       if (i < mots.length - 1) await pause(ctl, label);
     }
@@ -109,7 +117,11 @@ export async function lancerRecherche(ctx, ctl) {
         cartes: ev.decision === "eliminee" ? null : ev.cartes,
         recherche_id: rech.id, created_at: new Date().toISOString(), decide_le: null,
       });
-      if (ev.decision === "gardee") { compte.nb_gardees++; gardees.push({ pageId: t.id, pageNom: nom, cartes: ev.cartes, date: new Date() }); }
+      if (ev.decision === "gardee") {
+        compte.nb_gardees++;
+        gardees.push({ pageId: t.id, pageNom: nom, cartes: ev.cartes, date: new Date() });
+        for (const m of t.mots) if (parMot[m]) parMot[m].gardees++;
+      }
       else if (ev.decision === "a_valider") compte.nb_a_valider++;
       else compte.nb_eliminees++;
       ctl.log(`${nom} : ${ev.decision === "gardee" ? "gardée" : ev.decision === "a_valider" ? "à valider" : "éliminée"} (${ev.raison})`);
@@ -127,6 +139,17 @@ export async function lancerRecherche(ctx, ctl) {
       await saveReleve(gardees, ctx.pages, ctx.produits, "extension").catch(e => ctl.log("Enregistrement des pages gardées impossible : " + e.message));
     }
     await updateRecherche(rech.id, { ...compte, statut, fin: new Date().toISOString() }).catch(() => {});
+    // 5. Rendement des mots-clés et nettoyage : on ne compte que les mots-clés réellement interrogés
+    const utilises = Object.fromEntries(Object.entries(parMot).filter(([m]) => mots.findIndex(x => x.mot === m) < motsInterroges));
+    let stats = bilanRecherche(ctx.stats || {}, utilises);
+    const aCouper = aDesactiver(stats);
+    if (aCouper.length) {
+      stats = marquerDesactives(stats, aCouper);
+      const ids = new Map([...ctx.motscles.map(m => [cleMot(m.mot), m.id])]);
+      for (const k of aCouper) if (ids.get(k)) await updateMotCle(ids.get(k), { actif: false }).catch(() => {});
+      ctl.log(`Nettoyage : ${aCouper.length} mot${aCouper.length > 1 ? "s" : ""}-clé${aCouper.length > 1 ? "s" : ""} désactivé${aCouper.length > 1 ? "s" : ""}, aucune page gardée après plusieurs recherches : ${aCouper.join(", ")}`);
+    }
+    await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
   return compte;
 }

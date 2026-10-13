@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES, CRITERES_DEFAUT } from "./veilleLib";
+import { CLE_MOTS, lireListe, typeDe, trierMots, ajouterGardee, reactiver, changerType, cleMot, RECHERCHES_AVANT_NETTOYAGE } from "./motsLib";
 import {
+  saveConfig,
   loadRecherche, addMotCle, updateMotCle, deleteMotCle, saveCriteres,
   loadCandidatCartes, decideCandidat, saveReleve, addPages, updatePage,
 } from "./veilleData";
@@ -20,7 +22,7 @@ function Criteres({ valeur, onSave }) {
     <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontWeight: 700 }}>Critères pour garder une page</div>
       <div style={ligne}>
-        <span className="col-muted">Expression exacte pour tes mots-clés manuels (moins de pages hors sujet)</span>
+        <span className="col-muted">Expression exacte pour les anciens mots-clés sans type (chaque mot-clé a maintenant son type : Phrase ou Produit)</span>
         <input type="checkbox" checked={!!c.expressionExacte} onChange={e => set("expressionExacte", e.target.checked)} />
       </div>
       <div style={ligne}><span className="col-muted">Pubs actives minimum</span>{nb("minPubs")}</div>
@@ -66,7 +68,9 @@ function Apercus({ apercus }) {
 export default function Recherche({ ext, run, onLancer, onStop, pages, produits, onReloadVeille, version }) {
   const [d, setD] = useState(null);
   const [erreur, setErreur] = useState("");
-  const [mot, setMot] = useState("");
+  const [liste, setListe] = useState("");
+  const [typeListe, setTypeListe] = useState("phrase");
+  const [voirInactifs, setVoirInactifs] = useState(false);
   const [voirElim, setVoirElim] = useState(false);
   const [occupe, setOccupe] = useState(null);
 
@@ -85,11 +89,36 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const gardees = d.candidats.filter(c => c.decision === "gardee");
   const enCours = run && run.type === "recherche";
 
-  const ajouterMot = async () => {
-    const m = mot.trim();
-    if (!m) return;
-    await addMotCle(m, "manuel");
-    setMot("");
+  const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(d.criteres || {}) }.expressionExacte;
+  const statsMots = d.stats || {};
+  const sauverStats = async st => { try { await saveConfig(CLE_MOTS, st); } catch (e) { setErreur("Rendement des mots-clés non enregistré : " + (e.message || e)); } };
+
+  // Liste collée : un mot-clé par ligne, tous du même type ; les mots déjà présents changent seulement de type
+  const ajouterListe = async () => {
+    const mots = lireListe(liste);
+    if (!mots.length) return;
+    let st = statsMots;
+    const existants = new Map(d.motscles.map(m => [cleMot(m.mot), m]));
+    for (const m of mots) {
+      const ex = existants.get(cleMot(m));
+      if (!ex) await addMotCle(m, "manuel");
+      else if (!ex.actif) await updateMotCle(ex.id, { actif: true });
+      st = changerType(st, m, typeListe);
+      if (ex && !ex.actif) st = reactiver(st, m);
+    }
+    await sauverStats(st);
+    setListe("");
+    await charger();
+  };
+
+  const basculerActif = async (m, actif) => {
+    await updateMotCle(m.id, { actif });
+    if (actif) await sauverStats(reactiver(statsMots, m.mot));
+    await charger();
+  };
+
+  const basculerType = async m => {
+    await sauverStats(changerType(statsMots, m.mot, typeDe(m, statsMots, exacteGlobal) === "phrase" ? "produit" : "phrase"));
     await charger();
   };
 
@@ -104,6 +133,8 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
         await updatePage(c.fb_page_id, { nom: c.nom, sites: c.sites });
       }
       await decideCandidat(c.fb_page_id, "gardee", "Gardée par toi");
+      // La page gardée compte pour le rendement des mots-clés qui l'ont fait trouver
+      if (c.mots_cles) await sauverStats(ajouterGardee(statsMots, c.mots_cles));
       await charger();
       await onReloadVeille();
     } catch (e) { setErreur("Impossible de garder cette page : " + (e.message || e)); }
@@ -156,21 +187,46 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 340px", maxWidth: 440, display: "flex", flexDirection: "column", gap: 16 }}>
           <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontWeight: 700 }}>Mots-clés</div>
-            <div className="col-muted">Les noms de tes 20 meilleurs produits sont ajoutés automatiquement à chaque recherche.</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input className="form-input" placeholder="Ajouter un mot-clé" value={mot} onChange={e => setMot(e.target.value)} onKeyDown={e => e.key === "Enter" && ajouterMot()} />
-              <button className="btn btn-sm btn-secondary" onClick={ajouterMot}>Ajouter</button>
+            <div style={{ fontWeight: 700 }}>Mots-clés ({d.motscles.filter(m => m.actif).length} actifs)</div>
+            <div className="col-muted">
+              La recherche lit le texte des pubs (texte et titre). À chaque recherche, les produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours sont ajoutés.
+              Un mot-clé qui n'apporte aucune page gardée en {RECHERCHES_AVANT_NETTOYAGE} recherches est désactivé automatiquement.
             </div>
-            {d.motscles.map(m => (
-              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid var(--border)", paddingTop: 7, opacity: m.actif ? 1 : 0.5 }}>
-                <input type="checkbox" checked={m.actif} title="Actif" onChange={async e => { await updateMotCle(m.id, { actif: e.target.checked }); charger(); }} />
-                <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{m.mot}</span>
-                <span className="col-muted" style={{ whiteSpace: "nowrap" }}>{m.derniere_recherche ? `${m.nb_pages} pages` : "jamais"}</span>
-                <span className={`tag ${m.source === "manuel" ? "blue" : "green"}`}>{m.source === "manuel" ? "Manuel" : "Produit suivi"}</span>
-                <button className="btn-close" title="Supprimer" onClick={async () => { await deleteMotCle(m.id); charger(); }}>×</button>
-              </div>
-            ))}
+            <textarea className="form-input" rows={5} value={liste} onChange={e => setListe(e.target.value)}
+              placeholder={"Un mot-clé par ligne\nالدفع عند الاستلام\nlivraison gratuite\ndéfroisseur vapeur"} style={{ resize: "vertical" }} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <select className="form-select" style={{ width: "auto" }} value={typeListe} onChange={e => setTypeListe(e.target.value)}>
+                <option value="phrase">Phrases de pub (expression exacte)</option>
+                <option value="produit">Noms de produits (recherche large)</option>
+              </select>
+              <button className="btn btn-sm btn-primary" disabled={!lireListe(liste).length} onClick={ajouterListe}>
+                Ajouter {lireListe(liste).length || ""} mot{lireListe(liste).length > 1 ? "s" : ""}-clé{lireListe(liste).length > 1 ? "s" : ""}
+              </button>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)", paddingTop: 7 }}>
+              <span>Triés par pages gardées · gardées / nouvelles / trouvées · recherches</span>
+              <button className="btn btn-sm btn-secondary" onClick={() => setVoirInactifs(v => !v)}>{voirInactifs ? "Masquer les inactifs" : `Voir les inactifs (${d.motscles.filter(m => !m.actif).length})`}</button>
+            </div>
+            {trierMots(d.motscles, statsMots).filter(m => voirInactifs || m.actif).map(m => {
+              const st = statsMots[cleMot(m.mot)] || {};
+              const type = typeDe(m, statsMots, exacteGlobal);
+              return (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid var(--border)", paddingTop: 7, opacity: m.actif ? 1 : 0.5 }}>
+                  <input type="checkbox" checked={m.actif} title={m.actif ? "Désactiver" : "Réactiver (2 nouvelles recherches pour faire ses preuves)"} onChange={e => basculerActif(m, e.target.checked)} />
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                    <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.mot}</span>
+                    {!m.actif && st.desactive && <span style={{ fontSize: 11, color: "var(--red)" }}>Désactivé : {st.desactive.raison}</span>}
+                  </div>
+                  <span className="col-mono" title="Pages gardées / nouvelles pages / pages trouvées · nombre de recherches" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
+                    {st.recherches ? <><b style={{ color: st.gardees ? "var(--green)" : "var(--muted)" }}>{st.gardees}</b> / {st.nouvelles} / {st.trouvees} · {st.recherches}×</> : <span className="col-muted">jamais</span>}
+                  </span>
+                  <button className={`tag ${type === "phrase" ? "blue" : "green"}`} style={{ border: "none", cursor: "pointer" }} title="Changer de type" onClick={() => basculerType(m)}>
+                    {type === "phrase" ? "Phrase" : "Produit"}
+                  </button>
+                  <button className="btn-close" title="Supprimer" onClick={async () => { await deleteMotCle(m.id); charger(); }}>×</button>
+                </div>
+              );
+            })}
           </section>
           <Criteres valeur={d.criteres} onSave={async v => { await saveCriteres(v); await charger(); }} />
         </div>
