@@ -193,7 +193,8 @@ function lirePrixDansLaPage() {
       }
       return false;
     };
-    const lireAffiche = () => {
+    // limite : hauteur maximale dans la page (pixels). Pages de vente : le prix est souvent sous les grandes photos.
+    const lireAffiche = (limite, source) => {
       const candidats = [];
       for (const el of document.querySelectorAll("body *")) {
         if (el.children.length > 2) continue;
@@ -204,21 +205,28 @@ function lirePrixDansLaPage() {
         const n = nombre(mm[1]);
         if (!plausible(n)) continue;
         const r = el.getBoundingClientRect();
-        if (!r.width || !r.height || r.top > 1800) continue;
+        if (!r.width || !r.height || r.top + window.scrollY > limite) continue;
         candidats.push({ n, barre: barre(el), taille: parseFloat(getComputedStyle(el).fontSize) || 0, haut: r.top });
       }
       const valides = candidats.filter(c => !c.barre).sort((a, b) => b.taille - a.taille || a.haut - b.haut);
       if (!valides.length) return null;
       // Prix barré retenu seulement s'il est affiché à côté du prix principal (taille proche), pas celui d'un pack
       const b = candidats.filter(c => c.barre && c.taille >= valides[0].taille * 0.8).sort((a, b2) => b2.taille - a.taille)[0];
-      return resultat(valides[0].n, "prix affiché", b && b.n);
+      return resultat(valides[0].n, source, b && b.n);
     };
     // Pages qui affichent le prix après coup (LightFunnels : « 0 دم » au chargement) : jusqu'à 3 nouveaux essais, toutes les 2 s
     for (let essai = 0; essai < 4; essai++) {
-      const r = lireAffiche();
+      const r = lireAffiche(1800, "prix affiché");
       if (r) return r;
       if (essai < 3) await new Promise(res => setTimeout(res, 2000));
     }
+    // Rien en haut de page : on fait défiler jusqu'en bas (contenu chargé au défilement), puis on cherche dans toute la page
+    // (prix à vérifier : il peut s'agir d'une offre par lot)
+    window.scrollTo(0, document.body.scrollHeight);
+    await new Promise(res => setTimeout(res, 1500));
+    window.scrollTo(0, 0);
+    const bas = lireAffiche(20000, "prix affiché plus bas dans la page, à vérifier");
+    if (bas) return bas;
     return { prix: null, source: null, images, titre };
   })();
 }
@@ -351,7 +359,8 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       if (occupe) { versErp("error", msg.id, "L'extension est déjà occupée."); return; }
       occupe = true;
       setEtat("Capture de prix : " + (msg.payload && msg.payload.url || ""));
-      capturerPrix(msg.payload || {})
+      // 75 s au maximum par page produit : une page bloquée ne retient plus l'extension
+      Promise.race([capturerPrix(msg.payload || {}), sleep(75000).then(() => { throw new Error("page trop lente (75 s)"); })])
         .then(res => versErp("result", msg.id, res))
         .catch(err => versErp("error", msg.id, String(err && err.message || err)))
         .finally(() => { occupe = false; setEtat("Dernière tâche terminée à " + new Date().toLocaleTimeString("fr-FR")); });

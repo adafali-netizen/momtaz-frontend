@@ -48,6 +48,19 @@ export function capturerPrix(url) {
   return envoyer("prix", { url }, { delai: 90000 });
 }
 
+// Attend que l'extension ait fini sa tâche en cours (après un délai dépassé). Renvoie true si elle est libre.
+export async function attendreExtensionLibre(maxMs = 120000) {
+  const fin = Date.now() + maxMs;
+  while (Date.now() < fin) {
+    try {
+      const r = await envoyer("ping", null, { delai: 4000 });
+      if (r && !r.occupe) return true;
+    } catch { /* pas de réponse : on réessaie */ }
+    await new Promise(res => setTimeout(res, 3000));
+  }
+  return false;
+}
+
 export function arreterExtension() {
   return envoyer("stop", null, { delai: 5000 }).catch(() => {});
 }

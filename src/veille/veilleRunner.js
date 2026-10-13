@@ -1,6 +1,6 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper } from "./veilleLib";
-import { releverUrl, capturerPrix } from "./veilleExt";
+import { releverUrl, capturerPrix, attendreExtensionLibre } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
@@ -292,7 +292,15 @@ export async function lancerCapturePrix(items, ctl, opts = {}) {
     const label = `${titre} ${i + 1}/${items.length} « ${it.nom} » (${it.page})`;
     ctl.status(label);
     try {
-      const r = await capturerPrix(it.url);
+      let r;
+      try { r = await capturerPrix(it.url); }
+      catch (e) {
+        // Page trop lente : l'extension finit son travail ; on attend qu'elle soit libre, puis on réessaie une fois
+        if (!/ne répond plus|occupée/i.test(e.message || "")) throw e;
+        ctl.status(`${label} · page lente, attente de l'extension…`);
+        if (!(await attendreExtensionLibre())) throw new Error("l'extension reste occupée");
+        r = await capturerPrix(it.url);
+      }
       // Photos : gardées même sans prix (elles servent aux regroupements)
       const cles = it.cles || [];
       if (r && Array.isArray(r.hashes)) {
