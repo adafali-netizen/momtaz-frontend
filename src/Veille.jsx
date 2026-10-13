@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildGroups } from "./veille/veilleLib";
-import { loadVeille, updateProduits, updatePage } from "./veille/veilleData";
+import { buildGroups, suggestionsRegroupement } from "./veille/veilleLib";
+import { loadVeille, updateProduits, updatePage, saveConfig, CLE_REFUS } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
 import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement, pagesARelever, lancerCapturePrix } from "./veille/veilleRunner";
 import ImportModal from "./veille/ImportModal";
@@ -8,6 +8,7 @@ import Classement from "./veille/Classement";
 import PagesSuivies from "./veille/PagesSuivies";
 import Historique from "./veille/Historique";
 import Recherche from "./veille/Recherche";
+import Regroupements from "./veille/Regroupements";
 import EtudeMarche, { etudeEtat, telechargerEtude } from "./veille/EtudeMarche";
 
 // Bilan affiché à la fin d'un relevé : pages enregistrées, pages sans pub, pages que Facebook n'a pas affichées
@@ -16,7 +17,8 @@ function bilanReleve(res) {
   let m = `Relevé ${res.arrete ? "arrêté" : "terminé"} : ${res.nbPages} page${res.nbPages > 1 ? "s" : ""} enregistrée${res.nbPages > 1 ? "s" : ""} sur ${res.total}.`;
   if (res.sansPub.length) m += ` Plus aucune pub active (confirmé par Facebook) : ${res.sansPub.join(", ")}.`;
   if (res.nonLues.length) m += ` NON enregistrées, Facebook n'a rien affiché : ${res.nonLues.join(", ")}.`;
-  if (res.nbNouveaux) m += ` ${res.nbNouveaux} nouveau${res.nbNouveaux > 1 ? "x" : ""} produit${res.nbNouveaux > 1 ? "s" : ""}, ${res.prixNouveaux || 0} prix trouvé${res.prixNouveaux > 1 ? "s" : ""} automatiquement.`;
+  if (res.nbNouveaux) m += ` ${res.nbNouveaux} nouveau${res.nbNouveaux > 1 ? "x" : ""} produit${res.nbNouveaux > 1 ? "s" : ""}.`;
+  if (res.prixALire) m += ` Pages produit lues : ${res.prixALire}, ${res.prixTrouves} prix trouvé${res.prixTrouves > 1 ? "s" : ""} (les autres restent vides), ${res.photos} avec photo.`;
   return m;
 }
 
@@ -80,7 +82,18 @@ export default function Veille() {
     return s;
   }, [pages]);
 
-  const groups = useMemo(() => data ? buildGroups(data.pubs, data.refDates, data.produits, id => pageInfo(id).nom, data.presence) : [], [data, pageInfo]);
+  const groups = useMemo(() => data ? buildGroups(data.pubs, data.refDates, data.produits, id => pageInfo(id).nom, data.presence, data.fiches) : [], [data, pageInfo]);
+
+  // Regroupements proposés (même photo produit ou mots communs), sans les paires refusées
+  const refuses = useMemo(() => new Set(data?.refuses || []), [data]);
+  const suggestions = useMemo(() => suggestionsRegroupement(groups, { refuses }), [groups, refuses]);
+
+  const refuserPaire = useCallback(async cle => {
+    const liste = [...new Set([...(data?.refuses || []), cle])];
+    setData(d => ({ ...d, refuses: liste }));
+    try { await saveConfig(CLE_REFUS, liste); }
+    catch (e) { setErreur("Refus non enregistré : " + (e.message || e)); }
+  }, [data]);
 
   const patchProduits = useCallback(async (ids, champs) => {
     try {
@@ -122,7 +135,7 @@ export default function Veille() {
         : type === "releve"
         ? bilanReleve(res)
         : type === "prix"
-        ? `Capture ${res.arrete ? "arrêtée" : "terminée"} : ${res.remplis} prix remplis, ${res.ecarts} écart${res.ecarts > 1 ? "s" : ""} avec tes prix, ${res.introuvables} introuvable${res.introuvables > 1 ? "s" : ""}, ${res.erreurs} erreur${res.erreurs > 1 ? "s" : ""}, sur ${res.total} pages produit. Détail dans le journal.`
+        ? `Capture ${res.arrete ? "arrêtée" : "terminée"} : ${res.remplis} prix remplis, ${res.ecarts} écart${res.ecarts > 1 ? "s" : ""} avec tes prix, ${res.introuvables + res.erreurs} laissé${res.introuvables + res.erreurs > 1 ? "s" : ""} vide${res.introuvables + res.erreurs > 1 ? "s" : ""}, ${res.photos} avec photo, sur ${res.total} pages produit. Détail dans le journal.`
         : `Recherche terminée : ${res.nb_trouvees} pages trouvées, ${res.nb_gardees} gardées, ${res.nb_a_valider} à valider, ${res.nb_eliminees} éliminées.`);
     } catch (e) {
       setErreur((type === "etude" ? "Étude interrompue (les résultats déjà relevés sont gardés) : " : type === "releve" ? "Relevé interrompu : " : type === "prix" ? "Capture des prix interrompue (les prix déjà trouvés sont enregistrés) : " : "Recherche interrompue : ") + (e.message || e));
@@ -151,9 +164,9 @@ export default function Veille() {
 
   const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
 
-  const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, max: Number(maxReleve) || 0 }, ctl));
-  const capturerLesPrix = items => lancer("prix", ctl => lancerCapturePrix(items, ctl));
-  const releverSelection = ids => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, ids }, ctl));
+  const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, fiches: { ...data.fiches }, max: Number(maxReleve) || 0 }, ctl));
+  const capturerLesPrix = items => lancer("prix", ctl => lancerCapturePrix(items, ctl, { fiches: { ...data.fiches }, titre: "Prix et photos" }));
+  const releverSelection = ids => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, fiches: { ...data.fiches }, ids }, ctl));
 
   if (!data && !erreur) return <div className="loading-screen"><span className="loading-dot" />Chargement de la veille…</div>;
 
@@ -174,6 +187,7 @@ export default function Veille() {
 
   const ONGLETS = [
     { id: "classement", label: "Classement produits" },
+    { id: "regroupements", label: `Regroupements à valider (${suggestions.length})` },
     { id: "pages",      label: `Pages suivies (${actives})` },
     { id: "historique", label: "Historique des relevés" },
     { id: "recherche",  label: "Recherche de pages" },
@@ -273,6 +287,10 @@ export default function Veille() {
           <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at}
             ext={ext} run={run} onCapturerPrix={capturerLesPrix} />
         </>
+      )}
+      {data && onglet === "regroupements" && (
+        <Regroupements suggestions={suggestions} ext={ext} onPatch={patchProduits} onRefuser={refuserPaire}
+          nbPhotos={Object.values(data.fiches || {}).filter(f => f.h && f.h.length).length} nbProduits={data.produits.length} />
       )}
       {data && onglet === "pages" && (
         <PagesSuivies pages={pages} groups={groups} latest={data.latest} pageInfo={pageInfo} homonymes={homonymes} onReload={charger} onPatchPage={patchPage}

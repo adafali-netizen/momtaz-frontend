@@ -42,9 +42,10 @@ export function releverUrl(url, opts, onProgress) {
   return envoyer("scrape", { url, ...opts }, { onProgress, delai: 120000 });
 }
 
-// Prix affiché sur une page produit : { prix, source, barre, urlFinale }
+// Prix et photos d'une page produit : { prix, source, barre, urlFinale, images, hashes, titre }
+// (images, hashes et titre seulement à partir de l'extension 1.0.8)
 export function capturerPrix(url) {
-  return envoyer("prix", { url }, { delai: 60000 });
+  return envoyer("prix", { url }, { delai: 90000 });
 }
 
 export function arreterExtension() {

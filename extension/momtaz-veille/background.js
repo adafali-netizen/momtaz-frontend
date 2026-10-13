@@ -132,7 +132,12 @@ function lirePrixDansLaPage() {
     return Number.isFinite(n) ? n : null;
   };
   const plausible = n => n != null && n >= 10 && n <= 50000;
-  const resultat = (prix, source, barre) => ({ prix: Math.round(prix * 100) / 100, source, barre: barre && plausible(barre) && barre > prix ? Math.round(barre * 100) / 100 : null });
+  // Photos du produit : balise og:image, puis données structurées
+  const images = [];
+  const ajouterImage = u => { if (typeof u === "string" && u && images.length < 4 && !images.includes(u)) { try { images.push(new URL(u, location.href).href); } catch (e) { /* adresse illisible */ } } };
+  for (const el of document.querySelectorAll('meta[property="og:image"], meta[property="og:image:secure_url"], meta[name="twitter:image"]')) ajouterImage(el.getAttribute("content"));
+  const titre = (document.querySelector('meta[property="og:title"]') || {}).content || document.title || "";
+  const resultat = (prix, source, barre) => ({ prix: Math.round(prix * 100) / 100, source, barre: barre && plausible(barre) && barre > prix ? Math.round(barre * 100) / 100 : null, images, titre });
 
   return (async () => {
     // 1. Shopify : /products/xxx.js donne le prix de la variante la moins chère (prix d'une unité, pas des packs)
@@ -142,10 +147,12 @@ function lirePrixDansLaPage() {
         const r = await fetch(m[1] + ".js", { credentials: "omit" });
         if (r.ok) {
           const j = await r.json();
+          images.length = 0;
+          for (const u of [j.featured_image, ...(j.images || [])]) ajouterImage(u && u.startsWith("//") ? "https:" + u : u);
           const v = (j.variants || []).filter(x => x.available !== false);
           const prix = (v.length ? Math.min(...v.map(x => x.price)) : j.price) / 100;
           const barre = (j.compare_at_price || 0) / 100;
-          if (plausible(prix)) return resultat(prix, "Shopify", barre);
+          if (plausible(prix)) return { ...resultat(prix, "Shopify", barre), titre: j.title || titre };
         }
       } catch (e) { /* pas Shopify */ }
     }
@@ -157,6 +164,9 @@ function lirePrixDansLaPage() {
           const o = pile.pop();
           if (!o || typeof o !== "object") continue;
           if (Array.isArray(o)) { pile.push(...o); continue; }
+          if (/Product/i.test(String(o["@type"] || "")) && o.image) {
+            for (const x of Array.isArray(o.image) ? o.image : [o.image]) ajouterImage(typeof x === "string" ? x : x && x.url);
+          }
           const offre = o.offers || (o["@type"] === "Offer" || o["@type"] === "AggregateOffer" ? o : null);
           if (offre) {
             const liste = Array.isArray(offre) ? offre : [offre];
@@ -201,8 +211,56 @@ function lirePrixDansLaPage() {
       const b = candidats.filter(c => c.barre && c.taille >= valides[0].taille * 0.8).sort((a, b2) => b2.taille - a.taille)[0];
       return resultat(valides[0].n, "prix affiché", b && b.n);
     }
-    return { prix: null, source: null };
+    return { prix: null, source: null, images, titre };
   })();
+}
+
+// ─── Empreinte d'une photo (dHash 64 bits) ──────────────────────────────
+// Photo réduite à 9 × 8 pixels en gris ; chaque bit dit si un pixel est plus clair que son voisin de droite.
+// La même photo, redimensionnée ou recompressée par une autre boutique, garde presque la même empreinte.
+function dhashDepuisGris(gris) {   // gris : 72 valeurs, ligne par ligne (9 colonnes × 8 lignes)
+  let hex = "";
+  for (let y = 0; y < 8; y++) {
+    let octet = 0;
+    for (let x = 0; x < 8; x++) octet = (octet << 1) | (gris[y * 9 + x] > gris[y * 9 + x + 1] ? 1 : 0);
+    hex += octet.toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+const photoReduite = u => {
+  // Boutiques Shopify : on demande directement une petite version de la photo
+  if (/cdn\.shopify\.com|\/cdn\/shop\//.test(u)) return u + (u.includes("?") ? "&" : "?") + "width=300";
+  return u;
+};
+
+async function empreintePhoto(url) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 10000);
+  try {
+    const r = await fetch(photoReduite(url), { credentials: "omit", signal: c.signal });
+    if (!r.ok) return null;
+    const bmp = await createImageBitmap(await r.blob(), { resizeWidth: 72, resizeHeight: 64, resizeQuality: "medium" });
+    const toile = new OffscreenCanvas(9, 8);
+    const ctx = toile.getContext("2d");
+    ctx.drawImage(bmp, 0, 0, 9, 8);
+    const d = ctx.getImageData(0, 0, 9, 8).data;
+    const gris = [];
+    for (let i = 0; i < d.length; i += 4) gris.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    return dhashDepuisGris(gris);
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Ajoute au résultat les empreintes des 2 premières photos
+async function avecEmpreintes(res) {
+  const images = (res && res.images || []).filter(u => /^https?:\/\//i.test(u)).slice(0, 2);
+  const h = [];
+  for (const u of images) { const e = await empreintePhoto(u); if (e) h.push(e); }
+  return { ...res, images, hashes: h };
 }
 
 async function prixShopifyDirect(url) {
@@ -222,7 +280,9 @@ async function prixShopifyDirect(url) {
   const prix = (v.length ? Math.min(...v.map(x => x.price)) : j.price) / 100;
   if (!(prix >= 10 && prix <= 50000)) return null;
   const barre = (j.compare_at_price || 0) / 100;
-  return { prix: Math.round(prix * 100) / 100, source: "Shopify (direct)", barre: barre > prix ? Math.round(barre * 100) / 100 : null, urlFinale: finale };
+  const images = [j.featured_image, ...(j.images || [])].filter(Boolean).map(x => (x.startsWith("//") ? "https:" + x : x));
+  return { prix: Math.round(prix * 100) / 100, source: "Shopify (direct)", barre: barre > prix ? Math.round(barre * 100) / 100 : null, urlFinale: finale,
+    images: [...new Set(images)].slice(0, 4), titre: j.title || "" };
 }
 
 async function capturerPrix(opts) {
@@ -233,7 +293,7 @@ async function capturerPrix(opts) {
   // 1. Voie rapide, sans ouvrir d'onglet : boutique Shopify (fichier produit .js).
   //    Un lien court est d'abord suivi pour connaître l'adresse finale.
   const direct = await prixShopifyDirect(url).catch(() => null);
-  if (direct) return direct;
+  if (direct) return avecEmpreintes(direct);
 
   // 2. Sinon : ouverture de la page et lecture du prix affiché
   const winId = await fenetre();
@@ -243,7 +303,7 @@ async function capturerPrix(opts) {
     await sleep(hasard(1500, 2500));   // laisse le temps aux prix chargés après coup
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: lirePrixDansLaPage });
     const t = await chrome.tabs.get(tab.id).catch(() => null);
-    return { ...(r && r.result ? r.result : { prix: null }), urlFinale: t ? t.url : url };
+    return avecEmpreintes({ ...(r && r.result ? r.result : { prix: null }), urlFinale: t ? t.url : url });
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
   }

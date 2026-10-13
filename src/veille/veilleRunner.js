@@ -1,10 +1,10 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
-import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, estFicheProduit, defaultName } from "./veilleLib";
+import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper } from "./veilleLib";
 import { releverUrl, capturerPrix } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
-  updateProduits, remplirPrixVide,
+  updateProduits, remplirPrixVide, saveConfig, CLE_FICHES,
 } from "./veilleData";
 
 // Pause entre deux pages Facebook (30 à 60 s) pour relever à un rythme humain
@@ -165,7 +165,7 @@ export async function lancerReleve(ctx, ctl) {
   const echecs = [];
   const nonLues = [];   // Facebook n'a rien affiché : page non enregistrée
   const sansPub = [];   // Facebook confirme 0 résultat : page enregistrée à 0 pub
-  const nouveauxProduits = [];   // produits vus pour la première fois : leur prix est capturé à la fin
+  const relevees = [];   // pages enregistrées : prix et photos de leurs produits lus à la fin
   let rel = null;
   try {
     for (let i = 0; i < pages.length && !ctl.stop; i++) {
@@ -183,7 +183,7 @@ export async function lancerReleve(ctx, ctl) {
       try {
         if (!rel) rel = await startReleve("extension");
         const r = await addPageReleve(rel.id, f, pagesConnues, produitsConnus);
-        for (const n of r.nouveaux || []) nouveauxProduits.push({ ...n, page: nom });
+        relevees.push({ f, nom, nouveaux: r.nouveaux || [] });
         totaux.nb_pages++; totaux.nb_cartes += r.nbCartes; totaux.nb_pubs += r.nbPubs;
         await finishReleve(rel.id, totaux).catch(() => {});
         if (!cartes.length) sansPub.push(nom);
@@ -200,26 +200,46 @@ export async function lancerReleve(ctx, ctl) {
   if (echecs.length) {
     throw new Error(`${echecs.length} page(s) relevée(s) mais non enregistrée(s) : ${echecs.map(f => f.pageNom).join(", ")}. Clique sur « Réessayer l'enregistrement ». Détail : voir le journal.`);
   }
-  // Prix des nouveaux produits de ce relevé (jamais d'écrasement d'un prix saisi), 60 au maximum
-  let prixNouveaux = 0;
-  const aChiffrer = nouveauxProduits.filter(n => n.url && estFicheProduit(n.url)).slice(0, 60);
-  if (aChiffrer.length && !ctl.stop) {
-    ctl.log(`Prix des nouveaux produits : ${aChiffrer.length} pages produit à lire`);
-    for (let i = 0; i < aChiffrer.length && !ctl.stop; i++) {
-      const n = aChiffrer[i];
-      ctl.status(`Prix des nouveaux produits ${i + 1}/${aChiffrer.length} (${n.page})`);
-      try {
-        const r = await capturerPrix(n.url);
-        if (r && r.prix && await remplirPrixVide(n.fb_page_id, n.produit_key, r.prix)) {
-          prixNouveaux++;
-          ctl.log(`${n.nom || defaultName(n.url, "")} (${n.page}) : ${r.prix} DH · ${r.source}`);
-        }
-      } catch (e) { /* prix introuvable : sans gravité, il reste saisissable à la main */ }
-      await new Promise(res => setTimeout(res, 1000 + Math.random() * 1000));
-    }
-    ctl.log(`Prix des nouveaux produits : ${prixNouveaux} trouvé${prixNouveaux > 1 ? "s" : ""} sur ${aChiffrer.length}`);
+  // Prix et photos des produits des pages relevées : produits sans prix, ou dont la page produit n'a jamais été lue.
+  // Un prix saisi n'est jamais écrasé ; un prix introuvable reste vide (nouvel essai au relevé suivant, 6 jours plus tard au plus tôt).
+  const items = aLireApresReleve(relevees, ctx.produits, ctx.fiches || {});
+  const nbNouveaux = relevees.reduce((s, x) => s + x.nouveaux.length, 0);
+  let bilanFiches = null;
+  if (items.length && !ctl.stop) {
+    ctl.log(`Prix et photos : ${items.length} pages produit à lire`);
+    bilanFiches = await lancerCapturePrix(items, ctl, { fiches: ctx.fiches || {}, titre: "Prix et photos" });
   }
-  return { nbPages: totaux.nb_pages, total: pages.length, nonLues, sansPub, arrete: !!ctl.stop, prixNouveaux, nbNouveaux: nouveauxProduits.length };
+  return {
+    nbPages: totaux.nb_pages, total: pages.length, nonLues, sansPub, arrete: !!ctl.stop, nbNouveaux,
+    prixALire: items.length, prixTrouves: bilanFiches ? bilanFiches.remplis : 0, photos: bilanFiches ? bilanFiches.photos : 0,
+  };
+}
+
+const SIX_JOURS = 6 * 86400000;
+
+// Produits à lire après un relevé : un par page et par clé produit
+export function aLireApresReleve(relevees, produits, fiches) {
+  const rows = new Map(produits.map(p => [p.fb_page_id + "|" + p.produit_key, p]));
+  const out = new Map();
+  for (const { f, nom } of relevees) {
+    for (const c of f.cartes) {
+      if (!c.url) continue;
+      const cle = f.pageId + "|" + productKey(c.url);
+      if (out.has(cle)) continue;
+      const row = rows.get(cle);
+      const fiche = fiches[cle];
+      const prixVide = !(row && row.prix != null && row.prix !== "");
+      const dejaLue = fiche && fiche.le && Date.now() - new Date(fiche.le).getTime() < SIX_JOURS;
+      if (fiche && (!prixVide || dejaLue)) continue;   // déjà lue : on ne revient que pour un prix encore vide, après 6 jours
+      const url = row && row.url && lienPrixPossible(row.url) ? row.url : c.url;
+      if (!lienPrixPossible(url)) continue;
+      out.set(cle, {
+        cles: [{ fb_page_id: f.pageId, produit_key: productKey(c.url) }], ids: row ? [row.id] : [],
+        url, prix: prixVide ? null : row.prix, nom: (row && row.nom) || defaultName(c.url, c.texte), page: nom,
+      });
+    }
+  }
+  return [...out.values()];
 }
 
 // Étude de marché : relève toutes les pubs des mots-clés donnés.
@@ -249,34 +269,60 @@ export async function lancerEtude(mots, opts, etat, ctl, onMot) {
   return { nbMots: etat.resultats.length, nbPubs: etat.resultats.reduce((s, r) => s + r.ads.length, 0) };
 }
 
-// Capture des prix sur les pages produit des concurrents.
-// items : [{ ids, url, prix, nom, page }] · seuls les prix vides sont enregistrés ; un prix saisi différent est signalé.
-export async function lancerCapturePrix(items, ctl) {
-  const bilan = { total: items.length, remplis: 0, ecarts: 0, introuvables: 0, erreurs: 0 };
+// Capture des prix et des photos sur les pages produit des concurrents.
+// items : [{ cles: [{ fb_page_id, produit_key }], ids, url, prix, nom, page }]
+// Seuls les prix vides sont enregistrés ; un prix saisi différent est signalé dans le journal.
+// opts.fiches : photos déjà connues (complétées et enregistrées dans veille_config au fil de l'eau)
+export async function lancerCapturePrix(items, ctl, opts = {}) {
+  const fiches = opts.fiches || {};
+  const titre = opts.titre || "Prix";
+  const bilan = { total: items.length, remplis: 0, ecarts: 0, introuvables: 0, erreurs: 0, photos: 0 };
+  let aSauver = 0;
+  const sauverFiches = async () => {
+    if (!aSauver) return;
+    aSauver = 0;
+    try { await saveConfig(CLE_FICHES, fiches); }
+    catch (e) { ctl.log(`Photos non enregistrées (${e.message || e}) : les prix restent enregistrés.`); }
+  };
   for (let i = 0; i < items.length && !ctl.stop; i++) {
     const it = items[i];
-    const label = `Prix ${i + 1}/${items.length} « ${it.nom} » (${it.page})`;
+    const label = `${titre} ${i + 1}/${items.length} « ${it.nom} » (${it.page})`;
     ctl.status(label);
     try {
       const r = await capturerPrix(it.url);
-      if (!r || !r.prix) { bilan.introuvables++; ctl.log(`${it.nom} (${it.page}) : prix introuvable sur ${it.url}`); }
+      // Photos : gardées même sans prix (elles servent aux regroupements)
+      const cles = it.cles || [];
+      if (r && Array.isArray(r.hashes)) {
+        const fiche = { i: (r.images || []).slice(0, 1), h: r.hashes.slice(0, 2), t: couper(r.titre || "", 80), le: new Date().toISOString() };
+        for (const c of cles) fiches[c.fb_page_id + "|" + c.produit_key] = fiche;
+        if (cles.length) aSauver++;
+        if (fiche.h.length) bilan.photos++;
+      }
+      if (!r || !r.prix) { bilan.introuvables++; ctl.log(`${it.nom} (${it.page}) : prix introuvable, laissé vide · ${it.url}`); }
       else if (it.prix == null || it.prix === "") {
-        await updateProduits(it.ids, { prix: r.prix });
-        bilan.remplis++;
-        ctl.log(`${it.nom} (${it.page}) : ${r.prix} DH${r.barre ? ` (barré ${r.barre} DH)` : ""} · ${r.source}`);
+        let fait = 0;
+        if (it.ids && it.ids.length) { await updateProduits(it.ids, { prix: r.prix }); fait = 1; }
+        else for (const c of cles) fait += await remplirPrixVide(c.fb_page_id, c.produit_key, r.prix);
+        if (fait) {
+          bilan.remplis++;
+          ctl.log(`${it.nom} (${it.page}) : ${r.prix} DH${r.barre ? ` (barré ${r.barre} DH)` : ""} · ${r.source}`);
+        }
       } else if (Math.abs(Number(it.prix) - r.prix) >= 1) {
         bilan.ecarts++;
         ctl.log(`${it.nom} (${it.page}) : ÉCART, prix saisi ${it.prix} DH, prix sur le site ${r.prix} DH (non modifié)`);
       }
     } catch (e) {
       bilan.erreurs++;
-      ctl.log(`${it.nom} (${it.page}) : capture impossible (${e.message || e})`);
+      ctl.log(`${it.nom} (${it.page}) : lecture impossible, prix laissé vide (${e.message || e})`);
     }
+    if (aSauver >= 20) await sauverFiches();
     if (i < items.length - 1 && !ctl.stop) {
       const fin = Date.now() + 1000 + Math.random() * 1000;
       while (Date.now() < fin && !ctl.stop) { ctl.status(`${label} · suivant dans ${Math.ceil((fin - Date.now()) / 1000)} s`); await new Promise(r => setTimeout(r, 500)); }
     }
   }
+  await sauverFiches();
+  ctl.log(`${titre} : ${bilan.remplis} prix trouvé${bilan.remplis > 1 ? "s" : ""}, ${bilan.introuvables + bilan.erreurs} laissé${bilan.introuvables + bilan.erreurs > 1 ? "s" : ""} vide${bilan.introuvables + bilan.erreurs > 1 ? "s" : ""}, ${bilan.photos} produit${bilan.photos > 1 ? "s" : ""} avec photo, sur ${items.length}`);
   bilan.arrete = !!ctl.stop;
   return bilan;
 }

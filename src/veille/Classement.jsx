@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { STATUTS, STATUT_COULEURS, toSheetTsv, estFicheProduit, suggestionsRegroupement } from "./veilleLib";
+import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, toSheetTsv, lienPrixPossible } from "./veilleLib";
 
 const FILTRES_PRIX = [
   { id: "tous",   label: "Tous les prix" },
@@ -41,9 +41,76 @@ function TexteInput({ value, onSave, width = 200, list }) {
   );
 }
 
+const JOUR = 86400000;
+const jour = s => Date.parse(String(s).slice(0, 10) + "T00:00:00Z");
+const fmtJour = t => new Date(t).toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+
+function BadgePhase({ phase, petit }) {
+  if (!phase) return null;
+  const [coul, fond] = PHASE_COULEURS[phase.phase] || PHASE_COULEURS["Trop tôt"];
+  return (
+    <span style={{ fontSize: petit ? 11 : 12, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: coul, background: fond, whiteSpace: "nowrap" }}>
+      {phase.phase}{phase.phase !== "Trop tôt" ? (phase.actif ? " · actif" : " · à l'arrêt") : ""}
+    </span>
+  );
+}
+
+// Frise des lancements : une ligne par page, un point par créative (taille = nombre de pubs qui l'utilisent), vagues en fond
+function Frise({ g }) {
+  const dates = g.cartes.map(c => c.started_on).filter(Boolean).map(jour);
+  if (!dates.length) return <div className="col-muted">Aucune date de lancement.</div>;
+  const refs = g.vendors.map(v => v.ref && new Date(v.ref).getTime()).filter(Boolean);
+  const debut = Math.min(...dates) - JOUR;
+  const fin = Math.max(Math.max(...dates), ...refs) + JOUR;
+  const pos = t => ((t - debut) / (fin - debut)) * 100 + "%";
+  const larg = (a, b) => Math.max(0.8, ((b - a + JOUR) / (fin - debut)) * 100) + "%";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {g.vendors.map(v => (
+        <div key={v.fb_page_id} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ width: 210, flex: "none", fontSize: 12, display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ fontWeight: 600 }}>{v.page}</span>
+            <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <BadgePhase phase={v.phase} petit />
+              <span className="col-muted">{v.phase.vagues.length} vague{v.phase.vagues.length > 1 ? "s" : ""}{v.phase.dupliquees ? " · dupliquées" : ""}</span>
+            </span>
+          </div>
+          <div style={{ position: "relative", flex: 1, height: 34, background: "var(--surface2)", borderRadius: 6 }}>
+            {v.phase.vagues.map((w, i) => (
+              <div key={i} title={`Vague ${i + 1} : ${fmtJour(jour(w.debut))} → ${fmtJour(jour(w.fin))} · ${w.crea} créative${w.crea > 1 ? "s" : ""}, ${w.pubs} pub${w.pubs > 1 ? "s" : ""}`}
+                style={{ position: "absolute", top: 2, bottom: 2, left: pos(jour(w.debut)), width: larg(jour(w.debut), jour(w.fin)), background: "var(--blue-lt)", border: "1px solid #BFDBFE", borderRadius: 4 }} />
+            ))}
+            {v.cartes.filter(c => c.started_on).map(c => {
+              const d = 8 + Math.min(c.nb || 1, 10) * 1.4;
+              return (
+                <a key={c.library_id} href={"https://www.facebook.com/ads/library/?id=" + c.library_id} target="_blank" rel="noreferrer"
+                  title={`${fmtJour(jour(c.started_on))} · ${c.format} · ${c.nb} pub${c.nb > 1 ? "s" : ""}${c.low ? " · impressions faibles" : ""}`}
+                  style={{ position: "absolute", top: "50%", left: `calc(${pos(jour(c.started_on) + JOUR / 2)} - ${d / 2}px)`, width: d, height: d, marginTop: -d / 2,
+                    borderRadius: 99, background: c.low ? "var(--muted2)" : "var(--blue)", opacity: 0.85, border: "1.5px solid var(--surface)" }} />
+              );
+            })}
+            {v.ref && <div title={"Relevé du " + fmtJour(new Date(v.ref).getTime())} style={{ position: "absolute", top: 0, bottom: 0, left: pos(new Date(v.ref).getTime()), width: 2, background: "var(--red)" }} />}
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "flex", justifyContent: "space-between", marginLeft: 220, fontSize: 11 }} className="col-muted">
+        <span>{fmtJour(debut + JOUR)}</span>
+        <span>Une vague = créatives lancées à {ECART_VAGUE} jours d'écart au plus · trait rouge = relevé</span>
+        <span>{fmtJour(fin - JOUR)}</span>
+      </div>
+    </div>
+  );
+}
+
 function Details({ g, nomsGroupes, onPatch }) {
   return (
     <div style={{ padding: "12px 4px 4px", display: "flex", flexDirection: "column", gap: 14, cursor: "default" }} onClick={e => e.stopPropagation()}>
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted2)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>
+          Vagues de lancement · produit : {g.phase.phase}{g.phase.phase !== "Trop tôt" ? (g.phase.actif ? ", scaling actif" : ", à l'arrêt") : ""}
+        </div>
+        <Frise g={g} />
+      </div>
       <div>
         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted2)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Vendeurs</div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -94,19 +161,10 @@ function Details({ g, nomsGroupes, onPatch }) {
 
 export default function Classement({ groups, pages, pageInfo, onPatch, dateReleve, ext, run, onCapturerPrix }) {
   const [verifier, setVerifier] = useState(false);   // vérifier aussi les prix saisis (écarts dans le journal)
-  const [voirSugg, setVoirSugg] = useState(false);
-  const [ignorees, setIgnorees] = useState(() => new Set());
-  const suggestions = useMemo(() => suggestionsRegroupement(groups).filter(s => !ignorees.has(s.a.nom + "|" + s.b.nom)), [groups, ignorees]);
-  // Regrouper : les deux produits prennent le même nom de groupe (celui qui a le plus de pubs)
-  const regrouper = s => {
-    const garde = s.a.pubs >= s.b.pubs ? s.a : s.b;
-    const ids = [...s.a.ids, ...s.b.ids];
-    if (!ids.length) return;
-    onPatch(ids, { groupe: garde.nom, statut: garde.statut });
-  };
   const [fPage,   setFPage]   = useState("");
   const [fStatut, setFStatut] = useState("actifs");
   const [fPrix,   setFPrix]   = useState("tous");
+  const [fPhase,  setFPhase]  = useState("");
   const [q,       setQ]       = useState("");
   const [ouvert,  setOuvert]  = useState(null);
   const [limite,  setLimite]  = useState(50);
@@ -118,27 +176,29 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
     if (fPrix === "250" && g.tier !== 0) return false;
     if (fPrix === "sans" && g.tier !== 1) return false;
     if (fPrix === "moins" && g.tier !== 2) return false;
+    if (fPhase === "actif" && !(g.phase.actif && ["Mid-scaling", "Scaling", "Big winner"].includes(g.phase.phase))) return false;
+    if (fPhase && fPhase !== "actif" && g.phase.phase !== fPhase) return false;
     if (q && !(g.nom + " " + g.vendors.map(v => v.page + " " + v.nom).join(" ")).toLowerCase().includes(q.toLowerCase())) return false;
     return true;
-  }), [groups, fPage, fStatut, fPrix, q]);
+  }), [groups, fPage, fStatut, fPrix, fPhase, q]);
 
   const nomsGroupes = useMemo(() => groups.map(g => g.nom).sort((a, b) => a.localeCompare(b)), [groups]);
   const pagesTriees = useMemo(() => [...pages].filter(p => p.actif).sort((a, b) => pageInfo(a.fb_page_id).nom.localeCompare(pageInfo(b.fb_page_id).nom)), [pages, pageInfo]);
 
-  // Pages produit à visiter pour le prix : produits affichés (filtres appliqués), une par page vendeuse
+  // Pages produit à lire : produits affichés (filtres appliqués), une par page vendeuse, sans prix ou sans photo
   const aCapturer = useMemo(() => {
     const out = [];
     for (const g of visibles) for (const v of g.vendors) {
-      if (!v.url || !v.ids.length || !estFicheProduit(v.url) || v.prixDifferents) continue;
-      if (v.prix && !verifier) continue;
-      out.push({ ids: v.ids, url: v.url, prix: v.prix, nom: g.nom, page: v.page });
+      if (!v.url || !v.ids.length || !lienPrixPossible(v.url) || v.prixDifferents) continue;
+      if (v.prix && !verifier && v.items.every(x => x.fiche)) continue;
+      out.push({ ids: v.ids, cles: v.items.map(x => ({ fb_page_id: x.fb_page_id, produit_key: x.produit_key })), url: v.url, prix: v.prix, nom: g.nom, page: v.page });
     }
     return out;
   }, [visibles, verifier]);
 
   const capturer = () => {
     const minutes = Math.ceil(aCapturer.length * 6 / 60);
-    if (!window.confirm(`Capturer le prix sur ${aCapturer.length} pages produit des produits affichés ? Environ ${minutes} minute${minutes > 1 ? "s" : ""}.\nSeuls les prix vides sont remplis${verifier ? " ; les écarts avec tes prix seront signalés dans le journal" : ""}.`)) return;
+    if (!window.confirm(`Lire le prix et les photos de ${aCapturer.length} pages produit des produits affichés ? Environ ${minutes} minute${minutes > 1 ? "s" : ""} au plus.\nSeuls les prix vides sont remplis, les prix introuvables restent vides${verifier ? " ; les écarts avec tes prix seront signalés dans le journal" : ""}.`)) return;
     onCapturerPrix(aCapturer);
   };
 
@@ -180,46 +240,28 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
           <option value="">Toutes les pages</option>
           {pagesTriees.map(p => <option key={p.fb_page_id} value={p.fb_page_id}>{pageInfo(p.fb_page_id).nom}</option>)}
         </select>
+        <select className="form-select" style={{ width: "auto" }} value={fPhase} onChange={e => setFPhase(e.target.value)}>
+          <option value="">Toutes les phases</option>
+          <option value="actif">En scaling actif</option>
+          {PHASES.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
         <div className="spacer" style={{ flex: 1 }} />
         <span className="col-muted">{visibles.length} produits</span>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }} title="Visite aussi les produits déjà chiffrés et signale les écarts, sans modifier tes prix">
           <input type="checkbox" checked={verifier} onChange={e => setVerifier(e.target.checked)} /> Vérifier mes prix
         </label>
         <button className="btn btn-primary" onClick={capturer} disabled={!aCapturer.length || !ext || !!run}
-          title={!ext ? "Extension non détectée" : run ? "Une tâche est déjà en cours" : "Lit le prix sur la page produit des concurrents (produits affichés, filtres appliqués)"}>
-          Capturer les prix ({aCapturer.length})
+          title={!ext ? "Extension non détectée" : run ? "Une tâche est déjà en cours" : "Lit le prix et les photos sur la page produit des concurrents (produits affichés, filtres appliqués)"}>
+          Capturer les prix et photos ({aCapturer.length})
         </button>
         <button className="btn btn-secondary" onClick={exporter}>Exporter vers le Sheet</button>
       </div>
-
-      {suggestions.length > 0 && (
-        <div style={{ margin: "12px 24px 0", border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", gap: 12 }}>
-            <span style={{ fontSize: 13 }}><b>{suggestions.length} regroupement{suggestions.length > 1 ? "s" : ""} suggéré{suggestions.length > 1 ? "s" : ""}</b> : même produit probable chez des pages différentes. Le regroupement compte pour le recoupement du score.</span>
-            <button className="btn btn-sm btn-secondary" onClick={() => setVoirSugg(v => !v)}>{voirSugg ? "Masquer" : "Voir"}</button>
-          </div>
-          {voirSugg && suggestions.map(s => (
-            <div key={s.a.nom + "|" + s.b.nom} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "8px 14px", borderTop: "1px solid var(--border)", fontSize: 13 }}>
-              <span style={{ flex: "1 1 420px", minWidth: 0 }}>
-                <b>{s.a.nom}</b> <span className="col-muted">({s.a.vendors.map(v => v.page).join(", ")} · {s.a.pubs} pubs)</span>
-                {"  ↔  "}
-                <b>{s.b.nom}</b> <span className="col-muted">({s.b.vendors.map(v => v.page).join(", ")} · {s.b.pubs} pubs)</span>
-                <div className="col-muted" style={{ fontSize: 11 }}>{s.raison}</div>
-              </span>
-              {s.a.thumb && <img src={s.a.thumb} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} onError={e => { e.currentTarget.style.display = "none"; }} />}
-              {s.b.thumb && <img src={s.b.thumb} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} onError={e => { e.currentTarget.style.display = "none"; }} />}
-              <button className="btn btn-sm btn-primary" disabled={!s.a.ids.length || !s.b.ids.length} onClick={() => regrouper(s)}>Regrouper</button>
-              <button className="btn btn-sm btn-secondary" onClick={() => setIgnorees(x => new Set(x).add(s.a.nom + "|" + s.b.nom))}>Ignorer</button>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="table-wrap" style={{ paddingTop: 12 }}>
         <table className="data-table" style={{ minWidth: 1000 }}>
           <thead>
             <tr>
-              <th>#</th><th>Produit et vendeurs</th><th>Score</th>
+              <th>#</th><th>Produit et vendeurs</th><th>Score</th><th>Phase</th>
               <th style={{ textAlign: "right" }}>Pubs</th><th style={{ textAlign: "right" }}>Âge</th>
               <th style={{ textAlign: "right" }}>Ajouts 7 j</th><th>Créatives</th><th>Risques</th><th>Statut</th>
             </tr>
@@ -267,6 +309,12 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
                     </div>
                     <div className="col-muted" style={{ fontSize: 11, marginTop: 3, whiteSpace: "nowrap" }}>R {g.detail.reinvestissement} · D {g.detail.demande} · C {g.detail.recoupement} · P {g.detail.persistance} · F {g.detail.faisabilite}</div>
                   </td>
+                  <td style={{ minWidth: 120 }}>
+                    <BadgePhase phase={g.phase} />
+                    <div className="col-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                      {g.vendors.map(v => v.phase.vagues.length).join(" + ")} vague{g.vendors.reduce((s, v) => s + v.phase.vagues.length, 0) > 1 ? "s" : ""}{g.phase.dupliquees ? " · dupliquées" : ""}
+                    </div>
+                  </td>
                   <td className="col-mono" style={{ textAlign: "right", fontWeight: 700 }}>{g.pubs}</td>
                   <td className="col-muted" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{g.age} j</td>
                   <td className="col-mono" style={{ textAlign: "right", color: g.recent ? "var(--green)" : "var(--muted2)" }}>{g.recent ? "+" + g.recent : "0"}</td>
@@ -287,7 +335,7 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
                 {ouvert === cle && (
                   <tr style={{ cursor: "default", background: "var(--bg)" }}>
                     <td />
-                    <td colSpan={8}><Details g={g} nomsGroupes={nomsGroupes} onPatch={onPatch} /></td>
+                    <td colSpan={9}><Details g={g} nomsGroupes={nomsGroupes} onPatch={onPatch} /></td>
                   </tr>
                 )}
                 </Fragment>

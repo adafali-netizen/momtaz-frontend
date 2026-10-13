@@ -75,7 +75,23 @@ export async function loadVeille() {
     }
   } catch { /* sans historique, la persistance vaut 0 */ }
 
-  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence };
+  // Photos des pages produit et regroupements refusés, gardés dans veille_config (pas de nouvelle table)
+  let fiches = {}, refuses = [];
+  try {
+    const conf = await fetchAll(() => supabase.from("veille_config").select("*").in("cle", [CLE_FICHES, CLE_REFUS]));
+    fiches = (conf.find(c => c.cle === CLE_FICHES) || {}).valeur || {};
+    refuses = (conf.find(c => c.cle === CLE_REFUS) || {}).valeur || [];
+  } catch { /* table absente : pas de photos ni de refus mémorisés */ }
+
+  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence, fiches, refuses };
+}
+
+export const CLE_FICHES = "fiches_produits";   // { "page|clé produit": { i: [photo], h: [empreintes], t: titre, le: date } }
+export const CLE_REFUS = "regroupements_refuses";   // [paires refusées]
+
+export async function saveConfig(cle, valeur) {
+  const { error } = await supabase.from("veille_config").upsert([{ cle, valeur }], { onConflict: "cle" });
+  if (error) throw error;
 }
 
 // Publicités d'un relevé et, pour chacune de ses pages, celles du relevé précédent de la même page.

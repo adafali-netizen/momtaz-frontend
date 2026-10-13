@@ -204,22 +204,57 @@ export function slugNormalise(url) {
     .replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
 }
 
-// Produits probablement identiques, vendus par des pages différentes sous des noms proches.
-// Renvoie [{ a, b, raison }] (a et b sont des groupes du classement), à confirmer par l'utilisateur.
+// ─── Empreinte des photos produit (dHash 64 bits, calculée par l'extension) ──
+// Deux photos identiques, même redimensionnées ou recompressées par deux boutiques, ont des empreintes proches.
+export const SEUIL_PHOTO = 6;   // bits différents sur 64, au maximum, pour « même photo »
+
+const bits32 = n => { n -= (n >>> 1) & 0x55555555; n = (n & 0x33333333) + ((n >>> 2) & 0x33333333); return (((n + (n >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24; };
+const empreinte = h => (/^[0-9a-f]{16}$/i.test(h || "") ? [parseInt(h.slice(0, 8), 16) >>> 0, parseInt(h.slice(8), 16) >>> 0] : null);
+export function distancePhoto(h1, h2) {
+  const a = empreinte(h1), b = empreinte(h2);
+  if (!a || !b) return 64;
+  return bits32((a[0] ^ b[0]) >>> 0) + bits32((a[1] ^ b[1]) >>> 0);
+}
+// Image unie (fond blanc, page vide) : empreinte sans information, jamais comparée
+const empreinteUtile = h => { const e = empreinte(h); if (!e) return false; const n = bits32(e[0]) + bits32(e[1]); return n >= 4 && n <= 60; };
+
+// Paire de groupes, dans un ordre fixe (sert à mémoriser les refus)
+export const clePaire = (a, b) => [a.cle, b.cle].sort().join(" ⇄ ");
+
+// Produits probablement identiques, vendus par des pages différentes.
+// Deux indices : même photo sur la page produit (marche entre un nom français et un nom arabe), ou mots communs dans le nom.
+// refuses : Set des paires refusées (clePaire). Renvoie [{ a, b, raison, photo, force }], à confirmer par l'utilisateur.
 const motsDe = s => new Set(String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
   .split(/[^\p{L}\p{N}]+/u).filter(m => m.length >= 3 && !STOP.has(m) && !/^\d+$/.test(m)));
-export function suggestionsRegroupement(groupes, max = 30) {
-  const liste = groupes.slice(0, 400).map(g => ({ g, mots: motsDe(g.nom), pages: new Set(g.vendors.map(v => v.fb_page_id)) }));
+export function suggestionsRegroupement(groupes, { refuses = new Set(), max = 60 } = {}) {
+  const liste = groupes.map(g => ({ g, mots: motsDe(g.nom), pages: new Set(g.vendors.map(v => v.fb_page_id)), hashes: (g.hashes || []).filter(empreinteUtile) }));
+
+  // Une photo retrouvée dans plus de 4 produits (logo, photo de stock) n'est pas un indice
+  const frequence = new Map();
+  for (const x of liste) for (const h of new Set(x.hashes)) frequence.set(h, (frequence.get(h) || 0) + 1);
+  for (const x of liste) x.hashes = x.hashes.filter(h => frequence.get(h) <= 4);
+
   const out = [];
   for (let i = 0; i < liste.length; i++) for (let j = i + 1; j < liste.length; j++) {
     const A = liste[i], B = liste[j];
     if ([...A.pages].some(p => B.pages.has(p))) continue;              // même page : pas un recoupement
+    if (refuses.has(clePaire(A.g, B.g))) continue;
+
+    let photo = 64;
+    for (const ha of A.hashes) for (const hb of B.hashes) photo = Math.min(photo, distancePhoto(ha, hb));
+    const memePhoto = photo <= SEUIL_PHOTO;
+
     const communs = [...A.mots].filter(m => B.mots.has(m));
-    if (communs.length < 2) continue;
-    const jaccard = communs.length / new Set([...A.mots, ...B.mots]).size;
-    if (jaccard < 0.4) continue;
-    if (A.g.prixMax && B.g.prixMax && Math.abs(A.g.prixMax - B.g.prixMax) / Math.max(A.g.prixMax, B.g.prixMax) > 0.35) continue;
-    out.push({ a: A.g, b: B.g, raison: "mots communs : " + communs.join(", "), force: jaccard });
+    const jaccard = communs.length ? communs.length / new Set([...A.mots, ...B.mots]).size : 0;
+    const prixEcart = A.g.prixMax && B.g.prixMax ? Math.abs(A.g.prixMax - B.g.prixMax) / Math.max(A.g.prixMax, B.g.prixMax) : null;
+    const memesMots = communs.length >= 2 && jaccard >= 0.4 && !(prixEcart != null && prixEcart > 0.35);
+    if (!memePhoto && !memesMots) continue;
+
+    const raisons = [];
+    if (memePhoto) raisons.push(photo === 0 ? "même photo produit" : `même photo produit (${photo} bits d'écart sur 64)`);
+    if (memesMots) raisons.push("mots communs : " + communs.join(", "));
+    if (prixEcart != null) raisons.push(prixEcart === 0 ? "même prix" : `prix ${A.g.prixMax} et ${B.g.prixMax} DH`);
+    out.push({ a: A.g, b: B.g, raison: raisons.join(" · "), photo: memePhoto, force: (memePhoto ? 2 - photo / 32 : 0) + jaccard });
   }
   return out.sort((x, y) => y.force - x.force || (y.a.pubs + y.b.pubs) - (x.a.pubs + x.b.pubs)).slice(0, max);
 }
@@ -229,6 +264,15 @@ export function estFicheProduit(url) {
   if (!url || !/^https?:\/\//i.test(url)) return false;
   const cle = safeDecode(safeDecode(productKey(url)));
   return !PAS_PRODUIT.test(cle) && !SLUG_GENERIQUE.test(cle.split("/").pop() || "");
+}
+
+// Lien court (bit.ly…) : l'extension le suit jusqu'à la page produit
+const LIEN_COURT = /^https?:\/\/(www\.)?(bit\.ly|tinyurl\.com|cutt\.ly|rb\.gy|shorturl\.at|is\.gd|t\.ly|rebrand\.ly)\/[^/?#]+/i;
+export const estLienCourt = url => LIEN_COURT.test(String(url || ""));
+
+// Peut-on lire le prix et les photos de ce lien ?
+export function lienPrixPossible(url) {
+  return estFicheProduit(url) || estLienCourt(url);
 }
 
 // Nom automatique d'un produit. source = "lien" (nom lu dans l'adresse d'une fiche produit) ou "texte" (adresse illisible ou pas une fiche produit)
@@ -272,6 +316,21 @@ export function identiteProduit(row, cartes, produitKey) {
   if (auto.source === "lien") return { nom, groupe: nom, cle: "s:" + slugNormalise(liste[0].url) };
   // produitKey reçu sous la forme « page|clé » : un produit sans fiche lisible reste propre à sa page
   return { nom, groupe: nom, cle: "p:" + (produitKey || "") };
+}
+
+// Un groupe saisi à la main peut porter exactement le nom automatique d'un autre produit
+// (« Machine Fitness Pliable » tapé sur la ligne de Reno Shop 3, nom automatique chez Boston).
+// Les produits dont le nom automatique est identique à un groupe saisi rejoignent ce groupe.
+// identites : [{ nom, groupe, cle }], modifiées sur place
+export function unifierIdentites(identites) {
+  const manuels = new Set(identites.filter(i => i.cle.startsWith("g:")).map(i => i.cle));
+  if (!manuels.size) return identites;
+  for (const i of identites) {
+    if (i.cle.startsWith("g:")) continue;
+    const k = "g:" + norm(i.groupe);
+    if (manuels.has(k)) i.cle = k;
+  }
+  return identites;
 }
 
 // Ancienne liste (sert à reconnaître une case « santé » cochée automatiquement à la création du produit)
@@ -365,7 +424,65 @@ export const STATUT_COULEURS = {
   "Testé, abandonné": ["#B42318", "#FEF3F2"],
 };
 
-// ─── 4. Classement : le même produit vendu par plusieurs pages ────────────
+// ─── 4. Phase d'un produit : vagues de créatives ──────────────────────────
+// Méthode : les créatives les plus anciennes sont celles du test, la 2e vague le mid-scaling, les suivantes le scaling.
+// Le même comportement chez au moins 2 pages = big winner.
+export const ECART_VAGUE = 5;    // plus de 5 jours entre deux lancements : nouvelle vague
+export const MIN_CREAS = 3;      // en dessous de 3 créatives : trop tôt pour juger
+export const JOURS_ACTIF = 7;    // dernière créative lancée dans les 7 jours avant le relevé : scaling actif
+export const PHASES = ["Trop tôt", "Test", "Mid-scaling", "Scaling", "Big winner"];
+export const PHASE_COULEURS = {
+  "Trop tôt":    ["#667085", "#F2F4F7"],
+  "Test":        ["#175CD3", "#EFF8FF"],
+  "Mid-scaling": ["#B54708", "#FFFAEB"],
+  "Scaling":     ["#027A48", "#ECFDF3"],
+  "Big winner":  ["#6927DA", "#F4F3FF"],
+};
+
+const JOUR = 86400000;
+const jourDe = s => { const t = Date.parse(String(s).slice(0, 10) + "T00:00:00Z"); return Number.isNaN(t) ? null : t; };
+
+// Vagues de lancement d'une page pour un produit. cartes : [{ started_on, nb }]
+export function vaguesDe(cartes) {
+  const parJour = new Map();
+  for (const c of cartes) {
+    const t = c.started_on ? jourDe(c.started_on) : null;
+    if (t == null) continue;
+    const x = parJour.get(t) || { crea: 0, pubs: 0 };
+    x.crea++; x.pubs += c.nb || 1;
+    parJour.set(t, x);
+  }
+  const vagues = [];
+  let dernier = null;
+  for (const t of [...parJour.keys()].sort((a, b) => a - b)) {
+    if (dernier == null || (t - dernier) / JOUR > ECART_VAGUE) vagues.push({ debut: t, fin: t, crea: 0, pubs: 0 });
+    const v = vagues[vagues.length - 1];
+    v.fin = t; v.crea += parJour.get(t).crea; v.pubs += parJour.get(t).pubs;
+    dernier = t;
+  }
+  return vagues.map(v => ({ ...v, debut: new Date(v.debut).toISOString().slice(0, 10), fin: new Date(v.fin).toISOString().slice(0, 10) }));
+}
+
+// Phase d'une page vendeuse. ref : date du relevé de la page
+export function phaseVendeur(cartes, ref) {
+  const vagues = vaguesDe(cartes);
+  const dupliquees = cartes.some(c => (c.nb || 1) >= 2);
+  const derniere = vagues.length ? jourDe(vagues[vagues.length - 1].fin) : null;
+  const refT = ref ? new Date(ref).getTime() : Date.now();
+  const actif = derniere != null && refT - derniere <= JOURS_ACTIF * JOUR;
+  const phase = cartes.length < MIN_CREAS ? "Trop tôt" : vagues.length >= 3 ? "Scaling" : vagues.length === 2 ? "Mid-scaling" : "Test";
+  return { phase, vagues, actif, dupliquees, nbCreas: cartes.length };
+}
+
+// Phase du produit : big winner si au moins 2 pages sont en mid-scaling ou plus, sinon la meilleure phase d'une page
+export function phaseGroupe(vendeurs) {
+  const enScale = vendeurs.filter(v => v.phase && (v.phase.phase === "Mid-scaling" || v.phase.phase === "Scaling"));
+  if (enScale.length >= 2) return { phase: "Big winner", actif: enScale.some(v => v.phase.actif), dupliquees: enScale.some(v => v.phase.dupliquees) };
+  const meilleur = [...vendeurs].sort((a, b) => PHASES.indexOf(b.phase.phase) - PHASES.indexOf(a.phase.phase) || (b.phase.actif - a.phase.actif))[0];
+  return meilleur ? { phase: meilleur.phase.phase, actif: meilleur.phase.actif, dupliquees: meilleur.phase.dupliquees } : { phase: "Trop tôt", actif: false, dupliquees: false };
+}
+
+// ─── 5. Classement : le même produit vendu par plusieurs pages ────────────
 
 
 export function vendorUrl(row, cartes) {
@@ -377,12 +494,16 @@ export function vendorUrl(row, cartes) {
 // pubs : publicités du dernier relevé de chaque page · produits : lignes veille_produits
 // pageName(fb_page_id) : nom affiché de la page
 // presence (facultatif) : { "page|clé produit": [dates des relevés où le produit avait des pubs actives] }
-export function buildGroups(pubs, refDates, produits, pageName, presence) {
+// fiches (facultatif) : { "page|clé produit": { i: [photos], h: [empreintes], t: titre, le } } lues sur les pages produit
+export function buildGroups(pubs, refDates, produits, pageName, presence, fiches) {
   const prodMap = new Map(produits.map(p => [p.fb_page_id + "|" + p.produit_key, p]));
   const groups = new Map();
-  for (const it of aggregateProducts(pubs, refDates)) {
+  const agreges = aggregateProducts(pubs, refDates).map(it => {
     const row = prodMap.get(it.fb_page_id + "|" + it.produit_key) || null;
-    const id = identiteProduit(row, it.cartes, it.fb_page_id + "|" + it.produit_key);
+    return { it, row, id: identiteProduit(row, it.cartes, it.fb_page_id + "|" + it.produit_key) };
+  });
+  unifierIdentites(agreges.map(x => x.id));
+  for (const { it, row, id } of agreges) {
     const nom = id.nom;
     const groupe = id.groupe;
     const vendor = {
@@ -392,9 +513,10 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
       url: vendorUrl(row, it.cartes),
       // Case cochée à la main (pas par l'ancienne règle automatique) : toujours respectée ; sinon détection sur le nom et le texte des pubs
       sante: (row && row.risque_sante && !risqueSanteV1(row.nom)) || risqueSante(nom, row?.nom, ...it.cartes.map(c => c.texte)),
+      fiche: (fiches && fiches[it.fb_page_id + "|" + it.produit_key]) || null,
     };
     const k = id.cle;
-    if (!groups.has(k)) groups.set(k, { nom: groupe, vendors: [] });
+    if (!groups.has(k)) groups.set(k, { cle: k, nom: groupe, vendors: [] });
     groups.get(k).vendors.push(vendor);
   }
   const out = [];
@@ -421,6 +543,8 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
         prixDifferents: new Set(prixListe).size > 1,
         ids: p.items.map(x => x.row?.id).filter(Boolean),
         sante: p.items.some(x => x.sante),
+        phase: phaseVendeur(p.cartes, refDates[p.fb_page_id]),
+        ref: refDates[p.fb_page_id] || null,
       };
     }).sort((a, b) => b.pubs - a.pubs);
     const pubs = v.reduce((s, x) => s + x.pubs, 0);
@@ -433,7 +557,12 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
     const sante = v.some(x => x.sante);
     const cartes = v.flatMap(x => x.cartes.map(c => ({ ...c, page: x.page }))).sort((a, b) => b.nb - a.nb);
     const statut = (items.find(x => x.row?.statut && x.row.statut !== "Nouveau")?.row.statut) || "Nouveau";
+    const fichesG = items.map(x => x.fiche).filter(Boolean);
     out.push({
+      cle: G.cle,
+      phase: phaseGroupe(v),
+      images: [...new Set(fichesG.flatMap(f => f.i || []))].slice(0, 4),
+      hashes: [...new Set(fichesG.flatMap(f => f.h || []))],
       nom: G.nom, vendors: v, items, pubs, recent, age, nbPages, prixMax, prixMin, sante, cartes, statut,
       crea: cartes.length,
       ids: items.map(x => x.row?.id).filter(Boolean),
@@ -452,17 +581,25 @@ export function buildGroups(pubs, refDates, produits, pageName, presence) {
   return out;
 }
 
-// ─── 5. Historique : ce qui a changé entre deux relevés ───────────────────
+// ─── 6. Historique : ce qui a changé entre deux relevés ───────────────────
 
 // avant / apres : publicités des mêmes pages, à deux dates
 export function compareReleves(apres, avant, produits, pageName) {
   const prodMap = new Map(produits.map(p => [p.fb_page_id + "|" + p.produit_key, p]));
+  // Identité de chaque produit calculée une fois, sur les pubs des deux relevés, puis unifiée comme dans le classement
+  const cartesPar = new Map();
+  for (const p of [...apres, ...avant]) {
+    const pk = p.fb_page_id + "|" + p.produit_key;
+    if (!cartesPar.has(pk)) cartesPar.set(pk, []);
+    cartesPar.get(pk).push(p);
+  }
+  const ident = new Map([...cartesPar].map(([pk, cartes]) => [pk, identiteProduit(prodMap.get(pk), cartes, pk)]));
+  unifierIdentites([...ident.values()]);
   const sumBy = list => {
     const m = new Map();
     for (const p of list) {
       if (p.low) continue;
-      const row = prodMap.get(p.fb_page_id + "|" + p.produit_key);
-      const id = identiteProduit(row, [p], p.fb_page_id + "|" + p.produit_key);
+      const id = ident.get(p.fb_page_id + "|" + p.produit_key);
       const nom = id.groupe;
       const k = id.cle;
       if (!m.has(k)) m.set(k, { nom, pubs: 0, pages: new Set() });
@@ -491,7 +628,7 @@ export function compareReleves(apres, avant, produits, pageName) {
   return { nouveaux, hausse, baisse, disparus };
 }
 
-// ─── 6. Export vers le Google Sheet (colonnes M et suivantes = créatives) ─
+// ─── 7. Export vers le Google Sheet (colonnes M et suivantes = créatives) ─
 
 export function toSheetTsv(groups, pageInfo, dateLabel) {
   const q = s => String(s ?? "").replace(/"/g, '""').replace(/[\t\r\n]+/g, " ");
@@ -526,18 +663,22 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
         g.recent,
         g.nbPages,
         g.sante ? "Oui" : "",
+        g.phase ? g.phase.phase : "",
+        v.phase ? v.phase.vagues.length : "",
+        g.phase ? (g.phase.actif ? "Oui" : "Non") : "",
         ...crea,
       ].join("\t"));
     }
   });
   const head = ["Date", "Page", "ID", "Produit", "Lien de publicité", "Page produit", "Prix de vente", "Prix achat", "Marge brute", "Status", "Nombre de créatives", "Nombre de pub",
     "Rang", "Score /100", "Réinvestissement /30", "Demande /25", "Recoupement /20", "Persistance /15", "Faisabilité /10",
-    "Pubs du produit (toutes pages)", "Pubs lancées sur 7 jours", "Pages vendeuses", "Promesse santé"];
+    "Pubs du produit (toutes pages)", "Pubs lancées sur 7 jours", "Pages vendeuses", "Promesse santé",
+    "Phase du produit", "Vagues de la page", "Scaling actif"];
   for (let i = 1; i <= maxC; i++) head.push("Créative " + i);
   return head.join("\t") + "\n" + rows.join("\n") + "\n";
 }
 
-// ─── 7. Relevé automatique (extension) et recherche de pages ──────────────
+// ─── 8. Relevé automatique (extension) et recherche de pages ──────────────
 
 // Pays Maroc par défaut : sans compte Facebook, certaines pages n'affichent rien avec « Tous les pays »
 export const libraryPageUrl = (id, pays = "MA") =>
