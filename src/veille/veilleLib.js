@@ -324,7 +324,9 @@ export function identiteProduit(row, cartes, produitKey) {
   const autos = new Set(liste.flatMap(c => [defaultNameV1(c.url, c.texte), defaultName(c.url, c.texte), nomDepuisTexte(c.texte)]).filter(Boolean).map(norm));
   autos.add(norm("Produit sans nom"));
   if (row) autos.add(norm(defaultNameV1(row.url, "")));
-  const groupeManuel = row?.groupe && !autos.has(norm(row.groupe)) ? row.groupe.trim() : null;
+  // Groupe saisi par toi : différent du nom du produit (à la création, le module met le même texte dans les deux),
+  // ou différent de tous les noms automatiques
+  const groupeManuel = row?.groupe && (norm(row.groupe) !== norm(row.nom) || !autos.has(norm(row.groupe))) ? row.groupe.trim() : null;
   const nomManuel = row?.nom && !autos.has(norm(row.nom)) ? row.nom.trim() : null;
   let auto = nomAuto(liste[0].url, liste[0].texte);
   if (auto.source === "texte") {
