@@ -361,7 +361,8 @@ export function unifierIdentites(identites) {
 const SANTE_V1 = ["attelle", "compression", "chauffant", "masseur", "masseuse", "bonnet", "patch", "canne", "genou", "étireur", "etireur", "migraine", "douleur", "arthrite"];
 const risqueSanteV1 = nom => { const n = (nom || "").toLowerCase(); return SANTE_V1.some(w => n.includes(w)); };
 
-// Promesse santé, minceur ou anti-âge : refusées par nos règles et risquées chez Meta.
+// Angle santé, minceur ou anti-âge chez le concurrent : le produit reste éligible (il ne perd plus de points),
+// c'est l'angle de nos pubs qu'il faudra changer (règle du projet et règles Meta).
 // Cherchée dans le nom du produit et dans le texte des pubs, en français, anglais et arabe.
 const SANTE = new RegExp([
   // santé, douleur, soin
@@ -416,7 +417,7 @@ export function detailScore({ pubs, recent, nbPages, persistance, prixMax, sante
     demande:          Math.round(25 * progressif(pubs, 60)),          // pubs actives (hors impressions faibles)
     recoupement:      nbPages >= 3 ? 20 : nbPages === 2 ? 12 : 0,     // nombre de pages qui vendent le produit
     persistance:      persistance >= 4 ? 15 : persistance === 3 ? 10 : persistance === 2 ? 5 : 0, // relevés espacés de 7 jours ou plus
-    faisabilite:      10 - (sante ? 5 : 0) - (prixMax && prixMax < 200 ? 5 : 0), // promesse santé, prix sous 200 DH
+    faisabilite:      prixMax && prixMax < PRIX_MIN ? 0 : 10,                   // prix sous 230 DH : hors cible
   };
 }
 
@@ -433,8 +434,19 @@ export function relevesEspaces(dates) {
   return n;
 }
 
+// Prix de vente minimum visé : en dessous, trop de concurrents sur le prix et moins de 100 DH de marge brute
+export const PRIX_MIN = 230;
+
+// Signal fort (méthode Andromeda : plus de duplication, des créatives et du budget) :
+// plus de 3 créatives actives pour le produit, la plus ancienne lancée il y a 10 jours ou plus.
+export const SIGNAL_CREAS = 4;
+export const SIGNAL_JOURS = 10;
+export const signalFort = g => g.crea >= SIGNAL_CREAS && g.age >= SIGNAL_JOURS;
+// Candidat au test : signal fort et prix d'au moins 230 DH
+export const candidatTest = g => signalFort(g) && !!g.prixMax && g.prixMax >= PRIX_MIN;
+
 export function tierOf(prixMax) {
-  if (prixMax && prixMax >= 250) return 0;
+  if (prixMax && prixMax >= PRIX_MIN) return 0;
   if (!prixMax) return 1;
   return 2;
 }
@@ -600,7 +612,7 @@ export function buildGroups(pubs, refDates, produits, pageName, presence, fiches
     g.detail = detailScore(g);
     g.score = scoreGroup(g);
   }
-  // Comme avant : produits à 250 DH et plus d'abord, puis sans prix, puis moins de 250 DH ; ensuite le score
+  // Produits à 230 DH et plus d'abord, puis sans prix, puis moins de 230 DH ; ensuite le score
   out.sort((a, b) => a.tier - b.tier || b.score - a.score || b.pubs - a.pubs);
   return out;
 }
@@ -687,6 +699,7 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
         g.recent,
         g.nbPages,
         g.sante ? "Oui" : "",
+        signalFort(g) ? "Oui" : "",
         g.phase ? g.phase.phase : "",
         v.phase ? v.phase.vagues.length : "",
         g.phase ? (g.phase.actif ? "Oui" : "Non") : "",
@@ -696,7 +709,7 @@ export function toSheetTsv(groups, pageInfo, dateLabel) {
   });
   const head = ["Date", "Page", "ID", "Produit", "Lien de publicité", "Page produit", "Prix de vente", "Prix achat", "Marge brute", "Status", "Nombre de créatives", "Nombre de pub",
     "Rang", "Score /100", "Réinvestissement /30", "Demande /25", "Recoupement /20", "Persistance /15", "Faisabilité /10",
-    "Pubs du produit (toutes pages)", "Pubs lancées sur 7 jours", "Pages vendeuses", "Promesse santé",
+    "Pubs du produit (toutes pages)", "Pubs lancées sur 7 jours", "Pages vendeuses", "Angle santé chez le concurrent", "Signal fort",
     "Phase du produit", "Vagues de la page", "Scaling actif"];
   for (let i = 1; i <= maxC; i++) head.push("Créative " + i);
   return head.join("\t") + "\n" + rows.join("\n") + "\n";

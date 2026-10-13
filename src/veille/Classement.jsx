@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, toSheetTsv, pagesALire, vendeurASaisir, ecartVendeur } from "./veilleLib";
+import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, PRIX_MIN, SIGNAL_CREAS, SIGNAL_JOURS, signalFort, candidatTest, toSheetTsv, pagesALire, vendeurASaisir, ecartVendeur } from "./veilleLib";
 import { useTri, Th } from "./tri";
 
 // Colonnes triables. Par défaut : pubs lancées dans les 7 jours (à égalité, le score)
 const COLONNES = {
   produit: g => g.nom.toLowerCase(),
   score:   g => g.score,
-  phase:   g => PHASES.indexOf(g.phase.phase) + (g.phase.actif ? 0.5 : 0),
+  phase:   g => (signalFort(g) ? 10 : 0) + PHASES.indexOf(g.phase.phase) + (g.phase.actif ? 0.5 : 0),
   pubs:    g => g.pubs,
   age:     g => g.age,
   recent:  g => g.recent + g.score / 1000,
@@ -16,9 +16,9 @@ const COLONNES = {
 
 const FILTRES_PRIX = [
   { id: "tous",   label: "Tous les prix" },
-  { id: "250",    label: "250 DH ou plus" },
+  { id: "250",    label: `${PRIX_MIN} DH ou plus` },
   { id: "sans",   label: "Sans prix" },
-  { id: "moins",  label: "Moins de 250 DH" },
+  { id: "moins",  label: `Moins de ${PRIX_MIN} DH` },
   { id: "saisir", label: "Prix à saisir à la main" },
   { id: "ecarts", label: "Écarts avec le site" },
 ];
@@ -132,7 +132,7 @@ function Details({ g, nomsGroupes, onPatch }) {
           <thead>
             <tr style={{ color: "var(--muted)", fontSize: 11, textAlign: "left" }}>
               <th style={{ padding: 4 }}>Page</th><th style={{ padding: 4 }}>Lien</th><th style={{ padding: 4 }}>Prix</th><th style={{ padding: 4 }}>Nom du produit</th>
-              <th style={{ padding: 4 }}>Groupe (même nom = même produit)</th><th style={{ padding: 4 }}>Promesse santé</th>
+              <th style={{ padding: 4 }}>Groupe (même nom = même produit)</th><th style={{ padding: 4 }}>Angle santé</th>
             </tr>
           </thead>
           <tbody>
@@ -201,8 +201,10 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
     if (fPrix === "moins" && g.tier !== 2) return false;
     if (fPrix === "saisir" && !g.vendors.some(vendeurASaisir)) return false;
     if (fPrix === "ecarts" && !g.vendors.some(v => ecartVendeur(v, ecarts))) return false;
+    if (fPhase === "candidat" && !candidatTest(g)) return false;
+    if (fPhase === "signal" && !signalFort(g)) return false;
     if (fPhase === "actif" && !(g.phase.actif && ["Mid-scaling", "Scaling", "Big winner"].includes(g.phase.phase))) return false;
-    if (fPhase && fPhase !== "actif" && g.phase.phase !== fPhase) return false;
+    if (fPhase && !["actif", "signal", "candidat"].includes(fPhase) && g.phase.phase !== fPhase) return false;
     if (q && !(g.nom + " " + g.vendors.map(v => v.page + " " + v.nom).join(" ")).toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   }), [groups, fPage, fStatut, fPrix, fPhase, q, ecarts]);
@@ -260,6 +262,8 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
         </select>
         <select className="form-select" style={{ width: "auto" }} value={fPhase} onChange={e => setFPhase(e.target.value)}>
           <option value="">Toutes les phases</option>
+          <option value="candidat">Candidats au test (signal fort, {PRIX_MIN} DH et plus)</option>
+          <option value="signal">Signal fort (tous prix)</option>
           <option value="actif">En scaling actif</option>
           {PHASES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
@@ -282,7 +286,7 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
               <th>#</th>
               <Th col="produit" tri={tri} trier={trier}>Produit et vendeurs</Th>
               <Th col="score" tri={tri} trier={trier}>Score</Th>
-              <Th col="phase" tri={tri} trier={trier}>Phase</Th>
+              <Th col="phase" tri={tri} trier={trier}>Signal et phase</Th>
               <Th col="pubs" tri={tri} trier={trier} droite>Pubs</Th>
               <Th col="age" tri={tri} trier={trier} droite>Âge</Th>
               <Th col="recent" tri={tri} trier={trier} droite>Ajouts 7 j</Th>
@@ -344,7 +348,13 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
                     </div>
                     <div className="col-muted" style={{ fontSize: 11, marginTop: 3, whiteSpace: "nowrap" }}>R {g.detail.reinvestissement} · D {g.detail.demande} · C {g.detail.recoupement} · P {g.detail.persistance} · F {g.detail.faisabilite}</div>
                   </td>
-                  <td style={{ minWidth: 120 }}>
+                  <td style={{ minWidth: 130 }}>
+                    {signalFort(g) && (
+                      <div title={`Plus de ${SIGNAL_CREAS - 1} créatives actives, la plus ancienne lancée il y a ${g.age} jours (${SIGNAL_JOURS} au minimum)`}
+                        style={{ fontSize: 12, fontWeight: 700, color: candidatTest(g) ? "var(--green)" : "var(--muted)", marginBottom: 4 }}>
+                        {candidatTest(g) ? "● Signal fort" : `● Signal fort · ${g.prixMax ? "moins de " + PRIX_MIN + " DH" : "prix ?"}`}
+                      </div>
+                    )}
                     <BadgePhase phase={g.phase} />
                     <div className="col-muted" style={{ fontSize: 11, marginTop: 4 }}>
                       {g.vendors.map(v => v.phase.vagues.length).join(" + ")} vague{g.vendors.reduce((s, v) => s + v.phase.vagues.length, 0) > 1 ? "s" : ""}{g.phase.dupliquees ? " · dupliquées" : ""}
@@ -359,7 +369,7 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
                       {g.crea > premieres.length && <span className="col-muted">+{g.crea - premieres.length} autres</span>}
                     </div>
                   </td>
-                  <td style={{ fontSize: 12, fontWeight: 600, color: g.sante ? "var(--orange)" : "var(--green)" }}>{g.sante ? "Promesse santé" : "Aucun"}</td>
+                  <td style={{ fontSize: 12, fontWeight: 600, color: g.sante ? "var(--orange)" : "var(--green)" }}>{g.sante ? "Angle santé : à changer" : "Aucun"}</td>
                   <td onClick={e => e.stopPropagation()}>
                     <select value={g.statut} onChange={e => onPatch(g.ids, { statut: e.target.value })}
                       style={{ fontSize: 12, fontWeight: 600, padding: "4px 8px", borderRadius: 99, border: "1px solid transparent", color: coul, background: fond, cursor: "pointer" }}>
