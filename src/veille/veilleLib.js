@@ -227,6 +227,14 @@ export function distancePhoto(h1, h2) {
 // Image unie (fond blanc, page vide) : empreinte sans information, jamais comparée
 const empreinteUtile = h => { const e = empreinte(h); if (!e) return false; const n = bits32(e[0]) + bits32(e[1]); return n >= 4 && n <= 60; };
 
+// Nom donné au groupe quand tu valides un regroupement : celui du produit qui a le plus de pubs.
+// Si les deux produits portent déjà le même nom (souvent tiré du texte de la pub), ce nom passe pour automatique
+// et ne regrouperait rien : on ajoute « (regroupé) » pour qu'il compte comme un nom saisi.
+export function nomRegroupement(a, b) {
+  const garde = a.pubs >= b.pubs ? a : b;
+  return norm(a.nom) === norm(b.nom) ? `${garde.nom} (regroupé)` : garde.nom;
+}
+
 // Paire de groupes, dans un ordre fixe (sert à mémoriser les refus)
 export const clePaire = (a, b) => [a.cle, b.cle].sort().join(" ⇄ ");
 

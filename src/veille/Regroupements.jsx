@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PHASE_COULEURS, clePaire, versionAuMoins } from "./veilleLib";
+import { PHASE_COULEURS, clePaire, versionAuMoins, nomRegroupement } from "./veilleLib";
 
 // Regroupements proposés par le module, validés ou refusés par toi après un coup d'œil aux pages produit.
 // Valider : les deux produits prennent le même nom de groupe (celui qui a le plus de pubs).
@@ -60,7 +60,7 @@ export default function Regroupements({ suggestions, ext, onPatch, onRefuser, nb
   const valider = async s => {
     const garde = s.a.pubs >= s.b.pubs ? s.a : s.b;
     setOccupe(clePaire(s.a, s.b));
-    try { await onPatch([...s.a.ids, ...s.b.ids], { groupe: garde.nom, statut: garde.statut }); }
+    try { await onPatch([...s.a.ids, ...s.b.ids], { groupe: nomRegroupement(s.a, s.b), statut: garde.statut }); }
     finally { setOccupe(null); }
   };
 
