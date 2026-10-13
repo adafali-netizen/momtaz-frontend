@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PHASE_COULEURS, clePaire } from "./veilleLib";
+import { PHASE_COULEURS, clePaire, versionAuMoins } from "./veilleLib";
 
 // Regroupements proposés par le module, validés ou refusés par toi après un coup d'œil aux pages produit.
 // Valider : les deux produits prennent le même nom de groupe (celui qui a le plus de pubs).
@@ -7,13 +7,6 @@ import { PHASE_COULEURS, clePaire } from "./veilleLib";
 
 const carte = { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 };
 const fmtPrix = g => !g.prixMax ? "Prix ?" : g.prixMin === g.prixMax ? `${g.prixMax} DH` : `${g.prixMin}–${g.prixMax} DH`;
-
-// « 1.0.8 » ≥ « 1.0.7 »
-const versionAuMoins = (v, min) => {
-  const a = String(v || "0").split(".").map(Number), b = min.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
-  return true;
-};
 
 function Badge({ phase }) {
   if (!phase) return null;

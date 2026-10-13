@@ -182,8 +182,9 @@ function lirePrixDansLaPage() {
     if (meta) { const n = nombre(meta.getAttribute("content")); if (plausible(n)) return resultat(n, "balise meta"); }
 
     // 4. Prix affiché : le plus gros prix visible en haut de page, en ignorant les prix barrés
-    const RE = /(?:\b(?:mad|dhs?)\s*|درهم\s*|د\.م\.?\s*)?(\d{1,3}(?:[\s  .]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:mad\b|dhs?\b|درهم|دراهم|د\.م)?/i;
-    const DEVISE = /(?:mad|dhs?)\s*\d|\d\s*(?:mad|dhs?)(?![a-z])|درهم|دراهم|د\.م/i;
+    // Devises : DH, MAD, درهم, د.م. et « دم » (pages LightFunnels et pages de vente /lp1/ : « 99دم »)
+    const RE = /(?:\b(?:mad|dhs?)\s*|درهم\s*|د\.?\s?م\.?\s*)?(\d{1,3}(?:[\s\u00a0\u202f.]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:mad\b|dhs?\b|درهم|دراهم|د\.?\s?م)?/i;
+    const DEVISE = /(?:mad|dhs?)\s*\d|\d\s*(?:mad|dhs?)(?![a-z])|درهم|دراهم|\d\s*د\.?\s?م(?![\u0621-\u064A])|د\.\s?م/i;
     const barre = el => {
       for (let p = el, n = 0; p && n < 4; p = p.parentElement, n++) {
         if (/^(DEL|S|STRIKE)$/.test(p.tagName)) return true;
@@ -192,24 +193,31 @@ function lirePrixDansLaPage() {
       }
       return false;
     };
-    const candidats = [];
-    for (const el of document.querySelectorAll("body *")) {
-      if (el.children.length > 2) continue;
-      const t = (el.textContent || "").trim();
-      if (!t || t.length > 40 || !DEVISE.test(t)) continue;
-      const mm = t.match(RE);
-      if (!mm) continue;
-      const n = nombre(mm[1]);
-      if (!plausible(n)) continue;
-      const r = el.getBoundingClientRect();
-      if (!r.width || !r.height || r.top > 1800) continue;
-      candidats.push({ n, barre: barre(el), taille: parseFloat(getComputedStyle(el).fontSize) || 0, haut: r.top });
-    }
-    const valides = candidats.filter(c => !c.barre).sort((a, b) => b.taille - a.taille || a.haut - b.haut);
-    if (valides.length) {
+    const lireAffiche = () => {
+      const candidats = [];
+      for (const el of document.querySelectorAll("body *")) {
+        if (el.children.length > 2) continue;
+        const t = (el.textContent || "").trim();
+        if (!t || t.length > 40 || !DEVISE.test(t)) continue;
+        const mm = t.match(RE);
+        if (!mm) continue;
+        const n = nombre(mm[1]);
+        if (!plausible(n)) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height || r.top > 1800) continue;
+        candidats.push({ n, barre: barre(el), taille: parseFloat(getComputedStyle(el).fontSize) || 0, haut: r.top });
+      }
+      const valides = candidats.filter(c => !c.barre).sort((a, b) => b.taille - a.taille || a.haut - b.haut);
+      if (!valides.length) return null;
       // Prix barré retenu seulement s'il est affiché à côté du prix principal (taille proche), pas celui d'un pack
       const b = candidats.filter(c => c.barre && c.taille >= valides[0].taille * 0.8).sort((a, b2) => b2.taille - a.taille)[0];
       return resultat(valides[0].n, "prix affiché", b && b.n);
+    };
+    // Pages qui affichent le prix après coup (LightFunnels : « 0 دم » au chargement) : jusqu'à 3 nouveaux essais, toutes les 2 s
+    for (let essai = 0; essai < 4; essai++) {
+      const r = lireAffiche();
+      if (r) return r;
+      if (essai < 3) await new Promise(res => setTimeout(res, 2000));
     }
     return { prix: null, source: null, images, titre };
   })();

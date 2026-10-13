@@ -194,10 +194,19 @@ function nomDepuisTexte(texte) {
 const PAS_PRODUIT = /(^|\.)(wa\.me|whatsapp\.com|m\.me|messenger\.com|instagram\.com|facebook\.com|fb\.me|fb\.com|t\.me|tiktok\.com|bit\.ly)(\/|$)|\/(pages|collections|blogs|policies|cart|checkout|account|contact)(\/|$)/i;
 const SLUG_GENERIQUE = /^(chat|chat-with-us|contact|contact-us|contactez-nous|home|index|accueil|shop|store|boutique|all|send|order|commande|commander|whatsapp|products?|catalog|catalogue|merci|thank-you|thanks|promo|offre|offres)$/i;
 
+// Nom de la fiche dans l'adresse. Pages de vente « /lp1/<produit>/fcb/<numéro> » : c'est le segment après /lp1/
+// (imrashoping.com, brandmaall.com, storebigmall.com… : même produit, domaines et numéros différents)
+export function slugProduit(cle) {
+  const seg = String(cle || "").split("/");
+  const i = seg.findIndex((s, k) => k > 0 && /^lp\d*$/i.test(s));
+  if (i > 0 && seg[i + 1]) return seg[i + 1];
+  return seg.pop() || "";
+}
+
 // Nom de fiche produit comparable d'un site à l'autre : sans accents, sans suffixe « -1 », « -copie », « -copy »
 export function slugNormalise(url) {
   const cle = safeDecode(safeDecode(productKey(url)));
-  return (cle.split("/").pop() || "").toLowerCase()
+  return slugProduit(cle).toLowerCase()
     .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[-_ ]+(copie|copy|\d{1,2})$/g, "")
     .replace(/[-_ ]+(copie|copy|\d{1,2})$/g, "")
@@ -263,7 +272,7 @@ export function suggestionsRegroupement(groupes, { refuses = new Set(), max = 60
 export function estFicheProduit(url) {
   if (!url || !/^https?:\/\//i.test(url)) return false;
   const cle = safeDecode(safeDecode(productKey(url)));
-  return !PAS_PRODUIT.test(cle) && !SLUG_GENERIQUE.test(cle.split("/").pop() || "");
+  return !PAS_PRODUIT.test(cle) && !SLUG_GENERIQUE.test(slugProduit(cle));
 }
 
 // Lien court (bit.ly…) : l'extension le suit jusqu'à la page produit
@@ -279,7 +288,7 @@ export function lienPrixPossible(url) {
 export function nomAuto(url, texte) {
   const key = productKey(url);
   const cle = safeDecode(safeDecode(key));
-  const slug = cle.split("/").pop() || "";
+  const slug = slugProduit(cle);
   const words = slug.split(/[-_ ]+/).filter(w => w && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
   const lienCourt = /^[a-z0-9]{4,9}$/i.test(slug) || key === "sans-lien" || cle.split("/").length < 2;
   const pasProduit = PAS_PRODUIT.test(cle) || SLUG_GENERIQUE.test(slug);
@@ -300,7 +309,9 @@ const norm = s => (s || "").trim().toLowerCase();
 //   de la pub (souvent « لطلب المنتوج إضغط هنا ») et se mélangeait à tous les produits ayant la même accroche.
 export function identiteProduit(row, cartes, produitKey) {
   const liste = (cartes || []).length ? cartes : [{}];
-  const autos = new Set(liste.flatMap(c => [defaultNameV1(c.url, c.texte), defaultName(c.url, c.texte)]).map(norm));
+  // Noms donnés automatiquement, ancienne et nouvelle règle (y compris le nom tiré du texte de la pub)
+  const autos = new Set(liste.flatMap(c => [defaultNameV1(c.url, c.texte), defaultName(c.url, c.texte), nomDepuisTexte(c.texte)]).filter(Boolean).map(norm));
+  autos.add(norm("Produit sans nom"));
   if (row) autos.add(norm(defaultNameV1(row.url, "")));
   const groupeManuel = row?.groupe && !autos.has(norm(row.groupe)) ? row.groupe.trim() : null;
   const nomManuel = row?.nom && !autos.has(norm(row.nom)) ? row.nom.trim() : null;
@@ -778,4 +789,86 @@ export function evaluatePage(ads, crit0) {
   const decision = echecs.length === 0 ? "gardee" : (!dur && echecs.length === 1) ? "a_valider" : "eliminee";
   const apercus = cartes.filter(c => c.thumb).sort((a, b) => b.nb - a.nb).slice(0, 3).map(c => ({ thumb: c.thumb, id: c.library_id }));
   return { cartes, pubs, produits, siteEcom, cod, categorie: cat, sites, decision, raison: echecs.join(" · ") || "Tous les critères sont remplis", apercus };
+}
+
+// ─── 9. Tâches manuelles : bandeau « À faire » ────────────────────────────
+
+// Version de l'extension qu'attend l'ERP
+export const EXTENSION_REQUISE = "1.0.9";
+export function versionAuMoins(v, min) {
+  const a = String(v || "0").split(".").map(Number), b = String(min).split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  return true;
+}
+
+const clesVendeur = v => v.items.map(x => x.fb_page_id + "|" + x.produit_key);
+
+// Page produit à lire : jamais lue, ou lue sans prix trouvé il y a 6 jours ou plus (même règle qu'au relevé).
+// verifier : relire aussi les produits déjà chiffrés (les écarts sont signalés, ton prix n'est pas modifié)
+export function vendeurALire(v, verifier, maintenant = Date.now()) {
+  if (!v.url || !v.ids.length || !lienPrixPossible(v.url) || v.prixDifferents) return false;
+  if (verifier || v.items.some(x => !x.fiche)) return true;
+  return !v.prix && v.items.every(x => !x.fiche.le || maintenant - new Date(x.fiche.le).getTime() >= 6 * JOUR);
+}
+export function pagesALire(groupes, verifier = false) {
+  const out = [];
+  for (const g of groupes) for (const v of g.vendors) {
+    if (!vendeurALire(v, verifier)) continue;
+    out.push({ ids: v.ids, cles: v.items.map(x => ({ fb_page_id: x.fb_page_id, produit_key: x.produit_key })), url: v.url, prix: v.prix, nom: g.nom, page: v.page });
+  }
+  return out;
+}
+
+// Prix à saisir à la main : page déjà lue sans prix trouvé, ou lien illisible (WhatsApp, sans lien)
+export function vendeurASaisir(v) {
+  if (v.prix || v.prixDifferents || !v.ids.length) return false;
+  if (!v.url || !lienPrixPossible(v.url)) return true;
+  return v.items.every(x => x.fiche) && !vendeurALire(v, false);
+}
+
+// Écart entre ton prix et le prix lu sur le site. ecarts : { "page|clé": { site, saisi, le } }
+// L'écart ne compte plus dès que tu as modifié le prix.
+export function ecartVendeur(v, ecarts) {
+  if (!ecarts || !v.prix) return null;
+  for (const k of clesVendeur(v)) {
+    const e = ecarts[k];
+    if (e && Number(e.saisi) === Number(v.prix) && Number(e.site) !== Number(v.prix)) return e;
+  }
+  return null;
+}
+
+// Pages à relever : jamais relevées, ou dernier relevé il y a 7 jours ou plus (pour la persistance)
+export function pagesDues(pages, latest, maintenant = Date.now()) {
+  const actives = pages.filter(p => p.actif);
+  const dues = [], prochaines = [];
+  for (const p of actives) {
+    const d = latest && latest[p.fb_page_id] ? new Date(latest[p.fb_page_id].capture_le).getTime() : null;
+    if (d == null || maintenant - d >= 7 * JOUR) dues.push(p);
+    else prochaines.push(d + 7 * JOUR);
+  }
+  return { dues, prochaine: prochaines.length ? Math.min(...prochaines) : null };
+}
+
+// Liste des tâches du bandeau. ctx : { groupes, suggestions, ecarts, pages, latest, ext, homonymes }
+export function tachesAFaire(ctx) {
+  const t = [];
+  const { groupes = [], ext } = ctx;
+  if (!ext) t.push({ id: "extension", niveau: "rouge", texte: "Extension Momtaz Veille non détectée : ouvre l'ERP dans le profil Chrome où elle est installée." });
+  else if (!versionAuMoins(ext.version, EXTENSION_REQUISE)) t.push({ id: "extension", niveau: "rouge", texte: `Extension en v${ext.version} : installe la v${EXTENSION_REQUISE} (prix « دم », photos des pages produit).` });
+
+  const { dues, prochaine } = pagesDues(ctx.pages || [], ctx.latest || {});
+  if (dues.length) t.push({ id: "releve", niveau: "orange", nb: dues.length, ids: dues.map(p => p.fb_page_id), texte: `${dues.length} page${dues.length > 1 ? "s" : ""} à relever : jamais relevée${dues.length > 1 ? "s" : ""} ou dernier relevé il y a 7 jours ou plus.` });
+
+  let aSaisir = 0, ecarts = 0;
+  for (const g of groupes) for (const v of g.vendors) {
+    if (vendeurASaisir(v)) aSaisir++;
+    if (ecartVendeur(v, ctx.ecarts)) ecarts++;
+  }
+  const aLire = pagesALire(groupes).length;
+  if (ecarts) t.push({ id: "ecarts", niveau: "orange", nb: ecarts, texte: `${ecarts} prix différent${ecarts > 1 ? "s" : ""} de celui affiché sur le site du concurrent : garde le tien ou prends celui du site.` });
+  if ((ctx.suggestions || []).length) t.push({ id: "regroupements", niveau: "orange", nb: ctx.suggestions.length, texte: `${ctx.suggestions.length} regroupement${ctx.suggestions.length > 1 ? "s" : ""} de produits à valider ou refuser.` });
+  if (aSaisir) t.push({ id: "saisir", niveau: "bleu", nb: aSaisir, texte: `${aSaisir} prix à saisir à la main : page produit lue sans prix trouvé, ou lien WhatsApp ou sans lien.` });
+  if (aLire) t.push({ id: "lire", niveau: "bleu", nb: aLire, texte: `${aLire} page${aLire > 1 ? "s" : ""} produit pas encore lue${aLire > 1 ? "s" : ""} (prix ou photo manquant).` });
+  if (ctx.homonymes && ctx.homonymes.size) t.push({ id: "homonymes", niveau: "bleu", nb: ctx.homonymes.size, texte: `${ctx.homonymes.size} pages portent le même nom : donne-leur un nom interne.` });
+  return { taches: t, prochaine };
 }

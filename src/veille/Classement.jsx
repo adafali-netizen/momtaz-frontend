@@ -1,11 +1,13 @@
-import { Fragment, useMemo, useState } from "react";
-import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, toSheetTsv, lienPrixPossible } from "./veilleLib";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, toSheetTsv, pagesALire, vendeurASaisir, ecartVendeur } from "./veilleLib";
 
 const FILTRES_PRIX = [
   { id: "tous",   label: "Tous les prix" },
   { id: "250",    label: "250 DH ou plus" },
   { id: "sans",   label: "Sans prix" },
   { id: "moins",  label: "Moins de 250 DH" },
+  { id: "saisir", label: "Prix à saisir à la main" },
+  { id: "ecarts", label: "Écarts avec le site" },
 ];
 
 const adLink = id => "https://www.facebook.com/ads/library/?id=" + id;
@@ -159,12 +161,18 @@ function Details({ g, nomsGroupes, onPatch }) {
   );
 }
 
-export default function Classement({ groups, pages, pageInfo, onPatch, dateReleve, ext, run, onCapturerPrix }) {
+export default function Classement({ groups, pages, pageInfo, onPatch, dateReleve, ext, run, onCapturerPrix, ecarts, preset }) {
   const [verifier, setVerifier] = useState(false);   // vérifier aussi les prix saisis (écarts dans le journal)
   const [fPage,   setFPage]   = useState("");
   const [fStatut, setFStatut] = useState("actifs");
   const [fPrix,   setFPrix]   = useState("tous");
   const [fPhase,  setFPhase]  = useState("");
+
+  // Filtre demandé par le bandeau « À faire » (prix à saisir, écarts) : on repart des autres filtres à zéro
+  useEffect(() => {
+    if (!preset) return;
+    setFPrix(preset.prix); setFPhase(""); setFPage(""); setFStatut("tous"); setQ("");
+  }, [preset]);
   const [q,       setQ]       = useState("");
   const [ouvert,  setOuvert]  = useState(null);
   const [limite,  setLimite]  = useState(50);
@@ -176,25 +184,19 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
     if (fPrix === "250" && g.tier !== 0) return false;
     if (fPrix === "sans" && g.tier !== 1) return false;
     if (fPrix === "moins" && g.tier !== 2) return false;
+    if (fPrix === "saisir" && !g.vendors.some(vendeurASaisir)) return false;
+    if (fPrix === "ecarts" && !g.vendors.some(v => ecartVendeur(v, ecarts))) return false;
     if (fPhase === "actif" && !(g.phase.actif && ["Mid-scaling", "Scaling", "Big winner"].includes(g.phase.phase))) return false;
     if (fPhase && fPhase !== "actif" && g.phase.phase !== fPhase) return false;
     if (q && !(g.nom + " " + g.vendors.map(v => v.page + " " + v.nom).join(" ")).toLowerCase().includes(q.toLowerCase())) return false;
     return true;
-  }), [groups, fPage, fStatut, fPrix, fPhase, q]);
+  }), [groups, fPage, fStatut, fPrix, fPhase, q, ecarts]);
 
   const nomsGroupes = useMemo(() => groups.map(g => g.nom).sort((a, b) => a.localeCompare(b)), [groups]);
   const pagesTriees = useMemo(() => [...pages].filter(p => p.actif).sort((a, b) => pageInfo(a.fb_page_id).nom.localeCompare(pageInfo(b.fb_page_id).nom)), [pages, pageInfo]);
 
   // Pages produit à lire : produits affichés (filtres appliqués), une par page vendeuse, sans prix ou sans photo
-  const aCapturer = useMemo(() => {
-    const out = [];
-    for (const g of visibles) for (const v of g.vendors) {
-      if (!v.url || !v.ids.length || !lienPrixPossible(v.url) || v.prixDifferents) continue;
-      if (v.prix && !verifier && v.items.every(x => x.fiche)) continue;
-      out.push({ ids: v.ids, cles: v.items.map(x => ({ fb_page_id: x.fb_page_id, produit_key: x.produit_key })), url: v.url, prix: v.prix, nom: g.nom, page: v.page });
-    }
-    return out;
-  }, [visibles, verifier]);
+  const aCapturer = useMemo(() => pagesALire(visibles, verifier), [visibles, verifier]);
 
   const capturer = () => {
     const minutes = Math.ceil(aCapturer.length * 6 / 60);
@@ -291,6 +293,17 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
                             {v.prixDifferents
                               ? <span className="col-mono" title="Plusieurs prix : modifie-les dans Détails">{v.prixMin}–{v.prix} DH</span>
                               : v.ids.length > 0 && <PrixInput vendor={v} onSave={prix => onPatch(v.ids, { prix })} />}
+                            {(() => {
+                              const e = ecartVendeur(v, ecarts);
+                              return e && (
+                                <button className="btn btn-sm btn-secondary" style={{ padding: "1px 8px", color: "var(--orange)", borderColor: "#FDE68A" }}
+                                  title={`Prix lu sur le site le ${new Date(e.le).toLocaleDateString("fr-FR")}`}
+                                  onClick={ev => { ev.stopPropagation(); onPatch(v.ids, { prix: e.site }); }}>
+                                  Site : {e.site} DH · prendre ce prix
+                                </button>
+                              );
+                            })()}
+                            {vendeurASaisir(v) && <span style={{ fontSize: 11, color: "var(--blue)", fontWeight: 600 }}>prix introuvable, à saisir</span>}
                             <span className="col-muted">{v.pubs} pubs</span>
                             {v.url && <a href={v.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontWeight: 600 }}>Page produit</a>}
                             {v.urls.length > 1 && <span className="col-muted">+{v.urls.length - 1} lien{v.urls.length > 2 ? "s" : ""}</span>}

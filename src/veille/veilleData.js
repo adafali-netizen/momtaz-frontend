@@ -76,18 +76,20 @@ export async function loadVeille() {
   } catch { /* sans historique, la persistance vaut 0 */ }
 
   // Photos des pages produit et regroupements refusés, gardés dans veille_config (pas de nouvelle table)
-  let fiches = {}, refuses = [];
+  let fiches = {}, refuses = [], ecarts = {};
   try {
-    const conf = await fetchAll(() => supabase.from("veille_config").select("*").in("cle", [CLE_FICHES, CLE_REFUS]));
+    const conf = await fetchAll(() => supabase.from("veille_config").select("*").in("cle", [CLE_FICHES, CLE_REFUS, CLE_ECARTS]));
     fiches = (conf.find(c => c.cle === CLE_FICHES) || {}).valeur || {};
     refuses = (conf.find(c => c.cle === CLE_REFUS) || {}).valeur || [];
-  } catch { /* table absente : pas de photos ni de refus mémorisés */ }
+    ecarts = (conf.find(c => c.cle === CLE_ECARTS) || {}).valeur || {};
+  } catch { /* table absente : pas de photos, de refus ni d'écarts mémorisés */ }
 
-  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence, fiches, refuses };
+  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence, fiches, refuses, ecarts };
 }
 
 export const CLE_FICHES = "fiches_produits";   // { "page|clé produit": { i: [photo], h: [empreintes], t: titre, le: date } }
 export const CLE_REFUS = "regroupements_refuses";   // [paires refusées]
+export const CLE_ECARTS = "ecarts_prix";   // { "page|clé produit": { site, saisi, le } } : ton prix différent de celui du site
 
 export async function saveConfig(cle, valeur) {
   const { error } = await supabase.from("veille_config").upsert([{ cle, valeur }], { onConflict: "cle" });

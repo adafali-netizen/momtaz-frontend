@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildGroups, suggestionsRegroupement } from "./veille/veilleLib";
+import { buildGroups, suggestionsRegroupement, tachesAFaire, pagesALire } from "./veille/veilleLib";
 import { loadVeille, updateProduits, updatePage, saveConfig, CLE_REFUS } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
 import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement, pagesARelever, lancerCapturePrix } from "./veille/veilleRunner";
@@ -9,6 +9,7 @@ import PagesSuivies from "./veille/PagesSuivies";
 import Historique from "./veille/Historique";
 import Recherche from "./veille/Recherche";
 import Regroupements from "./veille/Regroupements";
+import AFaire from "./veille/AFaire";
 import EtudeMarche, { etudeEtat, telechargerEtude } from "./veille/EtudeMarche";
 
 // Bilan affiché à la fin d'un relevé : pages enregistrées, pages sans pub, pages que Facebook n'a pas affichées
@@ -38,6 +39,7 @@ export default function Veille() {
   const [journal,  setJournal]  = useState(null);   // { type, lignes, fin } : gardé après la fin de la tâche
   const [journalOuvert, setJournalOuvert] = useState(true);
   const [dernierType, setDernierType] = useState(null);   // type de la dernière tâche lancée
+  const [preset, setPreset] = useState(null);   // filtre imposé au Classement par le bandeau « À faire »
   // Nombre de pages par relevé (vide = toutes), mémorisé dans ce navigateur
   const [maxReleve, setMaxReleve] = useState(() => { try { return localStorage.getItem("momtaz_releve_max") || ""; } catch { return ""; } });
   useEffect(() => { try { localStorage.setItem("momtaz_releve_max", maxReleve); } catch { /* stockage indisponible */ } }, [maxReleve]);
@@ -165,7 +167,7 @@ export default function Veille() {
   const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
 
   const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, fiches: { ...data.fiches }, max: Number(maxReleve) || 0 }, ctl));
-  const capturerLesPrix = items => lancer("prix", ctl => lancerCapturePrix(items, ctl, { fiches: { ...data.fiches }, titre: "Prix et photos" }));
+  const capturerLesPrix = items => lancer("prix", ctl => lancerCapturePrix(items, ctl, { fiches: { ...data.fiches }, ecarts: { ...data.ecarts }, titre: "Prix et photos" }));
   const releverSelection = ids => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, fiches: { ...data.fiches }, ids }, ctl));
 
   if (!data && !erreur) return <div className="loading-screen"><span className="loading-dot" />Chargement de la veille…</div>;
@@ -175,6 +177,22 @@ export default function Veille() {
   const aRelever = data ? pagesARelever(pages, data.latest, Number(maxReleve) || 0) : [];
   const jamais = data ? pages.filter(p => p.actif && !data.latest[p.fb_page_id]).length : 0;
   const pubsActives = groups.reduce((s, g) => s + g.pubs, 0);
+
+  // Bandeau « À faire »
+  const { taches, prochaine } = data ? tachesAFaire({ groupes: groups, suggestions, ecarts: data.ecarts, pages, latest: data.latest, ext, homonymes }) : { taches: [], prochaine: null };
+  const agir = t => {
+    if (t.id === "releve") {
+      if (window.confirm(`Relever ${t.ids.length} page${t.ids.length > 1 ? "s" : ""} maintenant ? Une page toutes les 30 à 60 secondes, puis lecture des prix et photos.`)) releverSelection(t.ids);
+    } else if (t.id === "lire") {
+      const items = pagesALire(groups);
+      const minutes = Math.ceil(items.length * 6 / 60);
+      if (window.confirm(`Lire le prix et les photos de ${items.length} pages produit ? Environ ${minutes} minute${minutes > 1 ? "s" : ""} au plus. Les prix introuvables restent vides.`)) capturerLesPrix(items);
+    } else if (t.id === "ecarts" || t.id === "saisir") {
+      setPreset({ prix: t.id, n: Date.now() });
+      setOnglet("classement");
+    } else if (t.id === "regroupements") setOnglet("regroupements");
+    else if (t.id === "homonymes") setOnglet("pages");
+  };
   const enScale = groups.filter(g => g.pubs >= 20 && g.recent > 0).length;
   const nbCreas = groups.reduce((s, g) => s + g.crea, 0);
 
@@ -228,6 +246,8 @@ export default function Veille() {
           ))}
         </div>
       </div>
+
+      {data && !run && <AFaire taches={taches} prochaine={prochaine} onAction={agir} occupe={!!run || !ext} />}
 
       {run && (
         <div className="alert-banner" style={{ background: "var(--blue-lt)", color: "var(--blue)", border: "1px solid #BFDBFE", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -285,7 +305,7 @@ export default function Veille() {
             <div className="kpi-card kpi-success"><div className="kpi-value">{enScale}</div><div className="kpi-label">En scale (20 pubs et ajouts récents)</div></div>
           </div>
           <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at}
-            ext={ext} run={run} onCapturerPrix={capturerLesPrix} />
+            ext={ext} run={run} onCapturerPrix={capturerLesPrix} ecarts={data.ecarts} preset={preset} />
         </>
       )}
       {data && onglet === "regroupements" && (

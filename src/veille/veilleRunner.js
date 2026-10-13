@@ -4,7 +4,7 @@ import { releverUrl, capturerPrix } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
-  updateProduits, remplirPrixVide, saveConfig, CLE_FICHES,
+  updateProduits, remplirPrixVide, saveConfig, CLE_FICHES, CLE_ECARTS,
 } from "./veilleData";
 
 // Pause entre deux pages Facebook (30 à 60 s) pour relever à un rythme humain
@@ -273,8 +273,11 @@ export async function lancerEtude(mots, opts, etat, ctl, onMot) {
 // items : [{ cles: [{ fb_page_id, produit_key }], ids, url, prix, nom, page }]
 // Seuls les prix vides sont enregistrés ; un prix saisi différent est signalé dans le journal.
 // opts.fiches : photos déjà connues (complétées et enregistrées dans veille_config au fil de l'eau)
+// opts.ecarts : écarts déjà connus entre ton prix et celui du site (mis à jour pour les produits relus)
 export async function lancerCapturePrix(items, ctl, opts = {}) {
   const fiches = opts.fiches || {};
+  const ecarts = opts.ecarts || null;
+  let ecartsModifies = false;
   const titre = opts.titre || "Prix";
   const bilan = { total: items.length, remplis: 0, ecarts: 0, introuvables: 0, erreurs: 0, photos: 0 };
   let aSauver = 0;
@@ -310,6 +313,9 @@ export async function lancerCapturePrix(items, ctl, opts = {}) {
       } else if (Math.abs(Number(it.prix) - r.prix) >= 1) {
         bilan.ecarts++;
         ctl.log(`${it.nom} (${it.page}) : ÉCART, prix saisi ${it.prix} DH, prix sur le site ${r.prix} DH (non modifié)`);
+        if (ecarts) { for (const c of cles) ecarts[c.fb_page_id + "|" + c.produit_key] = { site: r.prix, saisi: Number(it.prix), le: new Date().toISOString() }; ecartsModifies = true; }
+      } else if (ecarts) {
+        for (const c of cles) { const k = c.fb_page_id + "|" + c.produit_key; if (ecarts[k]) { delete ecarts[k]; ecartsModifies = true; } }
       }
     } catch (e) {
       bilan.erreurs++;
@@ -322,6 +328,10 @@ export async function lancerCapturePrix(items, ctl, opts = {}) {
     }
   }
   await sauverFiches();
+  if (ecartsModifies) {
+    try { await saveConfig(CLE_ECARTS, ecarts); }
+    catch (e) { ctl.log(`Écarts de prix non enregistrés (${e.message || e}).`); }
+  }
   ctl.log(`${titre} : ${bilan.remplis} prix trouvé${bilan.remplis > 1 ? "s" : ""}, ${bilan.introuvables + bilan.erreurs} laissé${bilan.introuvables + bilan.erreurs > 1 ? "s" : ""} vide${bilan.introuvables + bilan.erreurs > 1 ? "s" : ""}, ${bilan.photos} produit${bilan.photos > 1 ? "s" : ""} avec photo, sur ${items.length}`);
   bilan.arrete = !!ctl.stop;
   return bilan;
