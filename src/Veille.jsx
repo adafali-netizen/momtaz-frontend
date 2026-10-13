@@ -10,6 +10,8 @@ import Historique from "./veille/Historique";
 import Recherche from "./veille/Recherche";
 import Regroupements from "./veille/Regroupements";
 import AFaire from "./veille/AFaire";
+import Decision from "./veille/Decision";
+import { CLE_PARAMS, CLE_DECISIONS } from "./veille/decisionLib";
 import EtudeMarche, { etudeEtat, telechargerEtude } from "./veille/EtudeMarche";
 
 // Bilan affiché à la fin d'un relevé : pages enregistrées, pages sans pub, pages que Facebook n'a pas affichées
@@ -89,6 +91,13 @@ export default function Veille() {
   // Regroupements proposés (même photo produit ou mots communs), sans les paires refusées
   const refuses = useMemo(() => new Set(data?.refuses || []), [data]);
   const suggestions = useMemo(() => suggestionsRegroupement(groups, { refuses }), [groups, refuses]);
+
+  // Module Décision : réglages et décisions gardés dans veille_config
+  const sauverConfigVeille = useCallback(async (cle, champ, valeur) => {
+    setData(d => ({ ...d, [champ]: valeur }));
+    try { await saveConfig(cle, valeur); }
+    catch (e) { setErreur("Décision non enregistrée : " + (e.message || e)); }
+  }, []);
 
   const refuserPaire = useCallback(async cle => {
     const liste = [...new Set([...(data?.refuses || []), cle])];
@@ -206,6 +215,7 @@ export default function Veille() {
   const ONGLETS = [
     { id: "classement", label: "Classement produits" },
     { id: "regroupements", label: `Regroupements à valider (${suggestions.length})` },
+    { id: "decision", label: "Décision de test" },
     { id: "pages",      label: `Pages suivies (${actives})` },
     { id: "historique", label: "Historique des relevés" },
     { id: "recherche",  label: "Recherche de pages" },
@@ -311,6 +321,11 @@ export default function Veille() {
       {data && onglet === "regroupements" && (
         <Regroupements suggestions={suggestions} ext={ext} onPatch={patchProduits} onRefuser={refuserPaire}
           nbPhotos={Object.values(data.fiches || {}).filter(f => f.h && f.h.length).length} nbProduits={data.produits.length} />
+      )}
+      {data && onglet === "decision" && (
+        <Decision groups={groups} parametres={data.decisionParams} decisions={data.decisions || {}} onPatch={patchProduits}
+          onSaveParams={v => sauverConfigVeille(CLE_PARAMS, "decisionParams", v)}
+          onSaveDecisions={v => sauverConfigVeille(CLE_DECISIONS, "decisions", v)} />
       )}
       {data && onglet === "pages" && (
         <PagesSuivies pages={pages} groups={groups} latest={data.latest} pageInfo={pageInfo} homonymes={homonymes} onReload={charger} onPatchPage={patchPage}
