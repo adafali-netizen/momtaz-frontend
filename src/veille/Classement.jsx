@@ -1,5 +1,18 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, toSheetTsv, pagesALire, vendeurASaisir, ecartVendeur } from "./veilleLib";
+import { useTri, Th } from "./tri";
+
+// Colonnes triables. Par défaut : pubs lancées dans les 7 jours (à égalité, le score)
+const COLONNES = {
+  produit: g => g.nom.toLowerCase(),
+  score:   g => g.score,
+  phase:   g => PHASES.indexOf(g.phase.phase) + (g.phase.actif ? 0.5 : 0),
+  pubs:    g => g.pubs,
+  age:     g => g.age,
+  recent:  g => g.recent + g.score / 1000,
+  crea:    g => g.crea,
+  prix:    g => g.prixMax,
+};
 
 const FILTRES_PRIX = [
   { id: "tous",   label: "Tous les prix" },
@@ -167,14 +180,16 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
   const [fStatut, setFStatut] = useState("actifs");
   const [fPrix,   setFPrix]   = useState("tous");
   const [fPhase,  setFPhase]  = useState("");
+  const [ouvert,  setOuvert]  = useState(null);
 
-  // Filtre demandé par le bandeau « À faire » (prix à saisir, écarts) : on repart des autres filtres à zéro
+  // Filtre demandé par le bandeau « À faire » (prix à saisir, écarts) ou par Pages suivies (un produit d'une page) :
+  // on repart des autres filtres à zéro
   useEffect(() => {
     if (!preset) return;
-    setFPrix(preset.prix); setFPhase(""); setFPage(""); setFStatut("tous"); setQ("");
+    setFPrix(preset.prix || "tous"); setFPhase(""); setFPage(preset.page || ""); setFStatut("tous"); setQ(preset.q || "");
+    setOuvert(preset.ouvrir || null);
   }, [preset]);
   const [q,       setQ]       = useState("");
-  const [ouvert,  setOuvert]  = useState(null);
   const [limite,  setLimite]  = useState(50);
 
   const visibles = useMemo(() => groups.filter(g => {
@@ -197,6 +212,7 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
 
   // Pages produit à lire : produits affichés (filtres appliqués), une par page vendeuse, sans prix ou sans photo
   const aCapturer = useMemo(() => pagesALire(visibles, verifier), [visibles, verifier]);
+  const { triees, tri, trier } = useTri(visibles, COLONNES, { col: "recent", sens: "desc" }, ["produit"]);
 
   const capturer = () => {
     const minutes = Math.ceil(aCapturer.length * 6 / 60);
@@ -205,7 +221,7 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
   };
 
   const exporter = () => {
-    const tsv = toSheetTsv(visibles, pageInfo, dateReleve ? new Date(dateReleve).toLocaleDateString("fr-FR") : "");
+    const tsv = toSheetTsv(triees, pageInfo, dateReleve ? new Date(dateReleve).toLocaleDateString("fr-FR") : "");
     const blob = new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -263,13 +279,19 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
         <table className="data-table" style={{ minWidth: 1000 }}>
           <thead>
             <tr>
-              <th>#</th><th>Produit et vendeurs</th><th>Score</th><th>Phase</th>
-              <th style={{ textAlign: "right" }}>Pubs</th><th style={{ textAlign: "right" }}>Âge</th>
-              <th style={{ textAlign: "right" }}>Ajouts 7 j</th><th>Créatives</th><th>Risques</th><th>Statut</th>
+              <th>#</th>
+              <Th col="produit" tri={tri} trier={trier}>Produit et vendeurs</Th>
+              <Th col="score" tri={tri} trier={trier}>Score</Th>
+              <Th col="phase" tri={tri} trier={trier}>Phase</Th>
+              <Th col="pubs" tri={tri} trier={trier} droite>Pubs</Th>
+              <Th col="age" tri={tri} trier={trier} droite>Âge</Th>
+              <Th col="recent" tri={tri} trier={trier} droite>Ajouts 7 j</Th>
+              <Th col="crea" tri={tri} trier={trier}>Créatives</Th>
+              <th>Risques</th><th>Statut</th>
             </tr>
           </thead>
           <tbody>
-            {visibles.slice(0, limite).map((g, i) => {
+            {triees.slice(0, limite).map((g, i) => {
               const cle = g.nom.toLowerCase();
               const [coul, fond] = STATUT_COULEURS[g.statut] || STATUT_COULEURS.Nouveau;
               const premieres = g.cartes.filter(c => c.media).slice(0, 3);

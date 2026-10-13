@@ -314,7 +314,8 @@ export default function Veille() {
       )}
       {data && onglet === "pages" && (
         <PagesSuivies pages={pages} groups={groups} latest={data.latest} pageInfo={pageInfo} homonymes={homonymes} onReload={charger} onPatchPage={patchPage}
-          ext={ext} run={run} onRelever={releverSelection} />
+          ext={ext} run={run} onRelever={releverSelection}
+          onVoirProduit={(pageId, nom) => { setPreset({ page: pageId, q: nom, ouvrir: nom.toLowerCase(), n: Date.now() }); setOnglet("classement"); }} />
       )}
       {data && onglet === "historique" && (
         <Historique releves={releves} relevePages={data.relevePages} produits={data.produits} pageInfo={pageInfo} onReload={charger} />

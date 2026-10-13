@@ -20,14 +20,15 @@ function Badge({ phase }) {
 
 function Produit({ g }) {
   const photo = g.images[0] || g.thumb;
+  const lien = (g.vendors.find(v => v.urls.length) || { urls: [] }).urls[0];
   return (
-    <div style={{ flex: "1 1 260px", minWidth: 0, display: "flex", gap: 12 }}>
+    <div style={{ flex: "1 1 320px", minWidth: 0, display: "flex", gap: 12 }}>
       {photo
-        ? <a href={photo} target="_blank" rel="noreferrer" style={{ flex: "none" }}>
-            <img src={photo} alt="" loading="lazy" style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 8, background: "var(--surface2)", border: "1px solid var(--border)" }}
+        ? <a href={lien || photo} target="_blank" rel="noreferrer" style={{ flex: "none" }} title={lien ? "Ouvrir la page produit" : "Agrandir la photo"}>
+            <img src={photo} alt="" loading="lazy" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 8, background: "var(--surface2)", border: "1px solid var(--border)" }}
               onError={e => { e.currentTarget.style.visibility = "hidden"; }} />
           </a>
-        : <div style={{ width: 120, height: 120, borderRadius: 8, background: "var(--surface2)", flex: "none" }} />}
+        : <div style={{ width: 160, height: 160, borderRadius: 8, background: "var(--surface2)", flex: "none" }} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
         <span style={{ fontWeight: 700 }}>{g.nom}</span>
         <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
@@ -35,13 +36,16 @@ function Produit({ g }) {
           <span className="col-muted">{fmtPrix(g)} · {g.pubs} pubs · {g.crea} créatives</span>
         </span>
         {g.vendors.map(v => (
-          <span key={v.fb_page_id} style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 600 }}>{v.page}</span>
-            {v.urls.map((u, i) => (
-              <a key={u} href={u} target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>Page produit{v.urls.length > 1 ? " " + (i + 1) : ""}</a>
+          <div key={v.fb_page_id} style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
+            <span style={{ fontWeight: 600 }}>{v.page} · {v.pubs} pubs{v.prix ? ` · ${v.prix} DH` : ""}</span>
+            {v.urls.map(u => (
+              <a key={u} href={u} target="_blank" rel="noreferrer" className="btn btn-sm btn-secondary"
+                style={{ alignSelf: "flex-start", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+                Ouvrir la page produit ↗ <span className="col-muted" style={{ fontWeight: 400 }}>{u.replace(/^https?:\/\/(www\.)?/, "").slice(0, 45)}</span>
+              </a>
             ))}
-            {!v.urls.length && <span className="col-muted">sans lien</span>}
-          </span>
+            {!v.urls.length && <span className="col-muted">Pas de page produit (lien WhatsApp ou sans lien)</span>}
+          </div>
         ))}
         {!g.images.length && <span className="col-muted" style={{ fontSize: 11 }}>Photo de la pub (page produit pas encore lue)</span>}
       </div>

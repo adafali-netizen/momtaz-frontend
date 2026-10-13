@@ -235,6 +235,7 @@ export const clePaire = (a, b) => [a.cle, b.cle].sort().join(" ⇄ ");
 // refuses : Set des paires refusées (clePaire). Renvoie [{ a, b, raison, photo, force }], à confirmer par l'utilisateur.
 const motsDe = s => new Set(String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
   .split(/[^\p{L}\p{N}]+/u).filter(m => m.length >= 3 && !STOP.has(m) && !/^\d+$/.test(m)));
+const SANS_NOM = /^\s*produit sans nom\s*$/i;
 export function suggestionsRegroupement(groupes, { refuses = new Set(), max = 60 } = {}) {
   const liste = groupes.map(g => ({ g, mots: motsDe(g.nom), pages: new Set(g.vendors.map(v => v.fb_page_id)), hashes: (g.hashes || []).filter(empreinteUtile) }));
 
@@ -256,7 +257,9 @@ export function suggestionsRegroupement(groupes, { refuses = new Set(), max = 60
     const communs = [...A.mots].filter(m => B.mots.has(m));
     const jaccard = communs.length ? communs.length / new Set([...A.mots, ...B.mots]).size : 0;
     const prixEcart = A.g.prixMax && B.g.prixMax ? Math.abs(A.g.prixMax - B.g.prixMax) / Math.max(A.g.prixMax, B.g.prixMax) : null;
-    const memesMots = communs.length >= 2 && jaccard >= 0.4 && !(prixEcart != null && prixEcart > 0.35);
+    // Nom par défaut (« Produit sans nom ») : ses mots ne prouvent rien
+    const sansNom = SANS_NOM.test(A.g.nom) || SANS_NOM.test(B.g.nom);
+    const memesMots = !sansNom && communs.length >= 2 && jaccard >= 0.4 && !(prixEcart != null && prixEcart > 0.35);
     if (!memePhoto && !memesMots) continue;
 
     const raisons = [];

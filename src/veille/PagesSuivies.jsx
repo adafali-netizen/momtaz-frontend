@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { pageIdFrom } from "./veilleLib";
 import { addPages, updatePage } from "./veilleData";
 import { ecrireXlsx, horodatage } from "./exportXlsx";
+import { useTri, Th } from "./tri";
 
 const libUrl = id => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + id;
 
@@ -23,7 +24,7 @@ function NomInterne({ page, onSave }) {
   );
 }
 
-export default function PagesSuivies({ pages, groups, latest, pageInfo, homonymes, onReload, onPatchPage, ext, run, onRelever }) {
+export default function PagesSuivies({ pages, groups, latest, pageInfo, homonymes, onReload, onPatchPage, ext, run, onRelever, onVoirProduit }) {
   const [choix,    setChoix]    = useState(() => new Set());   // pages cochées pour un relevé
   const [texte,    setTexte]    = useState("");
   const [verif,    setVerif]    = useState(null);
@@ -35,9 +36,12 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
   const stats = useMemo(() => {
     const s = {};
     for (const g of groups) for (const v of g.vendors) {
-      const x = (s[v.fb_page_id] = s[v.fb_page_id] || { pubs: 0, produits: 0, recent: 0 });
+      const x = (s[v.fb_page_id] = s[v.fb_page_id] || { pubs: 0, produits: 0, recent: 0, lances: [] });
       x.pubs += v.pubs; x.produits += 1; x.recent += v.recent;
+      // Produits qui ont reçu des pubs lancées dans les 7 jours avant le relevé de la page
+      if (v.recent > 0) x.lances.push({ nom: g.nom, recent: v.recent, pubs: v.pubs, phase: g.phase && g.phase.phase });
     }
+    for (const x of Object.values(s)) x.lances.sort((a, b) => b.recent - a.recent);
     return s;
   }, [groups]);
 
@@ -64,10 +68,19 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
     finally { setEnvoi(false); }
   };
 
-  const liste = pages
+  const filtrees = useMemo(() => pages
     .filter(p => retirees ? !p.actif : p.actif)
-    .filter(p => !q || [pageInfo(p.fb_page_id).nom, p.nom, p.fb_page_id, p.sites].join(" ").toLowerCase().includes(q.toLowerCase()))
-    .sort((a, b) => (stats[b.fb_page_id]?.pubs || 0) - (stats[a.fb_page_id]?.pubs || 0));
+    .filter(p => !q || [pageInfo(p.fb_page_id).nom, p.nom, p.fb_page_id, p.sites].join(" ").toLowerCase().includes(q.toLowerCase())),
+  [pages, retirees, q, pageInfo]);
+  // Tri : par défaut les pubs lancées dans les 7 jours (à égalité, les pubs actives)
+  const colonnes = useMemo(() => ({
+    page:     p => pageInfo(p.fb_page_id).nom.toLowerCase(),
+    pubs:     p => stats[p.fb_page_id]?.pubs || 0,
+    produits: p => stats[p.fb_page_id]?.produits || 0,
+    recent:   p => (stats[p.fb_page_id]?.recent || 0) + (stats[p.fb_page_id]?.pubs || 0) / 100000,
+    releve:   p => (latest[p.fb_page_id] ? new Date(latest[p.fb_page_id].capture_le).getTime() : null),
+  }), [stats, latest, pageInfo]);
+  const { triees: liste, tri, trier } = useTri(filtrees, colonnes, { col: "recent", sens: "desc" }, ["page"]);
 
   // Cases à cocher : seulement pour les pages suivies (une page retirée ne se relève pas)
   const cochables = retirees ? [] : liste.map(p => p.fb_page_id);
@@ -91,7 +104,7 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
   const telecharger = () => ecrireXlsx(`pages_${retirees ? "retirees" : "suivies"}_${horodatage()}.xlsx`, [{
     nom: retirees ? "Pages retirées" : "Pages suivies",
     lignes: liste.map(p => {
-      const s = stats[p.fb_page_id] || { pubs: 0, produits: 0, recent: 0 };
+      const s = stats[p.fb_page_id] || { pubs: 0, produits: 0, recent: 0, lances: [] };
       const rel = latest[p.fb_page_id];
       return {
         "Page": p.nom || "",
@@ -101,6 +114,7 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
         "Pubs actives": s.pubs,
         "Produits": s.produits,
         "Ajouts 7 jours": s.recent,
+        "Produits des ajouts 7 jours": (s.lances || []).map(x => `${x.nom} +${x.recent}`).join(" · "),
         "Créatives au dernier relevé": rel ? rel.nb_cartes : "",
         "Dernier relevé": rel ? new Date(rel.capture_le).toLocaleString("fr-FR") : "Jamais relevée",
         "Statut": p.actif ? "Suivie" : "Retirée",
@@ -170,9 +184,12 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
             <thead>
               <tr>
                 {!retirees && <th style={{ width: 32 }}><input type="checkbox" checked={toutCoche} onChange={toutBasculer} title="Tout cocher" /></th>}
-                <th>Page</th><th>Nom interne</th><th>Sites</th>
-                <th style={{ textAlign: "right" }}>Pubs actives</th><th style={{ textAlign: "right" }}>Produits</th>
-                <th style={{ textAlign: "right" }}>Ajouts 7 j</th><th>Dernier relevé</th><th>Actions</th>
+                <Th col="page" tri={tri} trier={trier}>Page</Th><th>Nom interne</th><th>Sites</th>
+                <Th col="pubs" tri={tri} trier={trier} droite>Pubs actives</Th>
+                <Th col="produits" tri={tri} trier={trier} droite>Produits</Th>
+                <Th col="recent" tri={tri} trier={trier} droite>Ajouts 7 j</Th>
+                <th>Produits des ajouts 7 j</th>
+                <Th col="releve" tri={tri} trier={trier}>Dernier relevé</Th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -192,6 +209,17 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
                     <td className="col-mono" style={{ textAlign: "right", fontWeight: 700 }}>{s.pubs}</td>
                     <td className="col-mono" style={{ textAlign: "right" }}>{s.produits}</td>
                     <td className="col-mono" style={{ textAlign: "right", color: s.recent ? "var(--green)" : "var(--muted2)" }}>{s.recent ? "+" + s.recent : "0"}</td>
+                    <td style={{ fontSize: 12, minWidth: 220, maxWidth: 320 }}>
+                      {(s.lances || []).slice(0, 3).map(x => (
+                        <div key={x.nom} style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                          <span className="col-mono" style={{ color: "var(--green)", fontWeight: 700, minWidth: 34 }}>+{x.recent}</span>
+                          <a href="#" title={`${x.pubs} pubs actives${x.phase ? " · " + x.phase : ""} · voir dans le Classement`}
+                            onClick={e => { e.preventDefault(); onVoirProduit && onVoirProduit(p.fb_page_id, x.nom); }}
+                            style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.nom}</a>
+                        </div>
+                      ))}
+                      {(s.lances || []).length > 3 && <span className="col-muted">+{s.lances.length - 3} autre{s.lances.length - 3 > 1 ? "s" : ""}</span>}
+                    </td>
                     <td className="col-muted">
                       {rel ? new Date(rel.capture_le).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Jamais relevée"}
                       {rel && rel.nb_cartes === 0 && <div style={{ color: "var(--red)", fontSize: 11, fontWeight: 600 }}>Plus de pub active</div>}
