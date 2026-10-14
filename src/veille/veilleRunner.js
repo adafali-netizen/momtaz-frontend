@@ -358,7 +358,11 @@ export async function lancerCapturePrix(items, ctl, opts = {}) {
         if (cles.length) aSauver++;
         if (fiche.h.length) bilan.photos++;
       }
-      if (!r || !r.prix) { bilan.introuvables++; ctl.log(`${it.nom} (${it.page}) : prix introuvable, laissé vide · ${it.url}`); }
+      if (!r || !r.prix) {
+        bilan.introuvables++;
+        if (r && r.bloque) ctl.log(`${it.nom} (${it.page}) : le site bloque la lecture automatique, prix à saisir à la main · ${it.url}`);
+        else ctl.log(`${it.nom} (${it.page}) : prix introuvable, laissé vide · ${it.url}${r && r.indice ? ` · indice : « ${r.indice} »` : ""}`);
+      }
       else if (it.prix == null || it.prix === "") {
         let fait = 0;
         if (it.ids && it.ids.length) { await updateProduits(it.ids, { prix: r.prix }); fait = 1; }

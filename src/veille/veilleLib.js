@@ -820,7 +820,7 @@ export function evaluatePage(ads, crit0) {
 // ─── 9. Tâches manuelles : bandeau « À faire » ────────────────────────────
 
 // Version de l'extension qu'attend l'ERP
-export const EXTENSION_REQUISE = "1.0.10";
+export const EXTENSION_REQUISE = "1.0.11";
 export function versionAuMoins(v, min) {
   const a = String(v || "0").split(".").map(Number), b = String(min).split(".").map(Number);
   for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);

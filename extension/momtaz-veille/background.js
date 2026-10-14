@@ -122,6 +122,9 @@ async function scrape(id, opts) {
 // Lue dans l'onglet ouvert : 1) boutique Shopify (fichier produit .js), 2) données structurées,
 // 3) balises meta, 4) prix affiché le plus visible, hors prix barré.
 function lirePrixDansLaPage() {
+  // Chiffres arabes (١٤٩) et persans (۱۴۹) → chiffres latins ; tatweel retiré
+  const latin = s => String(s).replace(/[\u0660-\u0669]/g, d => d.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, d => d.charCodeAt(0) - 0x06F0)
+    .replace(/\u066B/g, ",").replace(/\u0640/g, "");
   const nombre = s => {
     let t = String(s).replace(/[\s  ]/g, "");
     const virgule = t.lastIndexOf(","), point = t.lastIndexOf(".");
@@ -198,7 +201,7 @@ function lirePrixDansLaPage() {
       const candidats = [];
       for (const el of document.querySelectorAll("body *")) {
         if (el.children.length > 2) continue;
-        const t = (el.textContent || "").trim();
+        const t = latin((el.textContent || "").trim());
         if (!t || t.length > 40 || !DEVISE.test(t)) continue;
         const mm = t.match(RE);
         if (!mm) continue;
@@ -227,7 +230,21 @@ function lirePrixDansLaPage() {
     window.scrollTo(0, 0);
     const bas = lireAffiche(20000, "prix affiché plus bas dans la page, à vérifier");
     if (bas) return bas;
-    return { prix: null, source: null, images, titre };
+    // Site qui refuse les lecteurs automatiques (page « accès refusé »)
+    const debut = (document.title + " " + (document.body ? String(document.body.innerText || document.body.textContent || "").slice(0, 400) : "")).toLowerCase();
+    if (/الوصول مرفوض|access denied|accès refusé|acces refuse|403 forbidden|forbidden/.test(debut)) {
+      return { prix: null, source: null, images, titre, bloque: true };
+    }
+    // Indice pour comprendre pourquoi : courts textes visibles qui contiennent un nombre et une devise
+    const indices = [];
+    for (const el of document.querySelectorAll("body *")) {
+      if (el.children.length > 3) continue;
+      const t = latin((el.textContent || "").replace(/\s+/g, " ").trim());
+      if (!t || t.length > 60 || !/\d/.test(t) || !/(دم|درهم|dh|mad|د\.م)/i.test(t) || indices.includes(t)) continue;
+      indices.push(t);
+      if (indices.length >= 3) break;
+    }
+    return { prix: null, source: null, images, titre, indice: indices.join(" | ") || "aucun texte avec un prix visible" };
   })();
 }
 
