@@ -217,7 +217,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
           <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontWeight: 700 }}>Mots-clés ({d.motscles.filter(m => m.actif).length} actifs)</div>
             <div className="col-muted">
-              La recherche lit le texte des pubs (texte et titre). À chaque recherche, les produits à 230 DH et plus qui reçoivent le plus de pubs sur 7 jours sont ajoutés.
+              La recherche lit le texte des pubs (texte et titre). Les noms de produits ajoutés automatiquement (« Produit suivi ») ne sont pas utilisés : la recherche sert à découvrir des produits nouveaux.
               Un mot-clé est désactivé automatiquement s'il n'a fait garder aucune page sur {ANALYSEES_AVANT_NETTOYAGE} pages analysées, ou s'il ne trouve aucune nouvelle page en {RECHERCHES_AVANT_NETTOYAGE} recherches.
             </div>
             <textarea className="form-input" rows={5} value={liste} onChange={e => setListe(e.target.value)}
@@ -248,6 +248,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
                   <span className="col-mono" title="Pages gardées / pages analysées / nouvelles pages trouvées · nombre de recherches" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
                     {st.recherches ? <><b style={{ color: st.gardees ? "var(--green)" : "var(--muted)" }}>{st.gardees}</b> / {st.analysees || 0} / {st.nouvelles} · {st.recherches}×</> : <span className="col-muted">jamais</span>}
                   </span>
+                  {m.source === "produit" && <span className="tag" title="Nom de produit ajouté automatiquement : pas utilisé par la recherche" style={{ opacity: 0.7 }}>Produit suivi · non utilisé</span>}
                   <button className={`tag ${type === "phrase" ? "blue" : "green"}`} style={{ border: "none", cursor: "pointer" }} title="Changer de type" onClick={() => basculerType(m)}>
                     {type === "phrase" ? "Phrase" : "Produit"}
                   </button>

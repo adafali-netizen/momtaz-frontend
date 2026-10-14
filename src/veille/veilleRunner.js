@@ -61,11 +61,11 @@ export async function lancerRecherche(ctx, ctl) {
   //    jamais utilisés d'abord, puis les plus rentables (40 au plus)
   let mots = [];
   if (!repriseSeule) {
-    const dejaMots = new Set(ctx.motscles.map(m => cleMot(m.mot)));
-    const auto = motsProduitsAuto(ctx.groupes, dejaMots);
-    for (const mot of auto) await addMotCle(mot, "produit");
+    // Exploration : seulement tes mots-clés (phrases et catégories), jamais les noms de produits ajoutés automatiquement,
+    // pour découvrir des produits nouveaux et pas seulement les concurrents des produits déjà connus
+    const auto = [];
     const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
-    const actifs = ctx.motscles.filter(m => m.actif).map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" }));
+    const actifs = ctx.motscles.filter(m => m.actif && m.source !== "produit").map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" }));
     mots = [...auto.map(mot => ({ id: null, mot, exact: false })), ...choisirMots(actifs, ctx.stats, collecte ? actifs.length : Math.max(0, MOTS_PAR_SESSION - auto.length))];
     if (!mots.length && !Object.keys(file).length) throw new Error("Aucun mot-clé actif.");
   }
