@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildGroups, suggestionsRegroupement, tachesAFaire, pagesALire } from "./veille/veilleLib";
-import { loadVeille, updateProduits, updatePage, saveConfig, CLE_REFUS } from "./veille/veilleData";
+import { buildGroups, suggestionsRegroupement, tachesAFaire, pagesALire, candidatTest } from "./veille/veilleLib";
+import { loadVeille, loadRecherche, updateProduits, updatePage, saveConfig, CLE_REFUS } from "./veille/veilleData";
 import { detecterExtension, arreterExtension } from "./veille/veilleExt";
 import { lancerRecherche, lancerReleve, lancerEtude, reessayerEnregistrement, pagesARelever, lancerCapturePrix } from "./veille/veilleRunner";
 import ImportModal from "./veille/ImportModal";
@@ -13,6 +13,17 @@ import AFaire from "./veille/AFaire";
 import Decision from "./veille/Decision";
 import { CLE_PARAMS, CLE_DECISIONS } from "./veille/decisionLib";
 import EtudeMarche, { etudeEtat, telechargerEtude } from "./veille/EtudeMarche";
+import Synthese from "./veille/Synthese";
+import { nichesPages, CLE_NICHES } from "./veille/nichesLib";
+import { PAGES_PAR_SESSION } from "./veille/motsLib";
+
+// 4 onglets, chacun avec ses vues. Les anciens noms d'onglet mènent à la bonne vue.
+const VUES = {
+  classement: ["produits", "classement"], top: ["produits", "top"], regroupements: ["produits", "regroupements"],
+  decision: ["decision", "decision"],
+  pages: ["pages", "suivies"], suivies: ["pages", "suivies"], recherche: ["pages", "trouver"], trouver: ["pages", "trouver"],
+  historique: ["outils", "historique"], etude: ["outils", "etude"],
+};
 
 // Bilan affiché à la fin d'un relevé : pages enregistrées, pages sans pub, pages que Facebook n'a pas affichées
 function bilanReleve(res) {
@@ -32,7 +43,10 @@ const fmtDate = d => d ? new Date(d).toLocaleString("fr-FR", { weekday: "long", 
 export default function Veille() {
   const [data,     setData]     = useState(null);
   const [erreur,   setErreur]   = useState("");
-  const [onglet,   setOnglet]   = useState("classement");
+  const [vue,      setVue]      = useState(() => { try { return VUES[localStorage.getItem("momtaz_veille_vue")] ? localStorage.getItem("momtaz_veille_vue") : "classement"; } catch { return "classement"; } });
+  const setOnglet = v => { setVue(v); try { localStorage.setItem("momtaz_veille_vue", v); } catch { /* stockage indisponible */ } };
+  const [onglet, sousVue] = VUES[vue] || VUES.classement;
+  const [menu,     setMenu]     = useState(false);   // menu « Mettre à jour »
   const [importer, setImporter] = useState(false);
   const [message,  setMessage]  = useState("");
   const [ext,      setExt]      = useState(null);
@@ -92,12 +106,21 @@ export default function Veille() {
   const refuses = useMemo(() => new Set(data?.refuses || []), [data]);
   const suggestions = useMemo(() => suggestionsRegroupement(groups, { refuses }), [groups, refuses]);
 
-  // Module Décision : réglages et décisions gardés dans veille_config
+  // Réglages, décisions, niches corrigées et commandes test : gardés dans veille_config
   const sauverConfigVeille = useCallback(async (cle, champ, valeur) => {
     setData(d => ({ ...d, [champ]: valeur }));
     try { await saveConfig(cle, valeur); }
-    catch (e) { setErreur("Décision non enregistrée : " + (e.message || e)); }
+    catch (e) { setErreur("Modification non enregistrée : " + (e.message || e)); }
   }, []);
+
+  // Niche de chaque page : calculée sur ses produits, corrigée à la main si besoin
+  const nichesAuto = useMemo(() => nichesPages(groups), [groups]);
+  const niches = useMemo(() => ({ ...nichesAuto, ...(data?.nichesPages || {}) }), [nichesAuto, data]);
+  const corrigerNiche = (pageId, n) => {
+    const m = { ...(data?.nichesPages || {}) };
+    if (n) m[pageId] = n; else delete m[pageId];
+    sauverConfigVeille(CLE_NICHES, "nichesPages", m);
+  };
 
   const refuserPaire = useCallback(async cle => {
     const liste = [...new Set([...(data?.refuses || []), cle])];
@@ -174,6 +197,17 @@ export default function Veille() {
     return res;
   });
 
+  // Depuis le menu « Mettre à jour » : collecte de nouvelles pages ou analyse de la file, sans passer par l'onglet Pages
+  const rechercheDepuisMenu = async mode => {
+    setMenu(false);
+    try {
+      const rech = await loadRecherche();
+      let maxPages = PAGES_PAR_SESSION;
+      try { maxPages = Number(localStorage.getItem("momtaz_pages_session")) || PAGES_PAR_SESSION; } catch { /* stockage indisponible */ }
+      lancerUneRecherche(rech, async () => {}, mode === "collecte" ? { mode: "collecte" } : { maxPages });
+    } catch (e) { setErreur("Recherche impossible : " + (e.message || e)); }
+  };
+
   const lancerUneEtude = (mots, opts) => lancer("etude", ctl => lancerEtude(mots, opts, etudeEtat, ctl, () => setVersion(v => v + 1)));
 
   const lancerUnReleve = () => lancer("releve", ctl => lancerReleve({ pages, produits: data.produits, latest: data.latest, fiches: { ...data.fiches }, max: Number(maxReleve) || 0 }, ctl));
@@ -201,10 +235,12 @@ export default function Veille() {
       setPreset({ prix: t.id, n: Date.now() });
       setOnglet("classement");
     } else if (t.id === "regroupements") setOnglet("regroupements");
-    else if (t.id === "homonymes") setOnglet("pages");
+    else if (t.id === "homonymes") setOnglet("suivies");
   };
   const enScale = groups.filter(g => g.pubs >= 20 && g.recent > 0).length;
   const nbCreas = groups.reduce((s, g) => s + g.crea, 0);
+  const nbCandidats = groups.filter(candidatTest).length;
+  const nbALire = pagesALire(groups).length;
 
   // Téléchargement de l'étude depuis n'importe quel onglet
   const boutonExcel = (
@@ -214,14 +250,23 @@ export default function Veille() {
   );
 
   const ONGLETS = [
-    { id: "classement", label: "Classement produits" },
-    { id: "regroupements", label: `Regroupements à valider (${suggestions.length})` },
-    { id: "decision", label: "Décision de test" },
-    { id: "pages",      label: `Pages suivies (${actives})` },
-    { id: "historique", label: "Historique des relevés" },
-    { id: "recherche",  label: "Recherche de pages" },
-    { id: "etude",      label: "Étude de marché" },
+    { id: "produits", vue: "classement", label: "Produits" },
+    { id: "decision", vue: "decision", label: "Décision" },
+    { id: "pages", vue: "suivies", label: `Pages (${actives})` },
+    { id: "outils", vue: "historique", label: "Outils" },
   ];
+  const SOUS = {
+    produits: [["classement", "Classement"], ["top", "Top marché et vendeurs"], ["regroupements", `Regroupements à valider (${suggestions.length})`]],
+    pages: [["suivies", `Pages suivies (${actives})`], ["trouver", "Trouver de nouvelles pages"]],
+    outils: [["historique", "Historique des relevés"], ["etude", "Étude de marché"]],
+  };
+  const action = (label, detail, fn, actif = true) => (
+    <button className="btn btn-secondary" style={{ justifyContent: "flex-start", textAlign: "left", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, width: "100%" }}
+      disabled={!actif} onClick={fn}>
+      <span style={{ fontWeight: 700 }}>{label}</span>
+      <span className="col-muted" style={{ fontSize: 11, fontWeight: 400 }}>{detail}</span>
+    </button>
+  );
 
   return (
     <>
@@ -230,32 +275,51 @@ export default function Veille() {
           <div>
             <div className="module-title">Veille concurrentielle</div>
             <div className="module-subtitle">
-              Dernier relevé : {fmtDate(releves[0]?.created_at)}{releves[1] ? ` · précédent : ${fmtDate(releves[1].created_at)}` : ""}
+              {actives} pages · {pubsActives.toLocaleString("fr-FR")} pubs actives · {groups.length} produits · {nbCreas} créatives · {enScale} en scale · <b>{nbCandidats} candidats au test</b>
+              {" · "}relevé : {fmtDate(releves[0]?.created_at)}
               {" · "}
-              <span style={{ color: ext ? "var(--green)" : "var(--muted2)", fontWeight: 600 }}>{ext ? `Extension connectée (v${ext.version})` : "Extension non détectée"}</span>
+              <span style={{ color: ext ? "var(--green)" : "var(--muted2)", fontWeight: 600 }}>{ext ? `extension v${ext.version}` : "extension non détectée"}</span>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button className="btn btn-secondary" onClick={() => setImporter(true)} disabled={!data || !!run}>Importer des fichiers .mhtml</button>
-            {run?.type === "releve"
-              ? <button className="btn btn-danger" onClick={arreter}>Arrêter le relevé</button>
-              : <>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }} title={`Les pages jamais relevées passent en premier (${jamais}), puis celles dont le dernier relevé est le plus ancien. Vide = toutes les pages.`}>
-                    Pages
-                    <input type="number" min={1} max={actives || 1} className="form-input" style={{ width: 70, padding: "6px 8px" }}
-                      placeholder={String(actives)} value={maxReleve} onChange={e => setMaxReleve(e.target.value.replace(/[^0-9]/g, ""))} disabled={!!run} />
-                  </label>
-                  <button className="btn btn-primary" onClick={lancerUnReleve} disabled={!data || !ext || !!run || !actives} title={ext ? "Les pages en retard passent en premier" : "Ouvre l'ERP dans le Chrome où l'extension est installée"}>
-                    Lancer un relevé ({aRelever.length} page{aRelever.length > 1 ? "s" : ""})
-                  </button>
-                </>}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", position: "relative" }}>
+            {run
+              ? <button className="btn btn-danger" onClick={arreter}>Arrêter</button>
+              : <button className="btn btn-primary" onClick={() => setMenu(m => !m)} disabled={!data}>Mettre à jour ▾</button>}
+            {menu && !run && (
+              <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, width: 340, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.12)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                {!ext && <div style={{ fontSize: 12, color: "var(--orange)" }}>Extension non détectée : ouvre l'ERP dans le Chrome où elle est installée.</div>}
+                <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                  {action(`Relever les pages suivies (${aRelever.length})`, "Pubs des pages suivies, puis prix et photos des nouveaux produits", () => { setMenu(false); lancerUnReleve(); }, !!ext && !!actives)}
+                  <input type="number" min={1} max={actives || 1} className="form-input" style={{ width: 64, padding: "6px 8px" }} title={`Nombre de pages (vide = toutes). Les pages jamais relevées (${jamais}) passent en premier.`}
+                    placeholder={String(actives)} value={maxReleve} onChange={e => setMaxReleve(e.target.value.replace(/[^0-9]/g, ""))} />
+                </div>
+                {action(`Lire prix et photos (${nbALire})`, "Pages produit pas encore lues", () => {
+                  setMenu(false);
+                  const items = pagesALire(groups);
+                  const minutes = Math.ceil(items.length * 6 / 60);
+                  if (window.confirm(`Lire le prix et les photos de ${items.length} pages produit ? Environ ${minutes} minute${minutes > 1 ? "s" : ""} au plus.`)) capturerLesPrix(items);
+                }, !!ext && nbALire > 0)}
+                {action("Collecter de nouvelles pages", "Tous tes mots-clés actifs, pages mises dans la file sans analyse", () => rechercheDepuisMenu("collecte"), !!ext)}
+                {action("Analyser la file", "Nouveaux mots-clés puis pages de la file, celles vues le plus souvent d'abord", () => rechercheDepuisMenu("analyse"), !!ext)}
+                <button className="btn btn-sm btn-secondary" onClick={() => { setMenu(false); setImporter(true); }}>Importer des fichiers .mhtml</button>
+              </div>
+            )}
           </div>
         </div>
-        <div className="filter-tabs" style={{ paddingBottom: 12 }}>
+        <div className="filter-tabs" style={{ paddingBottom: SOUS[onglet] ? 6 : 12 }}>
           {ONGLETS.map(o => (
-            <button key={o.id} className={`filter-tab${onglet === o.id ? " active" : ""}`} onClick={() => setOnglet(o.id)}>{o.label}</button>
+            <button key={o.id} className={`filter-tab${onglet === o.id ? " active" : ""}`} onClick={() => setOnglet(o.vue)}>{o.label}</button>
           ))}
         </div>
+        {SOUS[onglet] && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 10 }}>
+            {SOUS[onglet].map(([id, l]) => (
+              <button key={id} onClick={() => setOnglet(id)}
+                style={{ border: "1px solid var(--border)", borderRadius: 99, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontWeight: sousVue === id ? 700 : 500,
+                  background: sousVue === id ? "var(--blue-lt)" : "var(--surface)", color: sousVue === id ? "var(--blue)" : "var(--text)" }}>{l}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {data && !run && <AFaire taches={taches} prochaine={prochaine} onAction={agir} occupe={!!run || !ext} />}
@@ -307,41 +371,38 @@ export default function Veille() {
         </div>
       )}
 
-      {data && onglet === "classement" && (
-        <>
-          <div className="kpi-row" style={{ paddingTop: 16 }}>
-            <div className="kpi-card"><div className="kpi-value">{actives}</div><div className="kpi-label">Pages suivies</div></div>
-            <div className="kpi-card"><div className="kpi-value">{pubsActives.toLocaleString("fr-FR")}</div><div className="kpi-label">Pubs actives</div></div>
-            <div className="kpi-card"><div className="kpi-value">{groups.length}</div><div className="kpi-label">Produits · {nbCreas} créatives</div></div>
-            <div className="kpi-card kpi-success"><div className="kpi-value">{enScale}</div><div className="kpi-label">En scale (20 pubs et ajouts récents)</div></div>
-          </div>
-          <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at}
-            ext={ext} run={run} onCapturerPrix={capturerLesPrix} ecarts={data.ecarts} preset={preset} />
-        </>
+      {data && sousVue === "classement" && (
+        <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at}
+          ext={ext} run={run} onCapturerPrix={capturerLesPrix} ecarts={data.ecarts} preset={preset} />
       )}
-      {data && onglet === "regroupements" && (
+      {data && sousVue === "top" && (
+        <Synthese groups={groups} nichesPages={niches} nichesAuto={nichesAuto} nichesManuelles={data.nichesPages || {}} commandes={data.commandesTest || {}}
+          onSaveConfig={sauverConfigVeille}
+          onVoirProduit={nom => { setPreset({ q: nom, ouvrir: nom.toLowerCase(), n: Date.now() }); setOnglet("classement"); }} />
+      )}
+      {data && sousVue === "regroupements" && (
         <Regroupements suggestions={suggestions} ext={ext} onPatch={patchProduits} onRefuser={refuserPaire}
           nbPhotos={Object.values(data.fiches || {}).filter(f => f.h && f.h.length).length} nbProduits={data.produits.length} />
       )}
-      {data && onglet === "decision" && (
+      {data && sousVue === "decision" && (
         <Decision groups={groups} parametres={data.decisionParams} decisions={data.decisions || {}} onPatch={patchProduits}
           onSaveParams={v => sauverConfigVeille(CLE_PARAMS, "decisionParams", v)}
           onSaveDecisions={v => sauverConfigVeille(CLE_DECISIONS, "decisions", v)} />
       )}
-      {data && onglet === "pages" && (
+      {data && sousVue === "suivies" && (
         <PagesSuivies pages={pages} groups={groups} latest={data.latest} pageInfo={pageInfo} homonymes={homonymes} onReload={charger} onPatchPage={patchPage}
           ext={ext} run={run} onRelever={releverSelection}
+          niches={niches} nichesAuto={nichesAuto} nichesManuelles={data.nichesPages || {}} onNiche={corrigerNiche}
           onVoirProduit={(pageId, nom) => { setPreset({ page: pageId, q: nom, ouvrir: nom.toLowerCase(), n: Date.now() }); setOnglet("classement"); }} />
       )}
-      {data && onglet === "historique" && (
+      {data && sousVue === "historique" && (
         <Historique releves={releves} relevePages={data.relevePages} produits={data.produits} pageInfo={pageInfo} onReload={charger} />
       )}
-      {data && onglet === "recherche" && (
+      {data && sousVue === "trouver" && (
         <Recherche ext={ext} run={run} onLancer={lancerUneRecherche} onStop={arreter}
           pages={pages} produits={data.produits} onReloadVeille={charger} version={version} />
       )}
-
-      {data && onglet === "etude" && (
+      {data && sousVue === "etude" && (
         <EtudeMarche ext={ext} run={run} onLancer={lancerUneEtude} onStop={arreter} version={version} />
       )}
 

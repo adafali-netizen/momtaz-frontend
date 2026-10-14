@@ -6,6 +6,7 @@ import {
   loadRecherche, addMotCle, updateMotCle, deleteMotCle, saveCriteres,
   loadCandidatCartes, decideCandidat, saveReleve, addPages, updatePage,
 } from "./veilleData";
+import { nicheMot, NICHE_LABEL, NICHES } from "./nichesLib";
 
 const carte = { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 };
 const libUrl = id => "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=MA&view_all_page_id=" + id;
@@ -75,6 +76,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const [maxPages, setMaxPages] = useState(() => { try { return Number(localStorage.getItem("momtaz_pages_session")) || PAGES_PAR_SESSION; } catch { return PAGES_PAR_SESSION; } });
   const choisirMax = v => { setMaxPages(v); try { localStorage.setItem("momtaz_pages_session", String(v)); } catch { /* stockage indisponible */ } };
   const [voirElim, setVoirElim] = useState(false);
+  const [niche, setNiche] = useState("");   // recherche ciblée : mots-clés d'une seule niche
   const [occupe, setOccupe] = useState(null);
 
   const charger = async () => {
@@ -151,6 +153,10 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
     finally { setOccupe(null); }
   };
 
+  const actifsRecherche = d.motscles.filter(m => m.actif && m.source !== "produit");
+  const parNiche = {};
+  for (const m of actifsRecherche) { const n = nicheMot(m.mot); if (n) parNiche[n] = (parNiche[n] || 0) + 1; }
+
   const stats = [
     { label: "Mots-clés", value: derniere ? derniere.nb_mots : d.motscles.filter(m => m.actif).length, color: "var(--text)" },
     { label: "Pages trouvées", value: derniere ? derniere.nb_trouvees : 0, color: "var(--text)" },
@@ -194,12 +200,19 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
             </select>
           )}
           {!enCours && (
-            <button className="btn btn-secondary" disabled={!ext || !!run} onClick={() => onLancer(d, charger, { mode: "collecte" })}
+            <select className="form-select" style={{ width: "auto" }} value={niche} onChange={e => setNiche(e.target.value)} disabled={!!run}
+              title="Recherche ciblée : seulement les mots-clés de cette niche (les phrases générales comme « livraison gratuite » ne sont pas utilisées)">
+              <option value="">Toutes niches</option>
+              {NICHES.filter(n => parNiche[n.id]).map(n => <option key={n.id} value={n.id}>{n.label} ({parNiche[n.id]} mots-clés)</option>)}
+            </select>
+          )}
+          {!enCours && (
+            <button className="btn btn-secondary" disabled={!ext || !!run} onClick={() => onLancer(d, charger, { mode: "collecte", niche })}
               title="Interroge tous les mots-clés actifs et remplit la file d'attente, sans analyser les pages">Collecter les pages</button>
           )}
           {enCours
             ? <button className="btn btn-danger" onClick={onStop}>Arrêter</button>
-            : <button className="btn btn-primary" disabled={!ext || !!run} onClick={() => onLancer(d, charger, { maxPages })}>{nbFile >= maxPages ? `Analyser ${maxPages} pages de la file` : "Lancer une recherche maintenant"}</button>}
+            : <button className="btn btn-primary" disabled={!ext || !!run} onClick={() => onLancer(d, charger, { maxPages, niche })}>{nbFile >= maxPages ? `Analyser ${maxPages} pages de la file` : "Lancer une recherche maintenant"}</button>}
         </span>
       </div>
 
@@ -217,7 +230,8 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
           <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontWeight: 700 }}>Mots-clés ({d.motscles.filter(m => m.actif).length} actifs)</div>
             <div className="col-muted">
-              La recherche lit le texte des pubs (texte et titre). Les noms de produits ajoutés automatiquement (« Produit suivi ») ne sont pas utilisés : la recherche sert à découvrir des produits nouveaux.
+              La recherche lit le texte des pubs (texte et titre). Après chaque recherche, jusqu'à 10 expressions vues dans les pubs d'au moins 3 pages s'ajoutent toutes seules (« Tiré des pubs ») ; le nettoyage garde celles qui rapportent.
+              Les noms de produits ajoutés automatiquement (« Produit suivi ») ne sont pas utilisés : la recherche sert à découvrir des produits nouveaux.
               Un mot-clé est désactivé automatiquement s'il n'a fait garder aucune page sur {ANALYSEES_AVANT_NETTOYAGE} pages analysées, ou s'il ne trouve aucune nouvelle page en {RECHERCHES_AVANT_NETTOYAGE} recherches.
             </div>
             <textarea className="form-input" rows={5} value={liste} onChange={e => setListe(e.target.value)}
@@ -248,6 +262,8 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
                   <span className="col-mono" title="Pages gardées / pages analysées / nouvelles pages trouvées · nombre de recherches" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
                     {st.recherches ? <><b style={{ color: st.gardees ? "var(--green)" : "var(--muted)" }}>{st.gardees}</b> / {st.analysees || 0} / {st.nouvelles} · {st.recherches}×</> : <span className="col-muted">jamais</span>}
                   </span>
+                  {st.origine === "texte" && <span className="tag" title={`Expression trouvée dans les pubs d'au moins 3 pages${st.le ? ", ajoutée le " + new Date(st.le).toLocaleDateString("fr-FR") : ""}`} style={{ opacity: 0.8 }}>Tiré des pubs</span>}
+                  {nicheMot(m.mot) && <span className="col-muted" style={{ fontSize: 11 }}>{NICHE_LABEL[nicheMot(m.mot)]}</span>}
                   {m.source === "produit" && <span className="tag" title="Nom de produit ajouté automatiquement : pas utilisé par la recherche" style={{ opacity: 0.7 }}>Produit suivi · non utilisé</span>}
                   <button className={`tag ${type === "phrase" ? "blue" : "green"}`} style={{ border: "none", cursor: "pointer" }} title="Changer de type" onClick={() => basculerType(m)}>
                     {type === "phrase" ? "Phrase" : "Produit"}

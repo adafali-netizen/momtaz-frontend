@@ -2,7 +2,8 @@
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper } from "./veilleLib";
 import { releverUrl, capturerPrix, attendreExtensionLibre } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
-import { CLE_MOTS, CLE_FILE, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto, choisirMots, ajouterAFile, prochainesPages, PAGES_PAR_SESSION, MOTS_PAR_SESSION } from "./motsLib";
+import { CLE_MOTS, CLE_FILE, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto, choisirMots, ajouterAFile, prochainesPages, PAGES_PAR_SESSION, MOTS_PAR_SESSION, expressionsFrequentes } from "./motsLib";
+import { nicheMot, NICHE_LABEL } from "./nichesLib";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
   updateProduits, remplirPrixVide, saveConfig, CLE_FICHES, CLE_ECARTS,
@@ -65,12 +66,19 @@ export async function lancerRecherche(ctx, ctl) {
     // pour découvrir des produits nouveaux et pas seulement les concurrents des produits déjà connus
     const auto = [];
     const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(ctx.criteres || {}) }.expressionExacte;
-    const actifs = ctx.motscles.filter(m => m.actif && m.source !== "produit").map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" }));
+    let actifs = ctx.motscles.filter(m => m.actif && m.source !== "produit");
+    // Recherche ciblée : seulement les mots-clés de la niche choisie
+    if (ctx.niche) {
+      actifs = actifs.filter(m => nicheMot(m.mot) === ctx.niche);
+      ctl.log(`Recherche ciblée « ${NICHE_LABEL[ctx.niche] || ctx.niche} » : ${actifs.length} mots-clés de cette niche`);
+    }
+    actifs = actifs.map(m => ({ id: m.id, mot: m.mot, exact: typeDe(m, ctx.stats, exacteGlobal) === "phrase" }));
     mots = [...auto.map(mot => ({ id: null, mot, exact: false })), ...choisirMots(actifs, ctx.stats, collecte ? actifs.length : Math.max(0, MOTS_PAR_SESSION - auto.length))];
     if (!mots.length && !Object.keys(file).length) throw new Error("Aucun mot-clé actif.");
   }
   const interroges = {};
   const analyse = {};
+  const textesParPage = {};   // textes de pub des pages retenues : source des nouveaux mots-clés
   const noter = (mot, champ) => { analyse[mot] = analyse[mot] || { analysees: 0, gardees: 0 }; analyse[mot][champ]++; };
 
   const rech = await createRecherche(mots.length);
@@ -139,6 +147,7 @@ export async function lancerRecherche(ctx, ctl) {
         recherche_id: rech.id, created_at: new Date().toISOString(), decide_le: null,
       });
       for (const m of t.mots) noter(m, "analysees");
+      if (ev.decision !== "eliminee") textesParPage[t.id] = res.ads.map(a => [a.title, a.text].filter(Boolean).join(" "));
       if (ev.decision === "gardee") {
         compte.nb_gardees++;
         gardees.push({ pageId: t.id, pageNom: nom, cartes: ev.cartes, date: new Date() });
@@ -175,6 +184,21 @@ export async function lancerRecherche(ctx, ctl) {
       for (const k of aCouper) if (ids.get(k)) await updateMotCle(ids.get(k), { actif: false }).catch(() => {});
       ctl.log(`Nettoyage : ${aCouper.length} mot${aCouper.length > 1 ? "s" : ""}-clé${aCouper.length > 1 ? "s" : ""} désactivé${aCouper.length > 1 ? "s" : ""} : ${aCouper.map(k => `${k} (${stats[k].desactive.raison})`).join(", ")}`);
     }
+    // 6. Nouveaux mots-clés tirés des textes de pub : expressions présentes chez au moins 3 pages (tes pages suivies
+    //    et les pages retenues cette fois), absentes de ta liste. Jugés ensuite par le rendement comme les autres.
+    try {
+      for (const g of ctx.groupes || []) {
+        if (!g.recent) continue;
+        for (const c of g.cartes || []) if (c.texte && c.fb_page_id) (textesParPage[c.fb_page_id] = textesParPage[c.fb_page_id] || []).push(c.texte);
+      }
+      const existants = new Set([...ctx.motscles.map(m => cleMot(m.mot)), ...Object.keys(stats)]);
+      const nouveaux = expressionsFrequentes(textesParPage, existants);
+      for (const x of nouveaux) {
+        await addMotCle(x.e, "manuel");
+        stats[cleMot(x.e)] = { type: "phrase", recherches: 0, trouvees: 0, nouvelles: 0, analysees: 0, gardees: 0, desactive: null, origine: "texte", le: new Date().toISOString() };
+      }
+      if (nouveaux.length) ctl.log(`Nouveaux mots-clés tirés des textes de pub : ${nouveaux.map(x => `${x.e} (${x.n} pages)`).join(", ")}`);
+    } catch (e) { ctl.log("Mots-clés tirés des pubs non ajoutés : " + (e.message || e)); }
     await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
   return { ...compte, file: Object.keys(file).length, collecte };

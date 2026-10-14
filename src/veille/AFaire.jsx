@@ -16,7 +16,8 @@ const BOUTONS = {
 const fmtProchaine = t => new Date(t).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
 export default function AFaire({ taches, prochaine, onAction, occupe }) {
-  const [reduit, setReduit] = useState(false);
+  // Replié d'office quand rien n'est urgent (seulement des tâches bleues)
+  const [reduit, setReduit] = useState(() => !taches.some(t => t.niveau === "rouge" || t.niveau === "orange"));
   if (!taches.length && !prochaine) return null;
 
   return (
@@ -24,6 +25,7 @@ export default function AFaire({ taches, prochaine, onAction, occupe }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 14px" }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>
           {taches.length ? `À faire (${taches.length})` : "Rien à faire à la main"}
+          {reduit && taches.length > 0 && <span className="col-muted" style={{ fontWeight: 400, fontSize: 12 }}> · {taches.map(t => t.nb ? `${t.nb} ${({ releve: "pages à relever", ecarts: "écarts de prix", regroupements: "regroupements", saisir: "prix à saisir", lire: "pages produit à lire", homonymes: "pages à nommer" })[t.id] || ""}` : "extension").join(" · ")}</span>}
           {prochaine && <span className="col-muted" style={{ fontWeight: 400, fontSize: 12 }}> · prochain relevé utile : {fmtProchaine(prochaine)}</span>}
         </span>
         {taches.length > 0 && <button className="btn btn-sm btn-secondary" onClick={() => setReduit(r => !r)}>{reduit ? "Afficher" : "Réduire"}</button>}

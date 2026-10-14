@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { STATUTS, STATUT_COULEURS, PHASES, PHASE_COULEURS, ECART_VAGUE, PRIX_MIN, SIGNAL_CREAS, SIGNAL_JOURS, signalFort, candidatTest, toSheetTsv, pagesALire, vendeurASaisir, ecartVendeur } from "./veilleLib";
 import { useTri, Th } from "./tri";
+import { NICHE_LABEL } from "./nichesLib";
+import { dansFourchette } from "./syntheseLib";
 
 // Colonnes triables. Par défaut : pubs lancées dans les 7 jours (à égalité, le score)
 const COLONNES = {
@@ -21,6 +23,7 @@ const FILTRES_PRIX = [
   { id: "moins",  label: `Moins de ${PRIX_MIN} DH` },
   { id: "saisir", label: "Prix à saisir à la main" },
   { id: "ecarts", label: "Écarts avec le site" },
+  { id: "fourchette", label: "Fourchette de prix…" },
 ];
 
 const adLink = id => "https://www.facebook.com/ads/library/?id=" + id;
@@ -180,13 +183,16 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
   const [fStatut, setFStatut] = useState("actifs");
   const [fPrix,   setFPrix]   = useState("tous");
   const [fPhase,  setFPhase]  = useState("");
+  const [fNiche,  setFNiche]  = useState("");
+  const [pMin,    setPMin]    = useState("300");
+  const [pMax,    setPMax]    = useState("600");
   const [ouvert,  setOuvert]  = useState(null);
 
   // Filtre demandé par le bandeau « À faire » (prix à saisir, écarts) ou par Pages suivies (un produit d'une page) :
   // on repart des autres filtres à zéro
   useEffect(() => {
     if (!preset) return;
-    setFPrix(preset.prix || "tous"); setFPhase(""); setFPage(preset.page || ""); setFStatut("tous"); setQ(preset.q || "");
+    setFPrix(preset.prix || "tous"); setFPhase(""); setFNiche(""); setFPage(preset.page || ""); setFStatut("tous"); setQ(preset.q || "");
     setOuvert(preset.ouvrir || null);
   }, [preset]);
   const [q,       setQ]       = useState("");
@@ -201,13 +207,16 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
     if (fPrix === "moins" && g.tier !== 2) return false;
     if (fPrix === "saisir" && !g.vendors.some(vendeurASaisir)) return false;
     if (fPrix === "ecarts" && !g.vendors.some(v => ecartVendeur(v, ecarts))) return false;
+    if (fPrix === "fourchette" && !dansFourchette(g, Number(pMin) || 0, Number(pMax) || Infinity)) return false;
+    if (fNiche && g.niche !== fNiche) return false;
     if (fPhase === "candidat" && !candidatTest(g)) return false;
     if (fPhase === "signal" && !signalFort(g)) return false;
     if (fPhase === "actif" && !(g.phase.actif && ["Mid-scaling", "Scaling", "Big winner"].includes(g.phase.phase))) return false;
     if (fPhase && !["actif", "signal", "candidat"].includes(fPhase) && g.phase.phase !== fPhase) return false;
     if (q && !(g.nom + " " + g.vendors.map(v => v.page + " " + v.nom).join(" ")).toLowerCase().includes(q.toLowerCase())) return false;
     return true;
-  }), [groups, fPage, fStatut, fPrix, fPhase, q, ecarts]);
+  }), [groups, fPage, fStatut, fPrix, fPhase, fNiche, pMin, pMax, q, ecarts]);
+  const niches = useMemo(() => [...new Set(groups.map(g => g.niche).filter(Boolean))].sort((a, b) => (NICHE_LABEL[a] || a).localeCompare(NICHE_LABEL[b] || b)), [groups]);
 
   const nomsGroupes = useMemo(() => groups.map(g => g.nom).sort((a, b) => a.localeCompare(b)), [groups]);
   const pagesTriees = useMemo(() => [...pages].filter(p => p.actif).sort((a, b) => pageInfo(a.fb_page_id).nom.localeCompare(pageInfo(b.fb_page_id).nom)), [pages, pageInfo]);
@@ -250,6 +259,16 @@ export default function Classement({ groups, pages, pageInfo, onPatch, dateRelev
         </div>
         <select className="form-select" style={{ width: "auto" }} value={fPrix} onChange={e => setFPrix(e.target.value)}>
           {FILTRES_PRIX.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+        {fPrix === "fourchette" && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}>
+            <input type="number" className="form-input" style={{ width: 70, padding: "6px 8px" }} value={pMin} onChange={e => setPMin(e.target.value)} />à
+            <input type="number" className="form-input" style={{ width: 70, padding: "6px 8px" }} value={pMax} onChange={e => setPMax(e.target.value)} />DH
+          </span>
+        )}
+        <select className="form-select" style={{ width: "auto" }} value={fNiche} onChange={e => setFNiche(e.target.value)}>
+          <option value="">Toutes les niches</option>
+          {niches.map(n => <option key={n} value={n}>{NICHE_LABEL[n] || n}</option>)}
         </select>
         <select className="form-select" style={{ width: "auto" }} value={fStatut} onChange={e => setFStatut(e.target.value)}>
           <option value="actifs">Tous sauf abandonnés</option>

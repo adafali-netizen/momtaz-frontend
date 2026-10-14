@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { NICHE_LABEL, NICHE_IDS } from "./nichesLib";
 import { pageIdFrom } from "./veilleLib";
 import { addPages, updatePage } from "./veilleData";
 import { ecrireXlsx, horodatage } from "./exportXlsx";
@@ -24,7 +25,8 @@ function NomInterne({ page, onSave }) {
   );
 }
 
-export default function PagesSuivies({ pages, groups, latest, pageInfo, homonymes, onReload, onPatchPage, ext, run, onRelever, onVoirProduit }) {
+export default function PagesSuivies({ pages, groups, latest, pageInfo, homonymes, onReload, onPatchPage, ext, run, onRelever, onVoirProduit, niches = {}, nichesAuto = {}, nichesManuelles = {}, onNiche }) {
+  const [fNiche,   setFNiche]   = useState("");
   const [choix,    setChoix]    = useState(() => new Set());   // pages cochées pour un relevé
   const [texte,    setTexte]    = useState("");
   const [verif,    setVerif]    = useState(null);
@@ -70,16 +72,18 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
 
   const filtrees = useMemo(() => pages
     .filter(p => retirees ? !p.actif : p.actif)
+    .filter(p => !fNiche || (niches[p.fb_page_id] || "autre") === fNiche)
     .filter(p => !q || [pageInfo(p.fb_page_id).nom, p.nom, p.fb_page_id, p.sites].join(" ").toLowerCase().includes(q.toLowerCase())),
-  [pages, retirees, q, pageInfo]);
+  [pages, retirees, q, pageInfo, fNiche, niches]);
   // Tri : par défaut les pubs lancées dans les 7 jours (à égalité, les pubs actives)
   const colonnes = useMemo(() => ({
     page:     p => pageInfo(p.fb_page_id).nom.toLowerCase(),
+    niche:    p => NICHE_LABEL[niches[p.fb_page_id]] || "",
     pubs:     p => stats[p.fb_page_id]?.pubs || 0,
     produits: p => stats[p.fb_page_id]?.produits || 0,
     recent:   p => (stats[p.fb_page_id]?.recent || 0) + (stats[p.fb_page_id]?.pubs || 0) / 100000,
     releve:   p => (latest[p.fb_page_id] ? new Date(latest[p.fb_page_id].capture_le).getTime() : null),
-  }), [stats, latest, pageInfo]);
+  }), [stats, latest, pageInfo, niches]);
   const { triees: liste, tri, trier } = useTri(filtrees, colonnes, { col: "recent", sens: "desc" }, ["page"]);
 
   // Cases à cocher : seulement pour les pages suivies (une page retirée ne se relève pas)
@@ -169,6 +173,10 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ fontWeight: 700 }}>{retirees ? "Pages retirées" : "Pages suivies"} ({liste.length})</div>
           <div style={{ flex: 1 }} />
+          <select className="form-select" style={{ width: "auto" }} value={fNiche} onChange={e => setFNiche(e.target.value)}>
+            <option value="">Toutes les niches</option>
+            {NICHE_IDS.map(n => <option key={n} value={n}>{NICHE_LABEL[n]}</option>)}
+          </select>
           <input className="search-input" style={{ paddingLeft: 12, width: 260 }} placeholder="Rechercher par nom, ID ou site" value={q} onChange={e => setQ(e.target.value)} />
           <button className="btn btn-sm btn-secondary" onClick={() => setRetirees(!retirees)}>{retirees ? "Voir les pages suivies" : "Voir les pages retirées"}</button>
           {!retirees && (
@@ -184,7 +192,7 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
             <thead>
               <tr>
                 {!retirees && <th style={{ width: 32 }}><input type="checkbox" checked={toutCoche} onChange={toutBasculer} title="Tout cocher" /></th>}
-                <Th col="page" tri={tri} trier={trier}>Page</Th><th>Nom interne</th><th>Sites</th>
+                <Th col="page" tri={tri} trier={trier}>Page</Th><Th col="niche" tri={tri} trier={trier}>Niche</Th><th>Nom interne</th><th>Sites</th>
                 <Th col="pubs" tri={tri} trier={trier} droite>Pubs actives</Th>
                 <Th col="produits" tri={tri} trier={trier} droite>Produits</Th>
                 <Th col="recent" tri={tri} trier={trier} droite>Ajouts 7 j</Th>
@@ -203,6 +211,13 @@ export default function PagesSuivies({ pages, groups, latest, pageInfo, homonyme
                       <div style={{ fontWeight: 600 }}>{p.nom || "Nom inconnu (au prochain relevé)"}</div>
                       <div className="col-mono col-muted">ID {p.fb_page_id}</div>
                       {homonymes.has(p.fb_page_id) && <div style={{ fontSize: 11, color: "var(--orange)", fontWeight: 600 }}>Même nom qu'une autre page : donne-lui un nom interne</div>}
+                    </td>
+                    <td>
+                      <select className="form-select" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={nichesManuelles[p.fb_page_id] || ""}
+                        onChange={e => onNiche && onNiche(p.fb_page_id, e.target.value)} title="Calculée sur ses produits ; choisis-en une pour la corriger">
+                        <option value="">{nichesAuto[p.fb_page_id] ? `${NICHE_LABEL[nichesAuto[p.fb_page_id]]} (auto)` : "— (auto)"}</option>
+                        {NICHE_IDS.map(n => <option key={n} value={n}>{NICHE_LABEL[n]}</option>)}
+                      </select>
                     </td>
                     <td><NomInterne page={p} onSave={v => onPatchPage(p.fb_page_id, { nom_interne: v })} /></td>
                     <td className="col-muted" style={{ maxWidth: 220 }}>{p.sites || "—"}</td>

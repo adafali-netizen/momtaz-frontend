@@ -1,3 +1,4 @@
+import { nicheProduit } from "./nichesLib";
 // Module Veille : lecture des pages Ad Library enregistrées (.mhtml) et calcul du classement.
 // Aucune dépendance au navigateur : ce fichier est aussi testable avec Node.
 
@@ -664,6 +665,7 @@ export function buildGroups(pubs, refDates, produits, pageName, presence, fiches
   for (const g of out) {
     g.detail = detailScore(g);
     g.score = scoreGroup(g);
+    g.niche = nicheProduit(g);
   }
   // Produits à 230 DH et plus d'abord, puis sans prix, puis moins de 230 DH ; ensuite le score
   out.sort((a, b) => a.tier - b.tier || b.score - a.score || b.pubs - a.pubs);

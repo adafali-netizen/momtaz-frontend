@@ -76,18 +76,20 @@ export async function loadVeille() {
   } catch { /* sans historique, la persistance vaut 0 */ }
 
   // Photos des pages produit et regroupements refusés, gardés dans veille_config (pas de nouvelle table)
-  let fiches = {}, refuses = [], ecarts = {}, decisionParams = {}, decisions = {};
+  let fiches = {}, refuses = [], ecarts = {}, decisionParams = {}, decisions = {}, nichesPages = {}, commandesTest = {};
   try {
-    const conf = await fetchAll(() => supabase.from("veille_config").select("*").in("cle", [CLE_FICHES, CLE_REFUS, CLE_ECARTS, "decision_params", "decisions"]));
+    const conf = await fetchAll(() => supabase.from("veille_config").select("*").in("cle", [CLE_FICHES, CLE_REFUS, CLE_ECARTS, "decision_params", "decisions", "niches_pages", "commandes_test"]));
     const val = cle => (conf.find(c => c.cle === cle) || {}).valeur;
     fiches = val(CLE_FICHES) || {};
     refuses = val(CLE_REFUS) || [];
     ecarts = val(CLE_ECARTS) || {};
     decisionParams = val("decision_params") || {};
     decisions = val("decisions") || {};
+    nichesPages = val("niches_pages") || {};
+    commandesTest = val("commandes_test") || {};
   } catch { /* table absente : pas de photos, de refus, d'écarts ni de décisions mémorisés */ }
 
-  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence, fiches, refuses, ecarts, decisionParams, decisions };
+  return { pages, releves, relevePages, produits, pubs, latest, refDates, presence, fiches, refuses, ecarts, decisionParams, decisions, nichesPages, commandesTest };
 }
 
 export const CLE_FICHES = "fiches_produits";   // { "page|clé produit": { i: [photo], h: [empreintes], t: titre, le: date } }

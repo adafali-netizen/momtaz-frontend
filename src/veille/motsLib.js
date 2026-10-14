@@ -157,3 +157,47 @@ export function trierMots(motscles, stats) {
   return [...motscles].sort((a, b) =>
     (b.actif - a.actif) || (s(b).gardees - s(a).gardees) || (s(b).nouvelles - s(a).nouvelles) || (s(b).trouvees - s(a).trouvees) || a.mot.localeCompare(b.mot));
 }
+
+// ─── Mots-clés tirés des textes de pub ─────────────────────────────────────
+// Expressions de 2 à 4 mots présentes dans les pubs d'au moins 3 pages différentes, absentes de tes mots-clés.
+// Ajoutées après chaque recherche (10 au plus), puis jugées par le rendement comme les autres.
+export const MOTS_AUTO_PAR_RECHERCHE = 10;
+const VIDES = new Set(("de du des la le les a au aux et en pour avec un une l d à ce cette ces est vous votre vos nous notre qui que sur dans par plus ou pas ne se sa son ses il elle on y "
+  + "the and to of for with is in it this your you our "
+  + "في من على و او أو ما لا مع هذا هاد هادي ديال لي اللي باش عن الى إلى كل ب ل غير هو هي "
+  + "لجميع جميع حتى فقط ليك ليها راه غادي بلا شي أي نفس كيف درهم dh dhs mad").split(" "));
+const normaliserTexte = t => String(t || "").replace(/\{\{[^}]*\}\}|product[ ._](name|brand)/gi, " ").normalize("NFKC")
+  .replace(/[ً-ْـ]/g, "").replace(/(.)\1{2,}/g, "$1")
+  .replace(/https?:\/\/\S+/g, " ").replace(/[^\p{L}\p{N}' ]+/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
+
+// textesParPage : { page_id: [textes de pub] } ; existants : Set des mots-clés (minuscules)
+export function expressionsFrequentes(textesParPage, existants = new Set(), max = MOTS_AUTO_PAR_RECHERCHE, minPages = 3) {
+  const pages = new Map();
+  for (const [page, textes] of Object.entries(textesParPage)) {
+    const vus = new Set();
+    for (const t of textes) {
+      const m = normaliserTexte(t).split(" ").filter(Boolean);
+      for (let n = 2; n <= 4; n++) for (let i = 0; i + n <= m.length; i++) {
+        const g = m.slice(i, i + n);
+        if (VIDES.has(g[0]) || VIDES.has(g[n - 1]) || g.some(w => /\d/.test(w)) || g.some(w => w.length < 2)) continue;
+        const e = g.join(" ");
+        if (e.length < 6 || vus.has(e)) continue;
+        vus.add(e);
+        if (!pages.has(e)) pages.set(e, new Set());
+        pages.get(e).add(page);
+      }
+    }
+  }
+  const deja = [...existants].map(cleMot);
+  const res = [...pages.entries()].map(([e, p]) => ({ e, n: p.size }))
+    .filter(x => x.n >= minPages && !deja.some(d => d === x.e || d.includes(x.e) || x.e.includes(d)))
+    .sort((a, b) => b.n - a.n || b.e.length - a.e.length);
+  // Une expression contenue dans une plus longue trouvée chez autant de pages est redondante
+  const out = [];
+  for (const x of res) {
+    if (out.some(y => y.e.includes(x.e) && y.n >= x.n)) continue;
+    out.push(x);
+    if (out.length >= max) break;
+  }
+  return out;
+}

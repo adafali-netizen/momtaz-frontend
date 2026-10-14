@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { candidatTest, PHASE_COULEURS } from "./veilleLib";
+import { NICHE_LABEL } from "./nichesLib";
 import { params, compteProduit, lignesCompte, ficheTexte, ETATS, PARAMS_DEFAUT } from "./decisionLib";
 
 // Module Décision de test : les candidats du Classement, ton prix d'achat, le compte par colis livré, GO ou STOP,
@@ -9,6 +10,16 @@ const carte = { background: "var(--surface)", border: "1px solid var(--border)",
 const dh = v => (v == null ? "—" : `${Math.round(v * 100) / 100} DH`);
 const STATUT_ETAT = { file: "À tester", test: "Test lancé", gagnant: "En production", abandon: "Testé, abandonné" };
 const ORDRE_ETAT = { test: 0, file: 1, "": 2, gagnant: 3, abandon: 4 };
+// Classement des produits : le critère choisi d'abord, puis les ajouts sur 7 jours, les créatives et les pages
+const TRIS = {
+  recent: ["Ajouts 7 j", x => x.g.recent],
+  score:  ["Score", x => x.g.score],
+  crea:   ["Créatives", x => x.g.crea],
+  pages:  ["Pages vendeuses", x => x.g.nbPages],
+  net:    ["Marge nette par colis", x => x.c.netAuCplReference ?? -1e9],
+  age:    ["Ancienneté", x => x.g.age],
+  prix:   ["Prix le plus bas", x => x.g.prixMin ?? -1e9],
+};
 const VERDICTS = {
   go:    ["GO", "var(--green)", "var(--green-lt)"],
   stop:  ["STOP", "var(--red)", "var(--red-lt)"],
@@ -64,10 +75,10 @@ function Reglages({ p, onSave }) {
   );
 }
 
-function Fiche({ g, d, p, rang, onDecision, onEtat }) {
+function Fiche({ g, d, p, rang, place, onDecision, onEtat }) {
   const [ouvert, setOuvert] = useState(false);
   const [copie, setCopie] = useState(false);
-  const c = compteProduit(d, g.prixMax, p);
+  const c = compteProduit(d, g.prixMin, p);
   const [libelle, coul, fond] = VERDICTS[c.verdict];
   const photo = (g.images && g.images[0]) || g.thumb;
   const lien = (g.vendors.find(v => v.urls && v.urls.length) || { urls: [] }).urls[0];
@@ -83,6 +94,7 @@ function Fiche({ g, d, p, rang, onDecision, onEtat }) {
           : <div style={{ width: 96, height: 96, borderRadius: 8, background: "var(--surface2)", flex: "none" }} />}
         <div style={{ flex: "1 1 280px", minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
           <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, fontSize: 15, color: "var(--blue)" }}>#{place}</span>
             <span style={{ fontWeight: 700, fontSize: 15 }}>{g.nom}</span>
             <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, color: coul, background: fond }}>{libelle}</span>
             {rang && <span style={{ fontSize: 11, fontWeight: 700, color: "var(--blue)" }}>n° {rang} dans la file</span>}
@@ -90,6 +102,8 @@ function Fiche({ g, d, p, rang, onDecision, onEtat }) {
           </span>
           <span className="col-muted" style={{ fontSize: 12 }}>
             {g.crea} créatives · {g.pubs} pubs · +{g.recent} sur 7 jours · plus ancienne : {g.age} jours · {g.nbPages} page{g.nbPages > 1 ? "s" : ""}
+            {g.prixMin ? ` · prix le plus bas du marché : ${g.prixMin} DH${g.prixMax !== g.prixMin ? ` (le plus haut : ${g.prixMax} DH)` : ""}` : " · prix du marché : à vérifier"}
+            {g.niche ? ` · ${NICHE_LABEL[g.niche] || g.niche}` : ""}
             {g.sante ? " · angle santé chez le concurrent : à changer" : ""}
           </span>
           <span style={{ fontSize: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -104,7 +118,7 @@ function Fiche({ g, d, p, rang, onDecision, onEtat }) {
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
           <Champ label="Prix d'achat livré" valeur={d?.achat} placeholder={c.achatMax != null ? `≤ ${c.achatMax}` : ""} onSave={v => onDecision({ achat: v })} />
-          <Champ label="Ton prix de vente" valeur={d?.prixVente} placeholder={g.prixMax ? String(g.prixMax) : "Prix"} onSave={v => onDecision({ prixVente: v })} />
+          <Champ label="Ton prix de vente" valeur={d?.prixVente} placeholder={g.prixMin ? String(g.prixMin) : "Prix"} onSave={v => onDecision({ prixVente: v })} />
           <Champ label="Livraison (grand produit)" valeur={d?.livraison} placeholder={String(p.livraison)} onSave={v => onDecision({ livraison: v })} largeur={70} />
         </div>
       </div>
@@ -153,18 +167,23 @@ export default function Decision({ groups, parametres, decisions, onSaveParams, 
   const p = params(parametres);
   const [filtre, setFiltre] = useState("tous");
   const [voirReglages, setVoirReglages] = useState(false);
+  const [tri, setTri] = useState(() => { try { return localStorage.getItem("momtaz_decision_tri") || "recent"; } catch { return "recent"; } });
+  const [niche, setNiche] = useState("");
+  const choisirTri = v => { setTri(v); try { localStorage.setItem("momtaz_decision_tri", v); } catch { /* stockage indisponible */ } };
 
   // Produits du module : candidats au test (signal fort, 230 DH et plus) et produits déjà décidés ou mis à l'essai
   const liste = useMemo(() => groups
     .filter(g => candidatTest(g) || decisions[g.cle] || ["À tester", "Test lancé", "En production"].includes(g.statut))
-    .map(g => ({ g, d: decisions[g.cle] || {}, c: compteProduit(decisions[g.cle], g.prixMax, p) }))
-    .sort((a, b) => (ORDRE_ETAT[a.d.etat || ""] - ORDRE_ETAT[b.d.etat || ""])
-      || (a.d.etat === "file" && b.d.etat === "file" ? String(a.d.le).localeCompare(String(b.d.le)) : 0)
-      || ((b.c.verdict === "go") - (a.c.verdict === "go")) || (b.g.recent - a.g.recent)),
+    .map(g => ({ g, d: decisions[g.cle] || {}, c: compteProduit(decisions[g.cle], g.prixMin, p) })),
   [groups, decisions, p]);
 
-  const file = liste.filter(x => x.d.etat === "file");
-  const visibles = liste.filter(({ d, c }) => filtre === "tous" ? d.etat !== "abandon"
+  // File de test : dans l'ordre où les produits y sont entrés
+  const file = liste.filter(x => x.d.etat === "file").sort((a, b) => String(a.d.le).localeCompare(String(b.d.le)));
+  const val = (TRIS[tri] || TRIS.recent)[1];
+  const classes = [...liste].sort((a, b) => (val(b) - val(a)) || (b.g.recent - a.g.recent) || (b.g.crea - a.g.crea) || (b.g.nbPages - a.g.nbPages) || (b.g.age - a.g.age));
+  const place = new Map(classes.map((x, i) => [x.g.cle, i + 1]));
+  const niches = [...new Set(liste.map(x => x.g.niche).filter(Boolean))].sort((a, b) => (NICHE_LABEL[a] || a).localeCompare(NICHE_LABEL[b] || b));
+  const visibles = classes.filter(x => !niche || x.g.niche === niche).filter(({ d, c }) => filtre === "tous" ? d.etat !== "abandon"
     : filtre === "go" ? c.verdict === "go" && !d.etat
     : filtre === "stop" ? c.verdict === "stop"
     : filtre === "completer" ? c.verdict === "achat" || c.verdict === "prix"
@@ -201,6 +220,19 @@ export default function Decision({ groups, parametres, decisions, onSaveParams, 
           ["completer", `À compléter (${nb(x => x.c.verdict === "achat" || x.c.verdict === "prix")})`], ["stop", `STOP (${nb(x => x.c.verdict === "stop")})`],
           ["file", `File et test (${nb(x => x.d.etat === "file" || x.d.etat === "test")})`], ["abandon", `Abandonnés (${nb(x => x.d.etat === "abandon")})`]]
           .map(([id, l]) => <button key={id} className={`filter-tab${filtre === id ? " active" : ""}`} onClick={() => setFiltre(id)}>{l}</button>)}
+        <span style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center", fontSize: 13 }}>
+          Classer par
+          <select className="form-select" style={{ width: "auto" }} value={tri} onChange={e => choisirTri(e.target.value)}>
+            {Object.entries(TRIS).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <select className="form-select" style={{ width: "auto" }} value={niche} onChange={e => setNiche(e.target.value)}>
+            <option value="">Toutes les niches</option>
+            {niches.map(n => <option key={n} value={n}>{NICHE_LABEL[n] || n}</option>)}
+          </select>
+        </span>
+      </div>
+      <div className="col-muted" style={{ fontSize: 12 }}>
+        « Ton prix de vente » vide = le prix le plus bas vu chez les concurrents. Le n° # est la place du produit dans le classement choisi.
       </div>
 
       {!liste.length && (
@@ -210,7 +242,7 @@ export default function Decision({ groups, parametres, decisions, onSaveParams, 
         </div>
       )}
       {visibles.map(x => (
-        <Fiche key={x.g.cle} g={x.g} d={x.d} p={p} rang={x.d.etat === "file" ? file.indexOf(x) + 1 : null}
+        <Fiche key={x.g.cle} g={x.g} d={x.d} p={p} place={place.get(x.g.cle)} rang={x.d.etat === "file" ? file.indexOf(x) + 1 : null}
           onDecision={champs => enregistrer(x.g.cle, champs)} onEtat={etat => changerEtat(x, etat)} />
       ))}
     </div>
