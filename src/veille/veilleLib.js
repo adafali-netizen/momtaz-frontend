@@ -235,6 +235,53 @@ export function nomRegroupement(a, b) {
   return norm(a.nom) === norm(b.nom) ? `${garde.nom} (regroupé)` : garde.nom;
 }
 
+// ─── Doublons sur une même page ─────────────────────────────────────────
+// Certaines pages créent une page produit par pub (« Hinge Repair Plate », « Platee », « Plate B »…).
+// Sur une même page, deux produits sont le même s'ils ont la même photo de page produit ou le même nom une fois nettoyé.
+const MOT_PARASITE = /^(ts\d+|\d*mfcc\w*|bb|b|[a-z]?\d[\w]*|[a-z]*\d+[a-z\d]*)$/;
+export function nomFamille(nom) {
+  const mots = String(nom || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/)
+    .filter(m => m && !MOT_PARASITE.test(m))
+    .map(m => m.replace(/(\p{L})\1+/gu, "$1"));          // « settt » → « set », « platee » → « plate »
+  const n = mots.join(" ");
+  return n.length >= 6 && !/^produit sans nom$/.test(n) ? n : null;
+}
+
+// identites : [{ it, id, hashes }] ; change id.cle pour réunir les doublons d'une même page
+export function fusionnerDoublonsPage(liste) {
+  const parPage = new Map();
+  for (const x of liste) {
+    if (!parPage.has(x.it.fb_page_id)) parPage.set(x.it.fb_page_id, []);
+    parPage.get(x.it.fb_page_id).push(x);
+  }
+  for (const membres of parPage.values()) {
+    if (membres.length < 2) continue;
+    const parent = membres.map((_, i) => i);
+    const racine = i => (parent[i] === i ? i : (parent[i] = racine(parent[i])));
+    const unir = (a, b) => { parent[racine(a)] = racine(b); };
+    for (let i = 0; i < membres.length; i++) for (let j = i + 1; j < membres.length; j++) {
+      const A = membres[i], B = membres[j];
+      if (A.id.cle === B.id.cle) { unir(i, j); continue; }
+      // Deux noms saisis par toi et différents : jamais fusionnés
+      if (A.id.cle.startsWith("g:") && B.id.cle.startsWith("g:")) continue;
+      const fa = nomFamille(A.id.nom), fb = nomFamille(B.id.nom);
+      let memePhoto = false;
+      for (const ha of A.hashes) for (const hb of B.hashes) if (distancePhoto(ha, hb) <= SEUIL_PHOTO) memePhoto = true;
+      if ((fa && fa === fb) || memePhoto) unir(i, j);
+    }
+    const familles = new Map();
+    membres.forEach((x, i) => { const r = racine(i); if (!familles.has(r)) familles.set(r, []); familles.get(r).push(x); });
+    for (const f of familles.values()) {
+      if (f.length < 2) continue;
+      // Identité retenue : un groupe saisi par toi s'il y en a un, sinon le produit qui a le plus de pubs
+      const chef = f.find(x => x.id.cle.startsWith("g:")) || [...f].sort((a, b) => b.it.pubs - a.it.pubs)[0];
+      for (const x of f) if (x !== chef) { x.id.cle = chef.id.cle; x.id.groupe = chef.id.groupe; x.fusionne = true; }
+    }
+  }
+  return liste;
+}
+
 // Paire de groupes, dans un ordre fixe (sert à mémoriser les refus)
 export const clePaire = (a, b) => [a.cle, b.cle].sort().join(" ⇄ ");
 
@@ -301,7 +348,8 @@ export function nomAuto(url, texte) {
   const cle = safeDecode(safeDecode(key));
   const slug = slugProduit(cle);
   const words = slug.split(/[-_ ]+/).filter(w => w && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
-  const lienCourt = /^[a-z0-9]{4,9}$/i.test(slug) || key === "sans-lien" || cle.split("/").length < 2;
+  // Lien court, ou code interne de boutique à la place d'un nom (« 01kxgk5687jhc7tj6dsvpe7n6n »)
+  const lienCourt = /^[a-z0-9]{4,9}$/i.test(slug) || /^(?=.*\d)(?=.*[a-z])[a-z0-9]{16,}$/i.test(slug) || key === "sans-lien" || cle.split("/").length < 2;
   const pasProduit = PAS_PRODUIT.test(cle) || SLUG_GENERIQUE.test(slug);
   if (words.length && !lienCourt && !pasProduit) return { nom: words.slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), source: "lien" };
   return { nom: nomDepuisTexte(texte) || "Produit sans nom", source: "texte" };
@@ -539,6 +587,11 @@ export function buildGroups(pubs, refDates, produits, pageName, presence, fiches
     return { it, row, id: identiteProduit(row, it.cartes, it.fb_page_id + "|" + it.produit_key) };
   });
   unifierIdentites(agreges.map(x => x.id));
+  fusionnerDoublonsPage(agreges.map(x => {
+    const f = fiches && fiches[x.it.fb_page_id + "|" + x.it.produit_key];
+    x.hashes = (f && f.h) || [];
+    return x;
+  }));
   for (const { it, row, id } of agreges) {
     const nom = id.nom;
     const groupe = id.groupe;
@@ -783,23 +836,66 @@ function categorie(ads) {
 // expressionExacte : la recherche de pages cherche tes mots-clés manuels tels quels (mots dans le même ordre)
 export const CRITERES_DEFAUT = { expressionExacte: false, minPubs: 10, minProduits: 3, siteObligatoire: true, codObligatoire: true, vetementsMinPubs: 20, exclues: ["cosmetiques", "immobilier", "services", "restaurants", "formations", "auto"] };
 
+// Liens qui ne sont pas des boutiques : applications, réseaux, liseuses
+const APPLI = /(^|\.)(play\.google\.com|apps\.apple\.com|itunes\.apple\.com|onelink\.me|app\.link|apps\.facebook\.com|tiktok\.com|tiktokacademy\.com|lightreader\.com|webfic\.com|goodnovel\.com|dreame\.com)$/i;
+// Signe que la page vise le Maroc : texte arabe, prix en dirhams, site en .ma, mention du Maroc
+const MAROC = /[\u0600-\u06FF]|\b(dh|dhs|mad|dirhams?)\b|\d\s*(dh|dhs|mad)\b|\bmaroc\b|\bmorocco\b|\bcasablanca\b|\brabat\b|\bmarrakech\b|\btanger\b|\bagadir\b|\bf[eè]s\b/i;
+
+// Produit le plus « signal fort » de la page : plus de 3 créatives, la plus ancienne lancée il y a 10 jours ou plus
+export function signalFortPage(cartes, maintenant = Date.now()) {
+  const parProduit = new Map();
+  for (const c of cartes) {
+    if (c.low) continue;
+    const k = c.url ? productKey(c.url) : "sans-lien";
+    const x = parProduit.get(k) || { creas: 0, plusAncien: null, url: c.url };
+    x.creas++;
+    if (c.started_on && (!x.plusAncien || c.started_on < x.plusAncien)) x.plusAncien = c.started_on;
+    parProduit.set(k, x);
+  }
+  let meilleur = null;
+  for (const x of parProduit.values()) {
+    const jours = x.plusAncien ? Math.floor((maintenant - Date.parse(x.plusAncien + "T00:00:00Z")) / 86400000) : 0;
+    if (x.creas >= SIGNAL_CREAS && jours >= SIGNAL_JOURS && (!meilleur || x.creas > meilleur.creas)) meilleur = { ...x, jours };
+  }
+  return meilleur;
+}
+
 // Décide si une page découverte ressemble aux tiennes : gardee, a_valider ou eliminee
-export function evaluatePage(ads, crit0) {
+export function evaluatePage(ads, crit0, maintenant = Date.now()) {
   const crit = { ...CRITERES_DEFAUT, ...(crit0 || {}) };
   const cartes = adsToCartes(ads);
   const actives = cartes.filter(c => !c.low);
   const pubs = actives.reduce((s, c) => s + c.nb, 0);
   const produits = new Set(cartes.filter(c => c.url).map(c => productKey(c.url))).size;
   const avecLien = cartes.filter(c => c.url);
-  const ecom = avecLien.filter(c => { const s = siteOf(c.url); return s && !MESSAGERIE.test(s); });
+  const appli = avecLien.filter(c => APPLI.test(siteOf(c.url) || ""));
+  const ecom = avecLien.filter(c => { const s = siteOf(c.url); return s && !MESSAGERIE.test(s) && !APPLI.test(s); });
   const siteEcom = ecom.length > 0 && ecom.length >= avecLien.length / 2;
   const cod = (ads || []).some(a => COD.test([a.title, a.text, a.caption].filter(Boolean).join(" ")));
   const cat = categorie(ads || []);
   const sites = [...new Set(ecom.map(c => siteOf(c.url)).filter(s => s !== "bit.ly"))].slice(0, 3).join(", ") || null;
 
+  const apercus = cartes.filter(c => c.thumb).sort((a, b) => b.nb - a.nb).slice(0, 3).map(c => ({ thumb: c.thumb, id: c.library_id }));
+  const base = { cartes, pubs, produits, siteEcom, cod, categorie: cat, sites, apercus };
+  const elimine = raison => ({ ...base, decision: "eliminee", raison });
+
+  // Éliminées d'office : applications, pages qui ne visent pas le Maroc
+  if (avecLien.length && appli.length >= avecLien.length / 2) return elimine("Application ou réseau social, pas une boutique");
+  const textes = (ads || []).map(a => [a.title, a.text, a.caption].filter(Boolean).join(" ")).join(" ");
+  const maroc = MAROC.test(textes) || ecom.some(c => /\.ma$/i.test(siteOf(c.url) || ""));
+  if (!maroc) return elimine("Ne vise pas le Maroc (ni arabe, ni prix en DH, ni site .ma)");
+
+  // Un produit en signal fort suffit : gardée, même avec un seul produit et sans site (sauf catégorie exclue)
+  const fort = signalFortPage(cartes, maintenant);
+  const exclue = cat && cat !== "vetements" && crit.exclues.includes(cat);
+  if (fort && !exclue) {
+    return { ...base, decision: "gardee", signalFort: fort,
+      raison: `Produit en signal fort : ${fort.creas} créatives, la plus ancienne il y a ${fort.jours} jours${siteEcom ? "" : " · vente par messagerie"}` };
+  }
+
   const echecs = [];
   let dur = false;
-  if (cat && cat !== "vetements" && crit.exclues.includes(cat)) { echecs.push("Catégorie exclue : " + CATEGORIES[cat].label); dur = true; }
+  if (exclue) { echecs.push("Catégorie exclue : " + CATEGORIES[cat].label); dur = true; }
   const seuilPubs = cat === "vetements" ? crit.vetementsMinPubs : crit.minPubs;
   if (pubs < seuilPubs) {
     echecs.push(cat === "vetements" ? `Vêtements, ${pubs} pubs (moins de ${seuilPubs})` : `Seulement ${pubs} pubs actives (minimum ${seuilPubs})`);
@@ -813,8 +909,7 @@ export function evaluatePage(ads, crit0) {
   if (crit.codObligatoire && !cod) echecs.push("Pas de signe de paiement à la livraison");
 
   const decision = echecs.length === 0 ? "gardee" : (!dur && echecs.length === 1) ? "a_valider" : "eliminee";
-  const apercus = cartes.filter(c => c.thumb).sort((a, b) => b.nb - a.nb).slice(0, 3).map(c => ({ thumb: c.thumb, id: c.library_id }));
-  return { cartes, pubs, produits, siteEcom, cod, categorie: cat, sites, decision, raison: echecs.join(" · ") || "Tous les critères sont remplis", apercus };
+  return { ...base, decision, raison: echecs.join(" · ") || "Tous les critères sont remplis" };
 }
 
 // ─── 9. Tâches manuelles : bandeau « À faire » ────────────────────────────
