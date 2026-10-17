@@ -4,7 +4,7 @@ import { CLE_MOTS, CLE_FILE, CLE_FILTRE_FILE, CLE_ECARTEES, FILTRE_FILE_DEFAUT, 
 import {
   saveConfig,
   loadRecherche, addMotCle, updateMotCle, deleteMotCle, saveCriteres,
-  loadCandidatCartes, decideCandidat, saveReleve, addPages, updatePage,
+  loadCandidatCartes, decideCandidat, saveReleve, addPages, updatePage, loadPageIds,
 } from "./veilleData";
 import { nicheMot, NICHE_LABEL, NICHES } from "./nichesLib";
 
@@ -136,8 +136,8 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const eliminees = d.candidats.filter(c => c.decision === "eliminee");
   const gardees = d.candidats.filter(c => c.decision === "gardee");
   // Gardées absentes de tes pages suivies (analyse interrompue avant leur ajout)
-  const suivies = new Set(pages.map(p => p.fb_page_id));
-  const manquantes = gardees.filter(c => !suivies.has(c.fb_page_id));
+  const suivies = new Set(pages.map(p => String(p.fb_page_id)));
+  const manquantes = gardees.filter(c => !suivies.has(String(c.fb_page_id)));
   const enCours = run && run.type === "recherche";
 
   const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(d.criteres || {}) }.expressionExacte;
@@ -199,6 +199,10 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
     let faites = 0;
     const echecs = [];
     try {
+      // Liste relue dans la base : une page peut y être déjà alors que l'écran n'est pas à jour
+      const enBase = await loadPageIds();
+      const deja = liste.filter(c => enBase.has(String(c.fb_page_id)));
+      liste = liste.filter(c => !enBase.has(String(c.fb_page_id)));
       const fichiers = [];
       for (const c of liste) {
         try {
@@ -210,7 +214,7 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
       if (fichiers.length) { await saveReleve(fichiers, pages, produits, "extension"); faites += fichiers.length; }
       await onReloadVeille();
       await charger();
-      window.alert(`${faites} page(s) gardée(s) ajoutée(s) à tes pages suivies.${echecs.length ? ` ${echecs.length} en échec (réessaie) : ${echecs.join(", ")}` : ""}`);
+      window.alert(`${faites} page(s) gardée(s) ajoutée(s) à tes pages suivies.${deja.length ? ` ${deja.length} déjà présente(s) dans la base (retirée(s) ou écran pas à jour) : ${deja.map(c => c.nom).join(", ")}.` : ""}${echecs.length ? ` ${echecs.length} en échec (réessaie) : ${echecs.join(", ")}` : ""}`);
     } catch (e) { setErreur("Ajout des gardées manquantes impossible : " + (e.message || e)); }
     finally { setOccupe(null); }
   };

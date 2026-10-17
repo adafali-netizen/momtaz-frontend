@@ -128,7 +128,8 @@ export async function saveReleve(fichiers, pagesExistantes, produitsExistants, s
     const sites = [...new Set(f.cartes.map(c => siteOf(c.url)).filter(s => s && s !== "bit.ly"))].slice(0, 3).join(", ") || null;
     const p = connues.get(f.pageId);
     if (!p) {
-      const { error } = await supabase.from("veille_pages").insert([{ fb_page_id: f.pageId, nom: texteSur(f.pageNom), sites }]);
+      // upsert : une page déjà présente dans la base (liste à l'écran pas à jour) n'est pas une erreur
+      const { error } = await supabase.from("veille_pages").upsert([{ fb_page_id: f.pageId, nom: texteSur(f.pageNom), sites, actif: true }], { onConflict: "fb_page_id" });
       if (error) throw error;
     } else {
       const maj = { actif: true };
@@ -204,6 +205,12 @@ export async function updateProduits(ids, champs) {
 export async function updatePage(fbPageId, champs) {
   const { error } = await supabase.from("veille_pages").update(champs).eq("fb_page_id", fbPageId);
   if (error) throw error;
+}
+
+// Identifiants de toutes les pages enregistrées (suivies ou retirées), lus directement dans la base
+export async function loadPageIds() {
+  const rows = await fetchAll(() => supabase.from("veille_pages").select("fb_page_id"));
+  return new Set(rows.map(r => String(r.fb_page_id)));
 }
 
 export async function addPages(ids) {
