@@ -260,3 +260,93 @@ export function expressionsFrequentes(textesParPage, existants = new Set(), max 
   }
   return out;
 }
+
+// ─── Mots-clés jugés sur le top 50 du Classement (17 oct. 2026) ─────────────
+// Un mot-clé vaut par les pages qu'il a fait trouver et qui vendent un produit du top 50.
+// Top 50 = tri par défaut du Classement : pubs lancées sur 7 jours, puis score.
+export const TOP_N = 50;
+export const RECHERCHES_POUR_JUGER = 2;   // un mot-clé est jugé après 2 recherches
+
+export function topProduits(groupes, n = TOP_N) {
+  return [...(groupes || [])].sort((a, b) => (b.recent - a.recent) || (b.score - a.score) || (b.pubs - a.pubs)).slice(0, n);
+}
+
+// Pages vendeuses du top : { page_id: [noms des produits du top vendus par cette page] }
+export function pagesDuTop(top) {
+  const out = {};
+  for (const g of top) for (const v of g.vendors || []) (out[String(v.fb_page_id)] = out[String(v.fb_page_id)] || []).push(g.nom);
+  return out;
+}
+
+const motsDe = s => String(s || "").split(",").map(cleMot).filter(Boolean);
+
+// Verdict de chaque mot-clé utilisé par la recherche (hors noms de produits suivis)
+// candidats : pages analysées, avec mots_cles = « a, b, c » (mots-clés qui les ont trouvées)
+// retour : { "<mot>": { pagesTop: [{ id, nom, produits }], verdict: "garder" | "desactiver" | "a_tester" } }
+export function jugerMots(motscles, stats, candidats, top) {
+  const parPage = pagesDuTop(top);
+  const trouvees = {};
+  for (const c of candidats || []) {
+    const produits = parPage[String(c.fb_page_id)];
+    if (!produits) continue;
+    for (const k of motsDe(c.mots_cles)) (trouvees[k] = trouvees[k] || []).push({ id: c.fb_page_id, nom: c.nom, produits });
+  }
+  const out = {};
+  for (const m of motscles || []) {
+    if (m.source === "produit") continue;
+    const k = cleMot(m.mot);
+    const s = (stats || {})[k] || {};
+    const pagesTop = trouvees[k] || [];
+    out[k] = {
+      pagesTop,
+      produitsTop: [...new Set(pagesTop.flatMap(p => p.produits))],
+      verdict: pagesTop.length ? "garder" : (s.recherches || 0) >= RECHERCHES_POUR_JUGER ? "desactiver" : "a_tester",
+    };
+  }
+  return out;
+}
+
+// ─── Propositions de mots-clés tirées des textes de pub du top 50 ───────────
+// Formules de vente : ne disent rien du produit, retirées des propositions (liste modifiable ici)
+export const FORMULES_VENTE = (
+  "اطلب أطلب طلب للطلب اطلبي اطلبها اطلبو توصيل التوصيل توصل مجاني مجانا بالمجان مجانية الدفع دفع الاستلام استلام عند "
+  + "درهم ثمن الثمن سعر السعر تخفيض تخفيضات عرض العرض عروض خصم الكمية كمية نفاذ محدود محدودة الآن الان دابا سارع سارعي اغتنم اغتنمي "
+  + "جودة الجودة مضمون مضمونة ضمان المغرب المغربية المدن مدن جميع لجميع باب لباب دارك سريع سريعة هدية واتساب اتصل تواصل "
+  + "livraison livré gratuite gratuit paiement payer commande commandez commander prix promo promotion offre réduction remise stock "
+  + "maintenant maroc dh dhs mad whatsapp qualité garantie cadeau"
+).split(" ");
+const estFormule = w => FORMULES_VENTE.some(f => w === f || (f.length >= 4 && w.includes(f)) || (f.length === 3 && /[؀-ۿ]/.test(f) && w.includes(f)));
+
+// top : groupes du top 50 · existants : Set des mots-clés (minuscules)
+// Expressions de 1 à 4 mots présentes dans les pubs d'au moins 2 pages vendeuses ou dans au moins 3 créatives.
+// Classées par nombre de produits du top où elles apparaissent.
+export function propositionsMots(top, existants = new Set(), max = 20) {
+  const stat = new Map();   // e -> { pages:Set, creas:number, produits:Set }
+  for (const g of top) for (const v of g.vendors || []) for (const c of v.cartes || []) {
+    const m = normaliserTexte(c.texte).split(" ").filter(Boolean);
+    const vus = new Set();
+    for (let n = 1; n <= 4; n++) for (let i = 0; i + n <= m.length; i++) {
+      const w = m.slice(i, i + n);
+      if (VIDES.has(w[0]) || VIDES.has(w[n - 1]) || w.some(x => /\d/.test(x) || x.length < 2) || w.some(estFormule)) continue;
+      const e = w.join(" ");
+      if ((n === 1 && e.length < 4) || e.length < 4 || vus.has(e)) continue;
+      vus.add(e);
+      const s = stat.get(e) || { pages: new Set(), creas: 0, produits: new Set() };
+      s.pages.add(String(v.fb_page_id)); s.creas += 1; s.produits.add(g.nom);
+      stat.set(e, s);
+    }
+  }
+  const deja = [...existants].map(cleMot);
+  const res = [...stat.entries()]
+    .map(([e, s]) => ({ e, pages: s.pages.size, creas: s.creas, produits: [...s.produits] }))
+    .filter(x => (x.pages >= 2 || x.creas >= 3) && !deja.some(d => d === x.e || d.includes(x.e) || x.e.includes(d)))
+    .sort((a, b) => b.produits.length - a.produits.length || b.pages - a.pages || b.creas - a.creas || b.e.split(" ").length - a.e.split(" ").length);
+  // Une expression contenue dans une plus longue, vue aussi souvent, est redondante (et inversement on garde la plus précise)
+  const out = [];
+  for (const x of res) {
+    if (out.some(y => (y.e.includes(x.e) || x.e.includes(y.e)) && y.produits.length >= x.produits.length)) continue;
+    out.push(x);
+    if (out.length >= max) break;
+  }
+  return out;
+}

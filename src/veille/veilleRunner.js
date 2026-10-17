@@ -123,7 +123,6 @@ export async function lancerRecherche(ctx, ctl) {
   }
   const interroges = {};
   const analyse = {};
-  const textesParPage = {};   // textes de pub des pages retenues : source des nouveaux mots-clés
   const noter = (mot, champ) => { analyse[mot] = analyse[mot] || { analysees: 0, gardees: 0 }; analyse[mot][champ]++; };
 
   const rech = await createRecherche(mots.length);
@@ -253,7 +252,6 @@ export async function lancerRecherche(ctx, ctl) {
         continue;
       }
       for (const m of t.mots) noter(m, "analysees");
-      if (ev.decision !== "eliminee") textesParPage[t.id] = res.ads.map(a => [a.title, a.text].filter(Boolean).join(" "));
       if (ev.decision === "gardee") {
         compte.nb_gardees++;
         try {
@@ -287,30 +285,9 @@ export async function lancerRecherche(ctx, ctl) {
     if (relGardees) await finishReleve(relGardees.id, totauxGardees).catch(() => {});
     if (nonAjoutees.length) ctl.log(`${nonAjoutees.length} page(s) gardée(s) non ajoutée(s) à tes pages suivies : ${nonAjoutees.join(", ")} · utilise « Ajouter les gardées manquantes »`);
     await avecDelai(updateRecherche(rech.id, { ...compte, statut, fin: new Date().toISOString() }), DELAI_ENREG_MS, "la base ne répond pas").catch(() => {});
-    // 5. Rendement des mots-clés et nettoyage : chaque mot-clé est jugé sur ses pages réellement analysées
-    let stats = bilanRecherche(ctx.stats || {}, interroges, analyse);
-    const aCouper = aDesactiver(stats);
-    if (aCouper.length) {
-      stats = marquerDesactives(stats, aCouper);
-      const ids = new Map([...ctx.motscles.map(m => [cleMot(m.mot), m.id])]);
-      for (const k of aCouper) if (ids.get(k)) await updateMotCle(ids.get(k), { actif: false }).catch(() => {});
-      ctl.log(`Nettoyage : ${aCouper.length} mot${aCouper.length > 1 ? "s" : ""}-clé${aCouper.length > 1 ? "s" : ""} désactivé${aCouper.length > 1 ? "s" : ""} : ${aCouper.map(k => `${k} (${stats[k].desactive.raison})`).join(", ")}`);
-    }
-    // 6. Nouveaux mots-clés tirés des textes de pub : expressions présentes chez au moins 3 pages (tes pages suivies
-    //    et les pages retenues cette fois), absentes de ta liste. Jugés ensuite par le rendement comme les autres.
-    try {
-      for (const g of ctx.groupes || []) {
-        if (!g.recent) continue;
-        for (const c of g.cartes || []) if (c.texte && c.fb_page_id) (textesParPage[c.fb_page_id] = textesParPage[c.fb_page_id] || []).push(c.texte);
-      }
-      const existants = new Set([...ctx.motscles.map(m => cleMot(m.mot)), ...Object.keys(stats)]);
-      const nouveaux = expressionsFrequentes(textesParPage, existants);
-      for (const x of nouveaux) {
-        await addMotCle(x.e, "manuel");
-        stats[cleMot(x.e)] = { type: "phrase", recherches: 0, trouvees: 0, nouvelles: 0, analysees: 0, gardees: 0, desactive: null, origine: "texte", le: new Date().toISOString() };
-      }
-      if (nouveaux.length) ctl.log(`Nouveaux mots-clés tirés des textes de pub : ${nouveaux.map(x => `${x.e} (${x.n} pages)`).join(", ")}`);
-    } catch (e) { ctl.log("Mots-clés tirés des pubs non ajoutés : " + (e.message || e)); }
+    // 5. Rendement des mots-clés : statistiques seulement. Depuis le 17 oct. 2026, plus de nettoyage ni d'ajout automatique :
+    //    les mots-clés sont jugés sur le top 50 du Classement et les nouveaux sont proposés (Réglages → Mots-clés).
+    const stats = bilanRecherche(ctx.stats || {}, interroges, analyse);
     await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
   return { ...compte, file: Object.keys(file).length, collecte, ecarteesFiltre, bloquees: bloquees.length };

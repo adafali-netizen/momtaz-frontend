@@ -107,7 +107,8 @@ function Apercus({ apercus }) {
   );
 }
 
-export default function Recherche({ ext, run, onLancer, onStop, pages, produits, onReloadVeille, version }) {
+// vue : « trouver » (file, analyse, résultats) ou « criteres » (filtre de la file et critères pour garder une page)
+export default function Recherche({ ext, run, onLancer, onStop, pages, produits, onReloadVeille, version, vue = "trouver", onOuvrir }) {
   const [d, setD] = useState(null);
   const [erreur, setErreur] = useState("");
   const [liste, setListe] = useState("");
@@ -281,6 +282,15 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
     { label: "Éliminées", value: derniere ? derniere.nb_eliminees : 0, color: "var(--red)" },
   ];
 
+  if (vue === "criteres") return (
+    <div style={{ padding: "16px 24px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 16, alignItems: "start" }}>
+      <FiltreFile valeur={d.filtreFile} nbFile={nbFile} apercu={apercuFiltre} occupe={occupe === "filtre" || !!run}
+        onSave={async f => { await saveConfig(CLE_FILTRE_FILE, f); await charger(); }}
+        onApercu={apercuFiltreFile} onAppliquer={appliquerFiltre} />
+      <Criteres valeur={d.criteres} onSave={async v => { await saveCriteres(v); await charger(); }} />
+    </div>
+  );
+
   return (
     <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
       {!ext && (
@@ -341,60 +351,14 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
-        <div style={{ flex: "1 1 340px", maxWidth: 440, display: "flex", flexDirection: "column", gap: 16 }}>
-          <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontWeight: 700 }}>Mots-clés ({d.motscles.filter(m => m.actif).length} actifs)</div>
-            <div className="col-muted">
-              La recherche lit le texte des pubs (texte et titre). Après chaque recherche, jusqu'à 10 expressions vues dans les pubs d'au moins 3 pages s'ajoutent toutes seules (« Tiré des pubs ») ; le nettoyage garde celles qui rapportent.
-              Les noms de produits ajoutés automatiquement (« Produit suivi ») ne sont pas utilisés : la recherche sert à découvrir des produits nouveaux.
-              Un mot-clé est désactivé automatiquement s'il n'a fait garder aucune page sur {ANALYSEES_AVANT_NETTOYAGE} pages analysées, ou s'il ne trouve aucune nouvelle page en {RECHERCHES_AVANT_NETTOYAGE} recherches.
+        <div style={{ flex: "1 1 520px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+          {onOuvrir && (
+            <div className="col-muted" style={{ fontSize: 12 }}>
+              Mots-clés, filtre de la file et critères : onglet Réglages ·{" "}
+              <button onClick={() => onOuvrir("motscles")} style={{ border: "none", background: "none", padding: 0, color: "var(--blue)", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>Mots-clés →</button>{" "}
+              <button onClick={() => onOuvrir("criteres")} style={{ border: "none", background: "none", padding: 0, color: "var(--blue)", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>Critères →</button>
             </div>
-            <textarea className="form-input" rows={5} value={liste} onChange={e => setListe(e.target.value)}
-              placeholder={"Un mot-clé par ligne\nالدفع عند الاستلام\nlivraison gratuite\ndéfroisseur vapeur"} style={{ resize: "vertical" }} />
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <select className="form-select" style={{ width: "auto" }} value={typeListe} onChange={e => setTypeListe(e.target.value)}>
-                <option value="phrase">Phrases de pub (expression exacte)</option>
-                <option value="produit">Noms de produits (recherche large)</option>
-              </select>
-              <button className="btn btn-sm btn-primary" disabled={!lireListe(liste).length} onClick={ajouterListe}>
-                Ajouter {lireListe(liste).length || ""} mot{lireListe(liste).length > 1 ? "s" : ""}-clé{lireListe(liste).length > 1 ? "s" : ""}
-              </button>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "var(--muted2)", borderTop: "1px solid var(--border)", paddingTop: 7 }}>
-              <span>Triés par pages gardées · gardées / analysées / nouvelles · recherches</span>
-              <button className="btn btn-sm btn-secondary" onClick={() => setVoirInactifs(v => !v)}>{voirInactifs ? "Masquer les inactifs" : `Voir les inactifs (${d.motscles.filter(m => !m.actif).length})`}</button>
-            </div>
-            {trierMots(d.motscles, statsMots).filter(m => voirInactifs || m.actif).map(m => {
-              const st = statsMots[cleMot(m.mot)] || {};
-              const type = typeDe(m, statsMots, exacteGlobal);
-              return (
-                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid var(--border)", paddingTop: 7, opacity: m.actif ? 1 : 0.5 }}>
-                  <input type="checkbox" checked={m.actif} title={m.actif ? "Désactiver" : "Réactiver (2 nouvelles recherches pour faire ses preuves)"} onChange={e => basculerActif(m, e.target.checked)} />
-                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                    <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.mot}</span>
-                    {!m.actif && st.desactive && <span style={{ fontSize: 11, color: "var(--red)" }}>Désactivé : {st.desactive.raison}</span>}
-                  </div>
-                  <span className="col-mono" title="Pages gardées / pages analysées / nouvelles pages trouvées · nombre de recherches" style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-                    {st.recherches ? <><b style={{ color: st.gardees ? "var(--green)" : "var(--muted)" }}>{st.gardees}</b> / {st.analysees || 0} / {st.nouvelles} · {st.recherches}×</> : <span className="col-muted">jamais</span>}
-                  </span>
-                  {st.origine === "texte" && <span className="tag" title={`Expression trouvée dans les pubs d'au moins 3 pages${st.le ? ", ajoutée le " + new Date(st.le).toLocaleDateString("fr-FR") : ""}`} style={{ opacity: 0.8 }}>Tiré des pubs</span>}
-                  {nicheMot(m.mot) && <span className="col-muted" style={{ fontSize: 11 }}>{NICHE_LABEL[nicheMot(m.mot)]}</span>}
-                  {m.source === "produit" && <span className="tag" title="Nom de produit ajouté automatiquement : pas utilisé par la recherche" style={{ opacity: 0.7 }}>Produit suivi · non utilisé</span>}
-                  <button className={`tag ${type === "phrase" ? "blue" : "green"}`} style={{ border: "none", cursor: "pointer" }} title="Changer de type" onClick={() => basculerType(m)}>
-                    {type === "phrase" ? "Phrase" : "Produit"}
-                  </button>
-                  <button className="btn-close" title="Supprimer" onClick={async () => { await deleteMotCle(m.id); charger(); }}>×</button>
-                </div>
-              );
-            })}
-          </section>
-          <FiltreFile valeur={d.filtreFile} nbFile={nbFile} apercu={apercuFiltre} occupe={occupe === "filtre" || !!run}
-            onSave={async f => { await saveConfig(CLE_FILTRE_FILE, f); await charger(); }}
-            onApercu={apercuFiltreFile} onAppliquer={appliquerFiltre} />
-          <Criteres valeur={d.criteres} onSave={async v => { await saveCriteres(v); await charger(); }} />
-        </div>
-
-        <div style={{ flex: "999 1 520px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+          )}
           <section style={{ ...carte, overflow: "hidden" }}>
             <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
               <div style={{ fontWeight: 700, color: "var(--orange)" }}>À valider ({aValider.length})</div>

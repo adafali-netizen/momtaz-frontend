@@ -14,11 +14,15 @@ import Decision from "./veille/Decision";
 import { CLE_PARAMS, CLE_DECISIONS } from "./veille/decisionLib";
 import EtudeMarche, { etudeEtat, telechargerEtude } from "./veille/EtudeMarche";
 import Synthese from "./veille/Synthese";
+import Process from "./veille/Process";
+import MotsCles from "./veille/MotsCles";
 import { nichesPages, CLE_NICHES } from "./veille/nichesLib";
 import { PAGES_PAR_SESSION } from "./veille/motsLib";
 
-// 4 onglets, chacun avec ses vues. Les anciens noms d'onglet mènent à la bonne vue.
+// 6 onglets, chacun avec ses vues. Les anciens noms d'onglet mènent à la bonne vue.
 const VUES = {
+  process: ["process", "process"],
+  motscles: ["reglages", "motscles"], criteres: ["reglages", "criteres"],
   classement: ["produits", "classement"], top: ["produits", "top"], regroupements: ["produits", "regroupements"],
   decision: ["decision", "decision"],
   pages: ["pages", "suivies"], suivies: ["pages", "suivies"], recherche: ["pages", "trouver"], trouver: ["pages", "trouver"],
@@ -43,7 +47,7 @@ const fmtDate = d => d ? new Date(d).toLocaleString("fr-FR", { weekday: "long", 
 export default function Veille() {
   const [data,     setData]     = useState(null);
   const [erreur,   setErreur]   = useState("");
-  const [vue,      setVue]      = useState(() => { try { return VUES[localStorage.getItem("momtaz_veille_vue")] ? localStorage.getItem("momtaz_veille_vue") : "classement"; } catch { return "classement"; } });
+  const [vue,      setVue]      = useState(() => { try { return VUES[localStorage.getItem("momtaz_veille_vue")] ? localStorage.getItem("momtaz_veille_vue") : "process"; } catch { return "process"; } });
   const setOnglet = v => { setVue(v); try { localStorage.setItem("momtaz_veille_vue", v); } catch { /* stockage indisponible */ } };
   const [onglet, sousVue] = VUES[vue] || VUES.classement;
   const [menu,     setMenu]     = useState(false);   // menu « Mettre à jour »
@@ -198,12 +202,12 @@ export default function Veille() {
   });
 
   // Depuis le menu « Mettre à jour » : collecte de nouvelles pages ou analyse de la file, sans passer par l'onglet Pages
-  const rechercheDepuisMenu = async mode => {
+  const rechercheDepuisMenu = async (mode, nbPages) => {
     setMenu(false);
     try {
       const rech = await loadRecherche();
-      let maxPages = PAGES_PAR_SESSION;
-      try { maxPages = Number(localStorage.getItem("momtaz_pages_session")) || PAGES_PAR_SESSION; } catch { /* stockage indisponible */ }
+      let maxPages = nbPages || PAGES_PAR_SESSION;
+      if (!nbPages) try { maxPages = Number(localStorage.getItem("momtaz_pages_session")) || PAGES_PAR_SESSION; } catch { /* stockage indisponible */ }
       lancerUneRecherche(rech, async () => {}, mode === "collecte" ? { mode: "collecte" } : { maxPages });
     } catch (e) { setErreur("Recherche impossible : " + (e.message || e)); }
   };
@@ -250,15 +254,18 @@ export default function Veille() {
   );
 
   const ONGLETS = [
+    { id: "process", vue: "process", label: "Process" },
     { id: "produits", vue: "classement", label: "Produits" },
     { id: "decision", vue: "decision", label: "Décision" },
     { id: "pages", vue: "suivies", label: `Pages (${actives})` },
     { id: "outils", vue: "historique", label: "Outils" },
+    { id: "reglages", vue: "motscles", label: "Réglages" },
   ];
   const SOUS = {
     produits: [["classement", "Classement"], ["top", "Top marché et vendeurs"], ["regroupements", `Regroupements à valider (${suggestions.length})`]],
     pages: [["suivies", `Pages suivies (${actives})`], ["trouver", "Trouver de nouvelles pages"]],
     outils: [["historique", "Historique des relevés"], ["etude", "Étude de marché"]],
+    reglages: [["motscles", "Mots-clés"], ["criteres", "Filtre de la file et critères"]],
   };
   const action = (label, detail, fn, actif = true) => (
     <button className="btn btn-secondary" style={{ justifyContent: "flex-start", textAlign: "left", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, width: "100%" }}
@@ -371,6 +378,16 @@ export default function Veille() {
         </div>
       )}
 
+      {data && sousVue === "process" && (
+        <Process groups={groups} pages={pages} latest={data.latest} releves={releves} ext={ext} run={run} version={version}
+          onCollecter={() => rechercheDepuisMenu("collecte")} onAnalyser={n => rechercheDepuisMenu("analyse", n)}
+          onRelever={releverSelection} onOuvrir={setOnglet} />
+      )}
+      {data && sousVue === "motscles" && <MotsCles groups={groups} run={run} version={version} />}
+      {data && sousVue === "criteres" && (
+        <Recherche vue="criteres" ext={ext} run={run} onLancer={lancerUneRecherche} onStop={arreter}
+          pages={pages} produits={data.produits} onReloadVeille={charger} version={version} />
+      )}
       {data && sousVue === "classement" && (
         <Classement groups={groups} pages={pages} pageInfo={pageInfo} onPatch={patchProduits} dateReleve={releves[0]?.created_at}
           ext={ext} run={run} onCapturerPrix={capturerLesPrix} ecarts={data.ecarts} preset={preset} />
@@ -399,7 +416,7 @@ export default function Veille() {
         <Historique releves={releves} relevePages={data.relevePages} produits={data.produits} pageInfo={pageInfo} onReload={charger} />
       )}
       {data && sousVue === "trouver" && (
-        <Recherche ext={ext} run={run} onLancer={lancerUneRecherche} onStop={arreter}
+        <Recherche ext={ext} run={run} onLancer={lancerUneRecherche} onStop={arreter} onOuvrir={setOnglet}
           pages={pages} produits={data.produits} onReloadVeille={charger} version={version} />
       )}
       {data && sousVue === "etude" && (
