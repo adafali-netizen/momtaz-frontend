@@ -68,22 +68,12 @@ async function debloquerExtension(ctl, label) {
   }
 }
 
-// Relève une page : d'abord pays Maroc, puis tous les pays si rien ne s'affiche (sauf marocSeul).
-// zeroConfirme = Facebook annonce lui-même 0 résultat (page qui a coupé ses pubs).
-// marocSeul : analyse des pages trouvées, limitée au Maroc (pas d'essai « tous les pays »)
-async function releverPage(ctl, id, label, opts, marocSeul = false) {
-  let res = await releverSurveille(ctl, libraryPageUrl(id, "MA"), opts, label);
+// Relève une page, pays Maroc uniquement : tout le module travaille sur le Maroc (seule l'Étude de marché peut viser d'autres pays).
+// zeroConfirme = Facebook annonce lui-même 0 résultat au Maroc (page qui a coupé ses pubs).
+async function releverPage(ctl, id, label, opts) {
+  const res = await releverSurveille(ctl, libraryPageUrl(id, "MA"), opts, label);
   verifierBlocage(res);
-  if (res.ads.length || ctl.stop) return { ...res, zeroConfirme: false };
-  const zeroMA = res.total === 0;
-  // Facebook annonce 0 résultat au Maroc : la page a coupé ses pubs, inutile d'essayer tous les pays
-  if (zeroMA) return { ...res, zeroConfirme: true };
-  if (marocSeul) return { ...res, zeroConfirme: false };
-  ctl.status(`${label} : rien avec le pays Maroc, essai avec tous les pays…`);
-  await new Promise(r => setTimeout(r, 8000));
-  res = await releverSurveille(ctl, libraryPageUrl(id, "ALL"), opts, label);
-  verifierBlocage(res);
-  return { ...res, zeroConfirme: !res.ads.length && (zeroMA || res.total === 0) };
+  return { ...res, zeroConfirme: !res.ads.length && res.total === 0 };
 }
 
 function verifierBlocage(res) {
@@ -216,7 +206,7 @@ export async function lancerRecherche(ctx, ctl) {
       ctl.status(label);
       // 150 pubs suffisent pour juger une page
       let res;
-      try { res = await releverPage(ctl, t.id, label, { maxAds: 150, maxScrolls: 30, idleRounds: 4 }, true); }
+      try { res = await releverPage(ctl, t.id, label, { maxAds: 150, maxScrolls: 30, idleRounds: 4 }); }
       catch (e) {
         if (!(e instanceof Bloque)) throw e;
         // Page bloquée : marquée « à valider » pour être revue à la main, retirée de la file, on passe à la suivante
