@@ -128,7 +128,18 @@ export async function lancerRecherche(ctx, ctl) {
 
   const rech = await createRecherche(mots.length);
   const compte = { nb_trouvees: 0, nb_gardees: 0, nb_a_valider: 0, nb_eliminees: 0 };
-  const gardees = [];
+  // Pages gardées : ajoutées à tes pages suivies dès leur analyse, dans un relevé créé à la première
+  let relGardees = null;
+  const totauxGardees = { nb_pages: 0, nb_cartes: 0, nb_pubs: 0 };
+  const pagesConnues = new Set(ctx.pages.map(p => p.fb_page_id));
+  const produitsConnus = new Set(ctx.produits.map(p => p.fb_page_id + "|" + p.produit_key));
+  const nonAjoutees = [];
+  const ajouterGardee = async (pageId, pageNom, cartes) => {
+    if (!relGardees) relGardees = await startReleve("extension");
+    const r = await addPageReleve(relGardees.id, { pageId, pageNom, cartes, date: new Date() }, pagesConnues, produitsConnus);
+    totauxGardees.nb_pages++; totauxGardees.nb_cartes += r.nbCartes; totauxGardees.nb_pubs += r.nbPubs;
+    await finishReleve(relGardees.id, totauxGardees).catch(() => {});
+  };
   let ecarteesFiltre = 0;
   let statut = "terminée";
   const bloquees = [];
@@ -245,7 +256,13 @@ export async function lancerRecherche(ctx, ctl) {
       if (ev.decision !== "eliminee") textesParPage[t.id] = res.ads.map(a => [a.title, a.text].filter(Boolean).join(" "));
       if (ev.decision === "gardee") {
         compte.nb_gardees++;
-        gardees.push({ pageId: t.id, pageNom: nom, cartes: ev.cartes, date: new Date() });
+        try {
+          await avecDelai(ajouterGardee(t.id, nom, ev.cartes), DELAI_ENREG_MS * 2, "la base ne répond pas");
+          ctl.log(`${nom} : ajoutée à tes pages suivies`);
+        } catch (e) {
+          nonAjoutees.push(nom);
+          ctl.log(`${nom} : gardée mais NON ajoutée à tes pages suivies (${e.message || e}) · utilise « Ajouter les gardées manquantes »`);
+        }
         for (const m of t.mots) noter(m, "gardees");
       }
       else if (ev.decision === "a_valider") compte.nb_a_valider++;
@@ -253,7 +270,8 @@ export async function lancerRecherche(ctx, ctl) {
       delete file[t.id];
       ctl.log(`${nom} : ${ev.decision === "gardee" ? "gardée" : ev.decision === "a_valider" ? "à valider" : "éliminée"} (${ev.raison})`);
       await avecDelai(updateRecherche(rech.id, compte), DELAI_ENREG_MS, "la base ne répond pas").catch(() => {});
-      if ((i + 1) % 10 === 0) await sauverFile();
+      // File enregistrée après chaque page : un arrêt ou un blocage ne fait rien réanalyser
+      await sauverFile();
     }
     if (bloquees.length) ctl.log(`${bloquees.length} page${bloquees.length > 1 ? "s" : ""} bloquée${bloquees.length > 1 ? "s" : ""}, sautée${bloquees.length > 1 ? "s" : ""}, à revoir dans « À valider » : ${bloquees.join(", ")}`);
     if (ctl.stop) statut = "arrêtée";
@@ -265,12 +283,10 @@ export async function lancerRecherche(ctx, ctl) {
     throw e;
   } finally {
     await sauverFile();
-    // 4. Les pages gardées rejoignent tes pages suivies avec leurs pubs
-    if (gardees.length) {
-      ctl.status(`Enregistrement de ${gardees.length} pages gardées…`);
-      await saveReleve(gardees, ctx.pages, ctx.produits, "extension").catch(e => ctl.log("Enregistrement des pages gardées impossible : " + e.message));
-    }
-    await updateRecherche(rech.id, { ...compte, statut, fin: new Date().toISOString() }).catch(() => {});
+    // 4. Pages gardées : déjà ajoutées à tes pages suivies au fil de l'analyse
+    if (relGardees) await finishReleve(relGardees.id, totauxGardees).catch(() => {});
+    if (nonAjoutees.length) ctl.log(`${nonAjoutees.length} page(s) gardée(s) non ajoutée(s) à tes pages suivies : ${nonAjoutees.join(", ")} · utilise « Ajouter les gardées manquantes »`);
+    await avecDelai(updateRecherche(rech.id, { ...compte, statut, fin: new Date().toISOString() }), DELAI_ENREG_MS, "la base ne répond pas").catch(() => {});
     // 5. Rendement des mots-clés et nettoyage : chaque mot-clé est jugé sur ses pages réellement analysées
     let stats = bilanRecherche(ctx.stats || {}, interroges, analyse);
     const aCouper = aDesactiver(stats);

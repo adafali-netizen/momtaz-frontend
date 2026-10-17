@@ -135,6 +135,9 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const aValider = d.candidats.filter(c => c.decision === "a_valider");
   const eliminees = d.candidats.filter(c => c.decision === "eliminee");
   const gardees = d.candidats.filter(c => c.decision === "gardee");
+  // Gardées absentes de tes pages suivies (analyse interrompue avant leur ajout)
+  const suivies = new Set(pages.map(p => p.fb_page_id));
+  const manquantes = gardees.filter(c => !suivies.has(c.fb_page_id));
   const enCours = run && run.type === "recherche";
 
   const exacteGlobal = !!{ ...CRITERES_DEFAUT, ...(d.criteres || {}) }.expressionExacte;
@@ -187,6 +190,28 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
       await charger();
       await onReloadVeille();
     } catch (e) { setErreur("Impossible de garder cette page : " + (e.message || e)); }
+    finally { setOccupe(null); }
+  };
+
+  // Ajoute à tes pages suivies, avec leurs pubs, les pages gardées qui n'y sont pas
+  const ajouterManquantes = async liste => {
+    setOccupe("manquantes");
+    let faites = 0;
+    const echecs = [];
+    try {
+      const fichiers = [];
+      for (const c of liste) {
+        try {
+          const full = await loadCandidatCartes(c.fb_page_id);
+          if (full && full.cartes && full.cartes.length) fichiers.push({ pageId: c.fb_page_id, pageNom: c.nom, cartes: full.cartes, date: new Date(full.created_at) });
+          else { await addPages([c.fb_page_id]); await updatePage(c.fb_page_id, { nom: c.nom, sites: c.sites }); faites++; }
+        } catch (e) { echecs.push(c.nom); }
+      }
+      if (fichiers.length) { await saveReleve(fichiers, pages, produits, "extension"); faites += fichiers.length; }
+      await onReloadVeille();
+      await charger();
+      window.alert(`${faites} page(s) gardée(s) ajoutée(s) à tes pages suivies.${echecs.length ? ` ${echecs.length} en échec (réessaie) : ${echecs.join(", ")}` : ""}`);
+    } catch (e) { setErreur("Ajout des gardées manquantes impossible : " + (e.message || e)); }
     finally { setOccupe(null); }
   };
 
@@ -394,6 +419,14 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
           <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontWeight: 700, color: "var(--green)" }}>Gardées ({gardees.length})</div>
             <div className="col-muted">Ajoutées à tes pages suivies, leurs produits sont dans le classement.</div>
+            {manquantes.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--red-lt)", borderRadius: 8, padding: "8px 10px", fontSize: 13 }}>
+                <span><b>{manquantes.length}</b> page{manquantes.length > 1 ? "s" : ""} gardée{manquantes.length > 1 ? "s" : ""} absente{manquantes.length > 1 ? "s" : ""} de tes pages suivies</span>
+                <button className="btn btn-sm btn-primary" disabled={occupe === "manquantes" || !!run} onClick={() => ajouterManquantes(manquantes)}>
+                  {occupe === "manquantes" ? "Ajout en cours…" : "Ajouter les gardées manquantes"}
+                </button>
+              </div>
+            )}
             {gardees.slice(0, 8).map(c => (
               <div key={c.fb_page_id} style={{ display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid var(--border)", paddingTop: 7, fontSize: 13 }}>
                 <span style={{ fontWeight: 600 }}>{c.nom}</span>
