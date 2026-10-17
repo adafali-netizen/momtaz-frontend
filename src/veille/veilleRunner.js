@@ -1,8 +1,8 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
-import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper } from "./veilleLib";
+import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper, cleanUrl, siteOf, MAROC, CATEGORIES } from "./veilleLib";
 import { releverUrl, capturerPrix, attendreExtensionLibre } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
-import { CLE_MOTS, CLE_FILE, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto, choisirMots, ajouterAFile, prochainesPages, PAGES_PAR_SESSION, MOTS_PAR_SESSION, expressionsFrequentes } from "./motsLib";
+import { CLE_MOTS, CLE_FILE, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto, choisirMots, ajouterAFile, prochainesPages, PAGES_PAR_SESSION, MOTS_PAR_SESSION, expressionsFrequentes, filtrerFile, fusionnerEcartees, CLE_ECARTEES } from "./motsLib";
 import { nicheMot, NICHE_LABEL } from "./nichesLib";
 import {
   saveReleve, startReleve, addPageReleve, finishReleve, addMotCle, updateMotCle, createRecherche, updateRecherche, saveCandidat,
@@ -84,12 +84,14 @@ export async function lancerRecherche(ctx, ctl) {
   const rech = await createRecherche(mots.length);
   const compte = { nb_trouvees: 0, nb_gardees: 0, nb_a_valider: 0, nb_eliminees: 0 };
   const gardees = [];
+  let ecarteesFiltre = 0;
   let statut = "terminée";
   const sauverFile = () => saveConfig(CLE_FILE, file).catch(e => ctl.log("File d'attente non enregistrée : " + (e.message || e)));
   try {
     // 2. Recherche par mot-clé : les pages trouvées rejoignent la file d'attente
     if (repriseSeule) ctl.log(`Reprise de la file d'attente : ${Object.keys(file).length} pages à analyser, pas de nouveaux mots-clés cette fois`);
     const trouvees = new Map();
+    const versFile = () => [...trouvees.values()].map(t => ({ ...t, mots: [...t.mots], prods: [...t.prods] }));
     for (let i = 0; i < mots.length && !ctl.stop; i++) {
       const { id, mot, exact } = mots[i];
       const label = `Mot-clé ${i + 1}/${mots.length} « ${mot} »${exact ? " (exacte)" : ""}`;
@@ -101,9 +103,17 @@ export async function lancerRecherche(ctx, ctl) {
       for (const a of res.ads) {
         if (!a.page_id) continue;
         pagesMot.add(a.page_id);
-        const t = trouvees.get(a.page_id) || { id: a.page_id, nom: a.page_name, mots: new Set(), pubs: 0 };
+        const t = trouvees.get(a.page_id) || { id: a.page_id, nom: a.page_name, mots: new Set(), pubs: 0, maroc: false, cats: {}, n: 0, prods: new Set() };
         t.mots.add(mot);
         t.pubs += a.n || 1;
+        // Lu dès la collecte pour le filtre avant analyse : signe Maroc, catégorie, produits
+        const texte = [a.title, a.text, a.caption].filter(Boolean).join(" ");
+        const url = cleanUrl(a.url);
+        if (!t.maroc && (MAROC.test(texte) || /\.ma$/i.test(siteOf(url) || ""))) t.maroc = true;
+        const tout = [texte, url].filter(Boolean).join(" ");
+        for (const [k, c] of Object.entries(CATEGORIES)) if (c.re.test(tout)) t.cats[k] = (t.cats[k] || 0) + (a.n || 1);
+        t.n += a.n || 1;
+        if (url && t.prods.size < 10) t.prods.add(productKey(url));
         trouvees.set(a.page_id, t);
       }
       const nouv = [...pagesMot].filter(p => !connuesAvant.has(p)).length;
@@ -112,14 +122,25 @@ export async function lancerRecherche(ctx, ctl) {
       if (id) await updateMotCle(id, { nb_pages: pagesMot.size, derniere_recherche: new Date().toISOString() }).catch(() => {});
       // Toutes les 10 recherches, la file est enregistrée : un arrêt ne perd rien
       if ((i + 1) % 10 === 0) {
-        file = ajouterAFile(file, [...trouvees.values()].map(t => ({ ...t, mots: [...t.mots] })), connuesAvant);
+        file = ajouterAFile(file, versFile(), connuesAvant);
         await sauverFile();
         ctl.log(`File d'attente enregistrée : ${Object.keys(file).length} pages`);
       }
       if (i < mots.length - 1) await pause(ctl, label);
     }
     if (mots.length) {
-      file = ajouterAFile(file, [...trouvees.values()].map(t => ({ ...t, mots: [...t.mots] })), connuesAvant);
+      file = ajouterAFile(file, versFile(), connuesAvant);
+      // Filtre avant analyse : pubs vues minimum, signe Maroc, catégories exclues. Les pages écartées restent récupérables.
+      const crit = { ...CRITERES_DEFAUT, ...(ctx.criteres || {}) };
+      const labels = Object.fromEntries(Object.entries(CATEGORIES).map(([k, c]) => [k, c.label]));
+      const avant = Object.keys(file).length;
+      const r = filtrerFile(file, ctx.filtreFile, crit.exclues, labels);
+      file = r.file;
+      const nbEcartees = Object.keys(r.ecartees).length;
+      try { await saveConfig(CLE_ECARTEES, fusionnerEcartees(ctx.ecartees, r.ecartees, file)); }
+      catch (e) { ctl.log("Pages écartées non enregistrées : " + (e.message || e)); }
+      ctl.log(`Filtre avant analyse : ${avant} → ${Object.keys(file).length} pages (${nbEcartees} écartées : ${r.detail.pubs} avec trop peu de pubs, ${r.detail.maroc} sans signe Maroc, ${r.detail.categorie} de catégorie exclue)`);
+      ecarteesFiltre = nbEcartees;
       await sauverFile();
     }
     compte.nb_trouvees = trouvees.size;
@@ -201,7 +222,7 @@ export async function lancerRecherche(ctx, ctl) {
     } catch (e) { ctl.log("Mots-clés tirés des pubs non ajoutés : " + (e.message || e)); }
     await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
-  return { ...compte, file: Object.keys(file).length, collecte };
+  return { ...compte, file: Object.keys(file).length, collecte, ecarteesFiltre };
 }
 
 // Réessaie d'enregistrer les pages relevées dont l'enregistrement a échoué

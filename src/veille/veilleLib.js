@@ -783,7 +783,7 @@ export const librarySearchUrl = (mot, statut = "active", pays = "MA", exact = fa
     ? "&search_type=keyword_exact_phrase&q=" + encodeURIComponent('"' + String(mot).replace(/"/g, "").trim() + '"')
     : "&search_type=keyword_unordered&q=" + encodeURIComponent(mot));
 
-function cleanUrl(u) {
+export function cleanUrl(u) {
   if (!u) return null;
   return safeDecode(safeDecode(u)).split("?")[0].replace(/\/+$/, "");
 }
@@ -836,12 +836,12 @@ function categorie(ads) {
 }
 
 // expressionExacte : la recherche de pages cherche tes mots-clés manuels tels quels (mots dans le même ordre)
-export const CRITERES_DEFAUT = { expressionExacte: false, minPubs: 10, minProduits: 3, siteObligatoire: true, codObligatoire: true, vetementsMinPubs: 20, exclues: ["cosmetiques", "immobilier", "services", "restaurants", "formations", "auto"] };
+export const CRITERES_DEFAUT = { expressionExacte: false, minPubs: 10, minProduits: 4, siteObligatoire: true, codObligatoire: true, vetementsMinPubs: 20, exclues: ["cosmetiques", "immobilier", "services", "restaurants", "formations", "auto"] };
 
 // Liens qui ne sont pas des boutiques : applications, réseaux, liseuses
 const APPLI = /(^|\.)(play\.google\.com|apps\.apple\.com|itunes\.apple\.com|onelink\.me|app\.link|apps\.facebook\.com|tiktok\.com|tiktokacademy\.com|lightreader\.com|webfic\.com|goodnovel\.com|dreame\.com)$/i;
 // Signe que la page vise le Maroc : texte arabe, prix en dirhams, site en .ma, mention du Maroc
-const MAROC = /[\u0600-\u06FF]|\b(dh|dhs|mad|dirhams?)\b|\d\s*(dh|dhs|mad)\b|\bmaroc\b|\bmorocco\b|\bcasablanca\b|\brabat\b|\bmarrakech\b|\btanger\b|\bagadir\b|\bf[eè]s\b/i;
+export const MAROC = /[\u0600-\u06FF]|\b(dh|dhs|mad|dirhams?)\b|\d\s*(dh|dhs|mad)\b|\bmaroc\b|\bmorocco\b|\bcasablanca\b|\brabat\b|\bmarrakech\b|\btanger\b|\bagadir\b|\bf[eè]s\b/i;
 
 // Produit le plus « signal fort » de la page : plus de 3 créatives, la plus ancienne lancée il y a 10 jours ou plus
 export function signalFortPage(cartes, maintenant = Date.now()) {

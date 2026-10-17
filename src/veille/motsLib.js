@@ -95,17 +95,76 @@ export function choisirMots(mots, stats, max = MOTS_PAR_SESSION) {
 }
 
 // ─── File d'attente des pages à analyser (veille_config « recherche_file ») ─────────────
-// file : { "<page_id>": { nom, mots: [...], pubs, le } }
+// file : { "<page_id>": { nom, mots: [...], pubs, le, maroc, cats, n, prods, force } }
+//   maroc : au moins une pub vue à la collecte avec un signe Maroc (arabe, DH, site .ma, ville)
+//   cats  : { catégorie: pubs } vues à la collecte · n : pubs lues pour ces calculs · prods : produits vus (10 au plus)
+//   force : remise dans la file par toi depuis « Écartées avant analyse » : le filtre ne la retire plus
+//   Les pages collectées avant le 17 oct. 2026 n'ont ni maroc, ni cats : seul le nombre de pubs les juge.
 export const CLE_FILE = "recherche_file";
+export const CLE_FILTRE_FILE = "recherche_file_filtre";      // réglages du filtre avant analyse
+export const CLE_ECARTEES = "recherche_file_ecartees";       // { "<page_id>": { nom, mots, pubs, maroc, raison, ecartee_le } }
+export const FILTRE_FILE_DEFAUT = { minPubs: 20, categories: true };
 
 export function ajouterAFile(file, trouvees, connues, le = new Date().toISOString()) {
   const out = { ...(file || {}) };
   for (const t of trouvees) {
     if (connues.has(t.id)) continue;
     const x = out[t.id] || { nom: t.nom, mots: [], pubs: 0, le };
-    out[t.id] = { ...x, nom: t.nom || x.nom, mots: [...new Set([...x.mots, ...t.mots])], pubs: x.pubs + (t.pubs || 0) };
+    const y = { ...x, nom: t.nom || x.nom, mots: [...new Set([...x.mots, ...t.mots])], pubs: x.pubs + (t.pubs || 0) };
+    // Informations lues à la collecte (absentes des pages collectées avant le filtre)
+    if (t.maroc != null) y.maroc = !!x.maroc || !!t.maroc;
+    if (t.cats) {
+      const cats = { ...(x.cats || {}) };
+      for (const [k, v] of Object.entries(t.cats)) cats[k] = (cats[k] || 0) + v;
+      y.cats = cats;
+      y.n = (x.n || 0) + (t.n || 0);
+    }
+    if (t.prods) y.prods = [...new Set([...(x.prods || []), ...t.prods])].slice(0, 10);
+    out[t.id] = y;
   }
   for (const id of Object.keys(out)) if (connues.has(id)) delete out[id];
+  return out;
+}
+
+// Catégorie dominante vue à la collecte : au moins 40 % des pubs lues, comme pour l'analyse
+export function categorieFile(x) {
+  if (!x || !x.cats || !x.n) return null;
+  const best = Object.entries(x.cats).sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] / x.n >= 0.4 ? best[0] : null;
+}
+
+// Raison d'écarter une page de la file avant analyse, ou null si elle reste.
+// Signe Maroc : toujours exigé (pour les pages dont la collecte a lu les pubs).
+export function raisonEcart(x, filtre, exclues, labels = {}) {
+  if (!x || x.force) return null;
+  const f = { ...FILTRE_FILE_DEFAUT, ...(filtre || {}) };
+  if ((x.pubs || 0) < (Number(f.minPubs) || 0)) return `Moins de ${f.minPubs} pubs vues à la collecte (${x.pubs || 0})`;
+  if (x.maroc === false) return "Aucun signe Maroc dans les pubs vues (ni arabe, ni DH, ni site .ma)";
+  if (f.categories) {
+    const cat = categorieFile(x);
+    if (cat && cat !== "vetements" && (exclues || []).includes(cat)) return `Catégorie exclue : ${labels[cat] || cat}`;
+  }
+  return null;
+}
+
+// Applique le filtre : renvoie la file nettoyée, les pages écartées cette fois et le détail par raison
+export function filtrerFile(file, filtre, exclues, labels = {}, le = new Date().toISOString()) {
+  const garde = {};
+  const ecartees = {};
+  const detail = { pubs: 0, maroc: 0, categorie: 0 };
+  for (const [id, x] of Object.entries(file || {})) {
+    const r = raisonEcart(x, filtre, exclues, labels);
+    if (!r) { garde[id] = x; continue; }
+    ecartees[id] = { nom: x.nom, mots: x.mots, pubs: x.pubs, maroc: x.maroc, raison: r, ecartee_le: le };
+    if (r.startsWith("Moins")) detail.pubs++; else if (r.startsWith("Aucun")) detail.maroc++; else detail.categorie++;
+  }
+  return { file: garde, ecartees, detail };
+}
+
+// Fusionne les écartées : une page revenue dans la file (nouvelle collecte, gardée par le filtre) en sort
+export function fusionnerEcartees(anciennes, nouvelles, file) {
+  const out = { ...(anciennes || {}), ...(nouvelles || {}) };
+  for (const id of Object.keys(file || {})) if (!(nouvelles || {})[id]) delete out[id];
   return out;
 }
 

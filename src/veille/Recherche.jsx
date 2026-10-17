@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES, CRITERES_DEFAUT } from "./veilleLib";
-import { CLE_MOTS, CLE_FILE, lireListe, typeDe, trierMots, ajouterGardee, reactiver, changerType, cleMot, RECHERCHES_AVANT_NETTOYAGE, ANALYSEES_AVANT_NETTOYAGE, MOTS_PAR_SESSION, PAGES_PAR_SESSION } from "./motsLib";
+import { CLE_MOTS, CLE_FILE, CLE_FILTRE_FILE, CLE_ECARTEES, FILTRE_FILE_DEFAUT, filtrerFile, fusionnerEcartees, ajouterAFile, lireListe, typeDe, trierMots, ajouterGardee, reactiver, changerType, cleMot, RECHERCHES_AVANT_NETTOYAGE, ANALYSEES_AVANT_NETTOYAGE, MOTS_PAR_SESSION, PAGES_PAR_SESSION } from "./motsLib";
 import {
   saveConfig,
   loadRecherche, addMotCle, updateMotCle, deleteMotCle, saveCriteres,
@@ -51,6 +51,47 @@ function Criteres({ valeur, onSave }) {
   );
 }
 
+// Filtre de la file avant analyse : écarte vite les pages sans intérêt, sans ouvrir Facebook
+function FiltreFile({ valeur, nbFile, onSave, onApercu, onAppliquer, apercu, occupe }) {
+  const [f, setF] = useState({ ...FILTRE_FILE_DEFAUT, ...(valeur || {}) });
+  const [ok, setOk] = useState(false);
+  useEffect(() => { setF({ ...FILTRE_FILE_DEFAUT, ...(valeur || {}) }); }, [valeur]);
+  const set = (k, v) => { setF(x => ({ ...x, [k]: v })); setOk(false); };
+  const ligne = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, borderTop: "1px solid var(--border)", paddingTop: 8, fontSize: 13 };
+  return (
+    <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontWeight: 700 }}>Filtre de la file avant analyse</div>
+      <div className="col-muted">
+        Appliqué automatiquement à la fin de chaque collecte. Les pages écartées ne sont pas supprimées : tu peux les remettre dans la file.
+        Les pages collectées avant le 17 oct. 2026 ne sont jugées que sur le nombre de pubs (leurs textes n'avaient pas été gardés).
+      </div>
+      <div style={ligne}>
+        <span className="col-muted">Pubs vues à la collecte, minimum</span>
+        <input type="number" min={0} className="form-input" style={{ width: 64, padding: "4px 8px" }} value={f.minPubs} onChange={e => set("minPubs", Number(e.target.value))} />
+      </div>
+      <div style={ligne}><span className="col-muted">Signe Maroc (arabe, DH, site .ma, ville)</span><span style={{ fontWeight: 600 }}>Toujours exigé</span></div>
+      <div style={ligne}>
+        <span className="col-muted">Écarter les catégories éliminées (liste des critères ci-dessous)</span>
+        <input type="checkbox" checked={!!f.categories} onChange={e => set("categories", e.target.checked)} />
+      </div>
+      <div style={ligne}><span className="col-muted">Pages déjà suivies ou déjà analysées</span><span style={{ fontWeight: 600 }}>Toujours retirées</span></div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn btn-sm btn-secondary" onClick={async () => { await onSave(f); setOk(true); }}>Enregistrer</button>
+        <button className="btn btn-sm btn-secondary" disabled={!nbFile} onClick={() => onApercu(f)}>Aperçu</button>
+        <button className="btn btn-sm btn-primary" disabled={!nbFile || occupe} onClick={() => onAppliquer(f)}>Appliquer à la file</button>
+        {ok && <span style={{ color: "var(--green)", fontSize: 12, fontWeight: 600 }}>Enregistré</span>}
+      </div>
+      {apercu && (
+        <div style={{ fontSize: 13, background: "var(--surface2)", borderRadius: 8, padding: "8px 10px" }}>
+          <b>{apercu.avant} → {apercu.apres} pages</b> à analyser · {apercu.ecartees} écartées
+          ({apercu.detail.pubs} avec trop peu de pubs, {apercu.detail.maroc} sans signe Maroc, {apercu.detail.categorie} de catégorie exclue{apercu.connues ? `, ${apercu.connues} déjà suivies ou analysées` : ""})
+          {apercu.fait && <span style={{ color: "var(--green)", fontWeight: 600 }}> · appliqué</span>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Apercus({ apercus }) {
   return (
     <div style={{ display: "flex", gap: 6, flex: "none" }}>
@@ -78,6 +119,8 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const [voirElim, setVoirElim] = useState(false);
   const [niche, setNiche] = useState("");   // recherche ciblée : mots-clés d'une seule niche
   const [occupe, setOccupe] = useState(null);
+  const [apercuFiltre, setApercuFiltre] = useState(null);
+  const [voirEcartees, setVoirEcartees] = useState(false);
 
   const charger = async () => {
     try { setD(await loadRecherche()); setErreur(""); }
@@ -150,6 +193,49 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
   const rejeter = async c => {
     setOccupe(c.fb_page_id);
     try { await decideCandidat(c.fb_page_id, "eliminee", "Rejetée par toi"); await charger(); }
+    finally { setOccupe(null); }
+  };
+
+  // Filtre avant analyse
+  const labelsCat = Object.fromEntries(Object.entries(CATEGORIES).map(([k, c]) => [k, c.label]));
+  const exclues = { ...CRITERES_DEFAUT, ...(d.criteres || {}) }.exclues;
+  const connues = new Set([...pages.map(p => p.fb_page_id), ...d.candidats.map(c => c.fb_page_id)]);
+  const calculerFiltre = f => {
+    const sansConnues = ajouterAFile(d.file || {}, [], connues);
+    const r = filtrerFile(sansConnues, f, exclues, labelsCat);
+    return { ...r, avant: nbFile, apres: Object.keys(r.file).length, ecartees: Object.keys(r.ecartees).length, connues: nbFile - Object.keys(sansConnues).length };
+  };
+  const apercuFiltreFile = f => { const r = calculerFiltre(f); setApercuFiltre({ ...r, fait: false }); };
+  const appliquerFiltre = async f => {
+    const r = calculerFiltre(f);
+    if (!window.confirm(`Garder ${r.apres} pages dans la file et en écarter ${r.ecartees + r.connues} ? Les pages écartées restent récupérables.`)) return;
+    setOccupe("filtre");
+    try {
+      await saveConfig(CLE_FILTRE_FILE, f);
+      await saveConfig(CLE_ECARTEES, fusionnerEcartees(d.ecartees, r.ecartees, r.file));
+      await saveConfig(CLE_FILE, r.file);
+      setApercuFiltre({ ...r, fait: true });
+      await charger();
+    } catch (e) { setErreur("Filtre non appliqué : " + (e.message || e)); }
+    finally { setOccupe(null); }
+  };
+  const listeEcartees = Object.entries(d.ecartees || {}).map(([id, x]) => ({ id, ...x })).sort((a, b) => (b.pubs || 0) - (a.pubs || 0));
+  // Remise dans la file : marquée « force », le filtre ne la retire plus
+  const remettre = async ids => {
+    setOccupe("filtre");
+    try {
+      const file = { ...(d.file || {}) };
+      const ec = { ...(d.ecartees || {}) };
+      for (const id of ids) {
+        const x = ec[id];
+        if (!x) continue;
+        file[id] = { nom: x.nom, mots: x.mots || [], pubs: x.pubs || 0, le: new Date().toISOString(), ...(x.maroc != null ? { maroc: x.maroc } : {}), force: true };
+        delete ec[id];
+      }
+      await saveConfig(CLE_FILE, file);
+      await saveConfig(CLE_ECARTEES, ec);
+      await charger();
+    } catch (e) { setErreur("Remise dans la file impossible : " + (e.message || e)); }
     finally { setOccupe(null); }
   };
 
@@ -273,6 +359,9 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
               );
             })}
           </section>
+          <FiltreFile valeur={d.filtreFile} nbFile={nbFile} apercu={apercuFiltre} occupe={occupe === "filtre" || !!run}
+            onSave={async f => { await saveConfig(CLE_FILTRE_FILE, f); await charger(); }}
+            onApercu={apercuFiltreFile} onAppliquer={appliquerFiltre} />
           <Criteres valeur={d.criteres} onSave={async v => { await saveCriteres(v); await charger(); }} />
         </div>
 
@@ -311,6 +400,28 @@ export default function Recherche({ ext, run, onLancer, onStop, pages, produits,
                 <span className="col-muted">{c.nb_pubs} pubs · {c.nb_produits} produits</span>
               </div>
             ))}
+          </section>
+
+          <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 700, color: "var(--muted)" }}>Écartées avant analyse ({listeEcartees.length})</span>
+              <span style={{ display: "flex", gap: 8 }}>
+                {listeEcartees.length > 0 && <button className="btn btn-sm btn-secondary" disabled={occupe === "filtre" || !!run}
+                  onClick={() => { if (window.confirm(`Remettre les ${listeEcartees.length} pages écartées dans la file ?`)) remettre(listeEcartees.map(x => x.id)); }}>Tout remettre</button>}
+                {listeEcartees.length > 8 && <button className="btn btn-sm btn-secondary" onClick={() => setVoirEcartees(!voirEcartees)}>{voirEcartees ? "Réduire" : "Tout voir"}</button>}
+              </span>
+            </div>
+            <div className="col-muted">Pages retirées de la file par le filtre, sans analyse. Triées par pubs vues.</div>
+            {(voirEcartees ? listeEcartees.slice(0, 500) : listeEcartees.slice(0, 8)).map(x => (
+              <div key={x.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, borderTop: "1px solid var(--border)", paddingTop: 7, fontSize: 13 }}>
+                <a href={libUrl(x.id)} target="_blank" rel="noreferrer" style={{ fontWeight: 600, color: "var(--text)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.nom || x.id}</a>
+                <span style={{ display: "flex", gap: 8, alignItems: "center", flex: "none" }}>
+                  <span className="col-muted" style={{ textAlign: "right" }}>{x.raison}</span>
+                  <button className="btn btn-sm btn-secondary" disabled={occupe === "filtre" || !!run} onClick={() => remettre([x.id])}>Remettre</button>
+                </span>
+              </div>
+            ))}
+            {voirEcartees && listeEcartees.length > 500 && <div className="col-muted">500 premières affichées sur {listeEcartees.length}.</div>}
           </section>
 
           <section style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>

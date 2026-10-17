@@ -230,9 +230,19 @@ export async function loadRecherche() {
       .order("created_at", { ascending: false })),
   ]);
   const crit = config.find(c => c.cle === "criteres");
+  // 17 oct. 2026 : produits différents minimum passé de 3 à 4 (« plus de 3 produits »), une seule fois
+  if (crit && crit.valeur && !crit.valeur.maj2026_10_17) {
+    crit.valeur = { ...crit.valeur, minProduits: Math.max(4, Number(crit.valeur.minProduits) || 0), maj2026_10_17: true };
+    await supabase.from("veille_config").upsert([{ cle: "criteres", valeur: crit.valeur }], { onConflict: "cle" });
+  }
   const stats = config.find(c => c.cle === "motscles_stats");
   const file = config.find(c => c.cle === "recherche_file");
-  return { motscles, criteres: crit ? crit.valeur : null, recherches, candidats, stats: stats ? stats.valeur : {}, file: file ? file.valeur || {} : {} };
+  const filtre = config.find(c => c.cle === "recherche_file_filtre");
+  const ecartees = config.find(c => c.cle === "recherche_file_ecartees");
+  return {
+    motscles, criteres: crit ? crit.valeur : null, recherches, candidats, stats: stats ? stats.valeur : {}, file: file ? file.valeur || {} : {},
+    filtreFile: filtre ? filtre.valeur || null : null, ecartees: ecartees ? ecartees.valeur || {} : {},
+  };
 }
 
 export async function addMotCle(mot, source = "manuel") {
