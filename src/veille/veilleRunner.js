@@ -1,6 +1,6 @@
 // Module Veille : déroulement d'une recherche de pages et d'un relevé automatique, piloté depuis l'ERP.
 import { adsToCartes, evaluatePage, libraryPageUrl, librarySearchUrl, CRITERES_DEFAUT, lienPrixPossible, defaultName, productKey, couper, cleanUrl, siteOf, MAROC, CATEGORIES } from "./veilleLib";
-import { releverUrl, capturerPrix, attendreExtensionLibre } from "./veilleExt";
+import { releverUrl, capturerPrix, attendreExtensionLibre, arreterExtension } from "./veilleExt";
 import { sauverResultat } from "./etudeStore";
 import { CLE_MOTS, CLE_FILE, cleMot, typeDe, bilanRecherche, aDesactiver, marquerDesactives, motsProduitsAuto, choisirMots, ajouterAFile, prochainesPages, PAGES_PAR_SESSION, MOTS_PAR_SESSION, expressionsFrequentes, filtrerFile, fusionnerEcartees, CLE_ECARTEES } from "./motsLib";
 import { nicheMot, NICHE_LABEL } from "./nichesLib";
@@ -22,11 +22,56 @@ async function pause(ctl, label) {
   }
 }
 
+// Délai maximum par page : sans nouvelle créative pendant 3 min, la page est déclarée bloquée et sautée.
+// (Une page normale s'arrête d'elle-même après environ 30 s sans nouveauté.)
+const DELAI_PAGE_MS = 3 * 60000;
+// Délai maximum d'un enregistrement dans la base pendant l'analyse
+const DELAI_ENREG_MS = 60000;
+
+class Bloque extends Error {}
+
+// Promesse limitée dans le temps : au-delà de ms, erreur Bloque (la promesse d'origine est abandonnée)
+function avecDelai(promesse, ms, message) {
+  let t;
+  promesse.catch(() => {});
+  const garde = new Promise((_, rej) => { t = setTimeout(() => rej(new Bloque(message)), ms); });
+  return Promise.race([promesse, garde]).finally(() => clearTimeout(t));
+}
+
+// Relève une adresse en surveillant les progrès : erreur Bloque si aucune nouvelle créative pendant DELAI_PAGE_MS
+async function releverSurveille(ctl, url, opts, label) {
+  let dernier = Date.now(), nb = -1, t = null, fini = false;
+  const onProgress = x => {
+    if (x.pubs !== nb) { nb = x.pubs; dernier = Date.now(); }
+    ctl.status(`${label} : ${x.pubs} créatives lues`);
+  };
+  const p = releverUrl(url, { ...opts, label }, onProgress);
+  p.catch(() => {});
+  const garde = new Promise((_, rej) => {
+    const verifier = () => {
+      if (fini) return;
+      if (Date.now() - dernier >= DELAI_PAGE_MS) rej(new Bloque(`aucune nouvelle créative depuis ${DELAI_PAGE_MS / 60000} min`));
+      else t = setTimeout(verifier, 5000);
+    };
+    t = setTimeout(verifier, 5000);
+  });
+  try { return await Promise.race([p, garde]); }
+  finally { fini = true; clearTimeout(t); }
+}
+
+// Après une page bloquée : on arrête l'extension et on attend qu'elle soit libre avant la page suivante
+async function debloquerExtension(ctl, label) {
+  ctl.status(`${label} : page bloquée, arrêt de l'extension…`);
+  await arreterExtension();
+  if (!(await attendreExtensionLibre())) {
+    throw new Error("L'extension reste bloquée après une page qui ne répondait plus. Recherche arrêtée : ferme la fenêtre Facebook ouverte par l'extension, recharge l'ERP et relance.");
+  }
+}
+
 // Relève une page : d'abord pays Maroc, puis tous les pays si rien ne s'affiche.
 // zeroConfirme = Facebook annonce lui-même 0 résultat (page qui a coupé ses pubs).
 async function releverPage(ctl, id, label, opts) {
-  const onProgress = x => ctl.status(`${label} : ${x.pubs} créatives lues`);
-  let res = await releverUrl(libraryPageUrl(id, "MA"), { ...opts, label }, onProgress);
+  let res = await releverSurveille(ctl, libraryPageUrl(id, "MA"), opts, label);
   verifierBlocage(res);
   if (res.ads.length || ctl.stop) return { ...res, zeroConfirme: false };
   const zeroMA = res.total === 0;
@@ -34,7 +79,7 @@ async function releverPage(ctl, id, label, opts) {
   if (zeroMA) return { ...res, zeroConfirme: true };
   ctl.status(`${label} : rien avec le pays Maroc, essai avec tous les pays…`);
   await new Promise(r => setTimeout(r, 8000));
-  res = await releverUrl(libraryPageUrl(id, "ALL"), { ...opts, label }, onProgress);
+  res = await releverSurveille(ctl, libraryPageUrl(id, "ALL"), opts, label);
   verifierBlocage(res);
   return { ...res, zeroConfirme: !res.ads.length && (zeroMA || res.total === 0) };
 }
@@ -86,7 +131,9 @@ export async function lancerRecherche(ctx, ctl) {
   const gardees = [];
   let ecarteesFiltre = 0;
   let statut = "terminée";
-  const sauverFile = () => saveConfig(CLE_FILE, file).catch(e => ctl.log("File d'attente non enregistrée : " + (e.message || e)));
+  const bloquees = [];
+  const sauverFile = () => avecDelai(saveConfig(CLE_FILE, file), DELAI_ENREG_MS, "la base ne répond pas")
+    .catch(e => ctl.log("File d'attente non enregistrée : " + (e.message || e)));
   try {
     // 2. Recherche par mot-clé : les pages trouvées rejoignent la file d'attente
     if (repriseSeule) ctl.log(`Reprise de la file d'attente : ${Object.keys(file).length} pages à analyser, pas de nouveaux mots-clés cette fois`);
@@ -156,17 +203,44 @@ export async function lancerRecherche(ctx, ctl) {
       const label = `Page ${i + 1}/${aAnalyser.length} « ${t.nom} »`;
       ctl.status(label);
       // 150 pubs suffisent pour juger une page
-      const res = await releverPage(ctl, t.id, label, { maxAds: 150, maxScrolls: 30, idleRounds: 4 });
+      let res;
+      try { res = await releverPage(ctl, t.id, label, { maxAds: 150, maxScrolls: 30, idleRounds: 4 }); }
+      catch (e) {
+        if (!(e instanceof Bloque)) throw e;
+        // Page bloquée : marquée « à valider » pour être revue à la main, retirée de la file, on passe à la suivante
+        await debloquerExtension(ctl, label);
+        bloquees.push(t.nom);
+        delete file[t.id];
+        const raison = `Analyse bloquée (${e.message}) : page à revoir à la main`;
+        try {
+          await avecDelai(saveCandidat({
+            fb_page_id: t.id, nom: t.nom, sites: null, nb_pubs: 0, nb_produits: 0,
+            site_ecom: false, cod: false, categorie: null, decision: "a_valider", raison,
+            mots_cles: t.mots.join(", "), apercus: [], cartes: null,
+            recherche_id: rech.id, created_at: new Date().toISOString(), decide_le: null,
+          }), DELAI_ENREG_MS, "la base ne répond pas");
+          compte.nb_a_valider++;
+        } catch (e2) { ctl.log(`${t.nom} : page bloquée non enregistrée (${e2.message || e2})`); }
+        ctl.log(`${t.nom} : BLOQUÉE, sautée (${e.message}) · à revoir dans « À valider »`);
+        continue;
+      }
       if (ctl.stop && !res.ads.length) break;
       const ev = evaluatePage(res.ads, ctx.criteres);
       const nom = (res.ads[0] && res.ads[0].page_name) || t.nom;
-      await saveCandidat({
-        fb_page_id: t.id, nom, sites: ev.sites, nb_pubs: ev.pubs, nb_produits: ev.produits,
-        site_ecom: ev.siteEcom, cod: ev.cod, categorie: ev.categorie, decision: ev.decision, raison: ev.raison,
-        mots_cles: t.mots.join(", "), apercus: ev.apercus,
-        cartes: ev.decision === "eliminee" ? null : ev.cartes,
-        recherche_id: rech.id, created_at: new Date().toISOString(), decide_le: null,
-      });
+      try {
+        await avecDelai(saveCandidat({
+          fb_page_id: t.id, nom, sites: ev.sites, nb_pubs: ev.pubs, nb_produits: ev.produits,
+          site_ecom: ev.siteEcom, cod: ev.cod, categorie: ev.categorie, decision: ev.decision, raison: ev.raison,
+          mots_cles: t.mots.join(", "), apercus: ev.apercus,
+          cartes: ev.decision === "eliminee" ? null : ev.cartes,
+          recherche_id: rech.id, created_at: new Date().toISOString(), decide_le: null,
+        }), DELAI_ENREG_MS, "la base ne répond pas depuis 1 min");
+      } catch (e) {
+        if (!(e instanceof Bloque)) throw e;
+        // Enregistrement bloqué : la page reste dans la file et sera analysée à la prochaine recherche
+        ctl.log(`${nom} : relevée mais NON enregistrée (${e.message}), reste dans la file`);
+        continue;
+      }
       for (const m of t.mots) noter(m, "analysees");
       if (ev.decision !== "eliminee") textesParPage[t.id] = res.ads.map(a => [a.title, a.text].filter(Boolean).join(" "));
       if (ev.decision === "gardee") {
@@ -178,9 +252,10 @@ export async function lancerRecherche(ctx, ctl) {
       else compte.nb_eliminees++;
       delete file[t.id];
       ctl.log(`${nom} : ${ev.decision === "gardee" ? "gardée" : ev.decision === "a_valider" ? "à valider" : "éliminée"} (${ev.raison})`);
-      await updateRecherche(rech.id, compte);
+      await avecDelai(updateRecherche(rech.id, compte), DELAI_ENREG_MS, "la base ne répond pas").catch(() => {});
       if ((i + 1) % 10 === 0) await sauverFile();
     }
+    if (bloquees.length) ctl.log(`${bloquees.length} page${bloquees.length > 1 ? "s" : ""} bloquée${bloquees.length > 1 ? "s" : ""}, sautée${bloquees.length > 1 ? "s" : ""}, à revoir dans « À valider » : ${bloquees.join(", ")}`);
     if (ctl.stop) statut = "arrêtée";
     const reste = Object.keys(file).length;
     if (reste) ctl.log(`Il reste ${reste} pages dans la file d'attente : elles seront analysées aux prochaines recherches`);
@@ -222,7 +297,7 @@ export async function lancerRecherche(ctx, ctl) {
     } catch (e) { ctl.log("Mots-clés tirés des pubs non ajoutés : " + (e.message || e)); }
     await saveConfig(CLE_MOTS, stats).catch(e => ctl.log("Rendement des mots-clés non enregistré : " + (e.message || e)));
   }
-  return { ...compte, file: Object.keys(file).length, collecte, ecarteesFiltre };
+  return { ...compte, file: Object.keys(file).length, collecte, ecarteesFiltre, bloquees: bloquees.length };
 }
 
 // Réessaie d'enregistrer les pages relevées dont l'enregistrement a échoué
@@ -269,7 +344,15 @@ export async function lancerReleve(ctx, ctl) {
       const nom = p.nom_interne || p.nom || p.fb_page_id;
       const label = `Relevé ${i + 1}/${pages.length} « ${nom} »`;
       ctl.status(label);
-      const res = await releverPage(ctl, p.fb_page_id, label, { maxScrolls: 120, idleRounds: 4 });
+      let res;
+      try { res = await releverPage(ctl, p.fb_page_id, label, { maxScrolls: 120, idleRounds: 4 }); }
+      catch (e) {
+        if (!(e instanceof Bloque)) throw e;
+        await debloquerExtension(ctl, label);
+        nonLues.push(nom);
+        ctl.log(`${nom} : BLOQUÉE, sautée (${e.message}), page non enregistrée`);
+        continue;
+      }
       if (ctl.stop && !res.ads.length) break;
       const cartes = adsToCartes(res.ads);
       if (!cartes.length && !res.zeroConfirme) { nonLues.push(nom); ctl.log(`${nom} : aucune pub lue, page non enregistrée (Facebook n'a rien affiché)`); continue; }
